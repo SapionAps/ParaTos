@@ -6,10 +6,10 @@
  *
  * The function Talarm sends a SIGALRM signal to the calling process after
  * time seconds.
- * 
+ *
  * If no signal-handler was installed for this signal with Psignal, then the
  * process will be terminated immediately (i.e. on receiving the signal).
- * 
+ *
  * By setting the value of time = 0, an earlier set alarm can be cancelled.
  * If time is negative, then the function has no effect and only the return
  * value is delivered.
@@ -17,7 +17,7 @@
 int32_t Talarm ( int32_t time )
 {
 	NOT_IMPLEMENTED(GDOS, Talarm, 288);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -28,7 +28,7 @@ int32_t Talarm ( int32_t time )
 uint32_t Tgetdate ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Tgetdate, 42);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -39,7 +39,7 @@ uint32_t Tgetdate ( void )
 uint32_t Tgettime ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Tgettime, 44);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -47,20 +47,20 @@ uint32_t Tgettime ( void )
  *
  * The function Tgettimeofday interrogates the state of the internal, high
  * resolution system clock.
- * 
+ *
  * The argument tv is a pointer to the timeval structure.
- * 
+ *
  * The argument tzp is a pointer to timezone structure.
- * 
+ *
  * You may safely pass NULL for either argument. This isn't considered an
  * error.
- * 
+ *
  * Implementors of library bindings should be aware that the definition of
  * struct timezone is non-standard. The members are actually int and not long
  * int (this applies only to struct timezone; the members of struct timeval
  * are always long). 16-bit libraries will have to copy the contents of the
  * structure that tzp points to.
- * 
+ *
  * The Ssystem() call has a command S_CLOCKMODE. This command allows to
  * retrieve or set the kernel clock mode, i.e. to specify whether the
  * hardware clock is meant to run in UTC or in local time.
@@ -74,26 +74,26 @@ uint32_t Tgettime ( void )
 int32_t Tgettimeofday ( emuptr32_t tv, emuptr32_t tzp )
 {
 	NOT_IMPLEMENTED(GDOS, Tgettimeofday, 341);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
  * Tmalarm - 317
  *
  * This function reads/sets a process alarm for the current process.
- * 
+ *
  * time specifies the length of time (in milliseconds) to wait before a
  * SIGALRM signal is delivered. If time is 0 then any previously set alarm is
  * cancelled. If time is negative the function does not modify any alarm
  * currently set.
- * 
+ *
  * If no SIGALRM signal handler has been set up when the alarm is triggered,
  * the process will be killed.
  */
 int32_t Tmalarm( int32_t time )
 {
 	NOT_IMPLEMENTED(GDOS, Tmalarm, 317);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -105,7 +105,7 @@ int32_t Tmalarm( int32_t time )
 int16_t Tsetdate ( uint16_t date )
 {
 	NOT_IMPLEMENTED(GDOS, Tsetdate, 43);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -119,7 +119,7 @@ int16_t Tsetdate ( uint16_t date )
 int32_t Tsetitimer ( int16_t which, emuptr32_t interval, emuptr32_t value, emuptr32_t ointerval, emuptr32_t ovalue )
 {
 	NOT_IMPLEMENTED(GDOS, Tsetitimer, 329);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -131,7 +131,7 @@ int32_t Tsetitimer ( int16_t which, emuptr32_t interval, emuptr32_t value, emupt
 int16_t Tsettime ( uint16_t time )
 {
 	NOT_IMPLEMENTED(GDOS, Tsettime, 45);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -139,20 +139,20 @@ int16_t Tsettime ( uint16_t time )
  *
  * The function Tsettimeofday sets the state of the internal, high resolution
  * system clock.
- * 
+ *
  * The argument tv is a pointer to the timeval structure.
- * 
+ *
  * The argument tzp is a pointer to the timezone structure.
- * 
+ *
  * You may safely pass NULL for either argument. This isn't considered an
  * error.
- * 
+ *
  * Implementors of library bindings should be aware that the definition of
  * struct timezone is non-standard. The members are actually int and not long
  * int (this applies only to struct timezone; the members of struct timeval
  * are always long). 16-bit libraries will have to copy the contents of the
  * structure that tzp points to.
- * 
+ *
  * The tz_dsttime member of timezone is stored, but not evaluated within the
  * kernel. Beware not to misunderstand its meaning: if non-zero it simply
  * signifies that daylight savings time applies during some part of the year,
@@ -170,6 +170,5 @@ int16_t Tsettime ( uint16_t time )
 int32_t Tsettimeofday ( emuptr32_t tv, emuptr32_t tzp )
 {
 	NOT_IMPLEMENTED(GDOS, Tsettimeofday, 342);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
-

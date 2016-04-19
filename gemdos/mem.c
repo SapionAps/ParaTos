@@ -17,7 +17,7 @@
 int32_t Maddalt ( emuptr32_t start, int32_t size )
 {
 	NOT_IMPLEMENTED(GDOS, Maddalt, 20);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -60,7 +60,7 @@ emuptr32_t Malloc ( int32_t size )
 int32_t Mfree ( emuptr32_t block )
 {
 	NOT_IMPLEMENTED(GDOS, Mfree, 73);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -89,5 +89,5 @@ int32_t Mshrink ( emuptr32_t block, int32_t newsiz )
 emuptr32_t Mxalloc ( int32_t amount, int16_t mode )
 {
 	NOT_IMPLEMENTED(GDOS, Mxalloc, 68);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }

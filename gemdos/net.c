@@ -9,6 +9,5 @@
 int32_t Nversion( void )
 {
 	NOT_IMPLEMENTED(GDOS, Nversion, 96);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
-

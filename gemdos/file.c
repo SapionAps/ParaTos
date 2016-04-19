@@ -23,7 +23,7 @@
 int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
 {
 	NOT_IMPLEMENTED(GDOS, Fattrib, 67);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -39,7 +39,7 @@ int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
 int32_t Fchmod ( emuptr32_t name, int16_t mode )
 {
 	NOT_IMPLEMENTED(GDOS, Fchmod, 306);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -59,7 +59,7 @@ int32_t Fchmod ( emuptr32_t name, int16_t mode )
 int32_t Fchown ( emuptr32_t name, int16_t uid, int16_t gid )
 {
 	NOT_IMPLEMENTED(GDOS, Fchown, 305);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -219,7 +219,7 @@ int16_t Fclose ( int16_t handle )
 int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 {
 	NOT_IMPLEMENTED(GDOS, Fcntl, 260);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -234,7 +234,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 int16_t Fcreate ( emuptr32_t fname, int16_t attr )
 {
 	NOT_IMPLEMENTED(GDOS, Fcreate, 60);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -266,7 +266,7 @@ void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
 int16_t Fdelete ( emuptr32_t fname )
 {
 	NOT_IMPLEMENTED(GDOS, Fdelete, 65);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -279,7 +279,7 @@ int16_t Fdelete ( emuptr32_t fname )
 int16_t Fdup ( int16_t handle )
 {
 	NOT_IMPLEMENTED(GDOS, Fdup, 69);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -290,7 +290,7 @@ int16_t Fdup ( int16_t handle )
 int32_t Ffchmod ( int16_t fd, int16_t mode)
 {
 	NOT_IMPLEMENTED(GDOS, Ffchmod, 258);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -306,7 +306,7 @@ int32_t Ffchmod ( int16_t fd, int16_t mode)
 int32_t Ffchown ( int16_t fd, int16_t uid, int16_t gid )
 {
 	NOT_IMPLEMENTED(GDOS, Ffchown, 257);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -319,7 +319,7 @@ int32_t Ffchown ( int16_t fd, int16_t uid, int16_t gid )
 int16_t Fforce ( int16_t stdh, int16_t nonstdh )
 {
 	NOT_IMPLEMENTED(GDOS, Fforce, 70);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -332,7 +332,7 @@ int16_t Fforce ( int16_t stdh, int16_t nonstdh )
 int32_t Fgetchar ( int16_t fh, int16_t mode )
 {
 	NOT_IMPLEMENTED(GDOS, Fgetchar, 263);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -346,7 +346,7 @@ int32_t Fgetchar ( int16_t fh, int16_t mode )
 emuptr32_t Fgetdta ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Fgetdta, 47);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -369,7 +369,7 @@ emuptr32_t Fgetdta ( void )
 int32_t Finstat ( int16_t fh )
 {
 	NOT_IMPLEMENTED(GDOS, Finstat, 261);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -388,7 +388,7 @@ int32_t Finstat ( int16_t fh )
 int32_t Flink ( emuptr32_t oldname, emuptr32_t newname )
 {
 	NOT_IMPLEMENTED(GDOS, Flink, 301);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -400,7 +400,7 @@ int32_t Flink ( emuptr32_t oldname, emuptr32_t newname )
 int32_t Flock ( int16_t handle, int16_t mode, int32_t start, int32_t length )
 {
 	NOT_IMPLEMENTED(GDOS, Flock, 92);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -418,7 +418,7 @@ int32_t Flock ( int16_t handle, int16_t mode, int32_t start, int32_t length )
 int32_t Fmidipipe ( int16_t pid, int16_t in, int16_t out )
 {
 	NOT_IMPLEMENTED(GDOS, Fmidipipe, 294);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -483,7 +483,7 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
 int32_t Foutstat ( int16_t fh )
 {
 	NOT_IMPLEMENTED(GDOS, Foutstat, 262);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -508,7 +508,7 @@ int32_t Foutstat ( int16_t fh )
 int16_t Fpipe ( emuptr32_t usrh )
 {
 	NOT_IMPLEMENTED(GDOS, Fpipe, 256);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -521,7 +521,7 @@ int16_t Fpipe ( emuptr32_t usrh )
 int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
 {
 	NOT_IMPLEMENTED(GDOS, Fputchar, 264);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -560,7 +560,7 @@ int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
 int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
 {
 	NOT_IMPLEMENTED(GDOS, Freadlink, 303);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -575,7 +575,7 @@ int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
 int32_t Frename ( emuptr32_t oldname, emuptr32_t newname )
 {
 	NOT_IMPLEMENTED(GDOS, Frename, 86);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -621,7 +621,7 @@ int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
 int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds )
 {
 	NOT_IMPLEMENTED(GDOS, Fselect, 285);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -653,7 +653,7 @@ void Fsetdta ( emuptr32_t buf )
 int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 {
 	NOT_IMPLEMENTED(GDOS, Fsfirst, 78);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -678,7 +678,7 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 int16_t Fsnext ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Fsnext, 79);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -700,7 +700,7 @@ int16_t Fsnext ( void )
 int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
 {
 	NOT_IMPLEMENTED(GDOS, Fsymlink, 302);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -740,5 +740,5 @@ int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
 int32_t Fxattr ( int16_t flag, emuptr32_t name, emuptr32_t xattr )
 {
 	NOT_IMPLEMENTED(GDOS, Fxattr, 300);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }

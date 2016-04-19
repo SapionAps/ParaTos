@@ -4,7 +4,7 @@ project(ParaTos)
 add_subdirectory (mushashi)
 add_subdirectory (gemdos)
 
-set (SOURCE_FILES paratos.c memory.c)
+set (SOURCE_FILES paratos.c memory.c tos_errors.c)
 
 include_directories( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/mushashi ${CMAKE_CURRENT_SOURCE_DIR}/gemdos)
 

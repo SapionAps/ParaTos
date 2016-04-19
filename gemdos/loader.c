@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stddef.h>
-#include <endian.h>
 #include <stdlib.h>
 #include <string.h>
 #include "common.h"
+#include "byteorder.h"
 #include "m68k.h"
 #include "m68kcpu.h"
 #include "loader.h"

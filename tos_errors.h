@@ -152,3 +152,5 @@
 #define TOS_EAGAIN -326
 #define TOS_ENOBUFS -327
 #define TOS_ETOOMANYREFS -328
+
+int32_t MapErrno();

@@ -15,7 +15,7 @@
 /* memory controller */
 #define MEMVALID_MAGIC	0x752019F3L	/* once memory is sized */
 #define memvalid	(/* (unsigned long *) */ 0x420L)
-#define mencntlr	(/* /* (unsigned char *) */ */ 0x424L)
+#define mencntlr	(/* (unsigned char *) */ 0x424L)
  			/* 0 = 128K, 4 = 512K 0 = 256k(2banks) 5 = 1M */
 
 /* reset vector, jump through resvector if resvalid on reset */

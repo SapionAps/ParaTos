@@ -7,7 +7,7 @@
  * The function Pause suspends the calling process until a signal for this
  * arrives. If a signal-handler has been installed for this signal with
  * Psignal, the handler will be called before the function Pause returns.
- * 
+ *
  * The function will not return if the signal-handler executes a non-local
  * jump (via longjump), or if the program is terminated.
  */
@@ -26,7 +26,7 @@ void Pause ( void )
 int16_t Pdomain ( int16_t dom )
 {
 	NOT_IMPLEMENTED(GDOS, Pdomain, 281);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -40,7 +40,7 @@ int16_t Pdomain ( int16_t dom )
 int32_t Pexec ( uint16_t mode, emureg_t sp )
 {
 	NOT_IMPLEMENTED(GDOS, Pexec, 75);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -49,12 +49,12 @@ int32_t Pexec ( uint16_t mode, emureg_t sp )
  * The function Pfork creates a copy of the current process. The child
  * process inherits a copy of the address space of the parent process, i.e.
  * changes made to variables by the child have no effect on the parent.
- * 
+ *
  * The newly created process starts its work when the function Pfork returns.
- * 
+ *
  * If the parent is in supervisor-mode when this call is made, the child is
  * launched in user-mode anyway.
- * 
+ *
  * New processes launched with this call should not use Mshrink, but are
  * required to do any GEM initialisation such as appl_init and v_openvwk
  * again (if they need to use GEM). Both parent and child use Pterm or Pterm0
@@ -63,7 +63,7 @@ int32_t Pexec ( uint16_t mode, emureg_t sp )
 int16_t Pfork ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pfork, 283);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -76,7 +76,7 @@ int16_t Pfork ( void )
 int16_t Pgetauid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetauid, 326);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -85,11 +85,11 @@ int16_t Pgetauid ( void )
  * The function Pgetegid returns the effective group ID of the current
  * process and resembles the system call Pgetgid. The difference lies in that
  * here the effective group ID is returned.
- * 
+ *
  * This is normally identical to the actual group ID; however, if a program
  * is running that has set the setgid bit, its effective group ID is equal to
  * the (actual) ID of the owner of this program file.
- * 
+ *
  * File accesses are based, among other things, on the effective group ID, so
  * that the setgid mechanism allows users (particularly the super-user) to
  * permit access by other users.
@@ -97,7 +97,7 @@ int16_t Pgetauid ( void )
 int32_t Pgetegid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetegid, 313);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -106,11 +106,11 @@ int32_t Pgetegid ( void )
  * The function Pgeteuid returns the effective user ID of the current process
  * and resembles the system call Pgetuid. The difference lies in that here
  * the effective user ID is returned.
- * 
+ *
  * This is normally identical to the actual user ID; however, if a program is
  * running that has set the setuid bit, its effective user ID is equal to the
  * (actual) ID of the owner of this program file.
- * 
+ *
  * File accesses are based, among other things, on the effective user ID, so
  * that the setuid mechanism allows users (particularly the super-user) to
  * permit access by other users.
@@ -118,7 +118,7 @@ int32_t Pgetegid ( void )
 int32_t Pgeteuid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgeteuid, 312);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -131,7 +131,7 @@ int32_t Pgeteuid ( void )
 int16_t Pgetgid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetgid, 276);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -139,15 +139,15 @@ int16_t Pgetgid ( void )
  *
  * The function Pgetgroups obtains the supplementary group IDs for the
  * calling process.
- * 
+ *
  * len specifies the length (in words) of the array to be filled with the
  * supplementary group IDs available. This value must be a positive number
  * not greater than NGROUPS_MAX. If len is a zero, the call will return the
  * number of supplementary group ids currently available for the calling
  * process.
- * 
+ *
  * gidset is a pointer to a word array to be filled with retrieved ids.
- * 
+ *
  * The NGROUPS_MAX value is returned by Sysconf().
  *
  * int32_t Pgetgroups( int16_t len, int16_t *gidset)
@@ -155,7 +155,7 @@ int16_t Pgetgid ( void )
 int32_t Pgetgroups( int16_t len, emuptr32_t gidset)
 {
 	NOT_IMPLEMENTED(GDOS, Pgetgroups, 327);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -168,7 +168,7 @@ int32_t Pgetgroups( int16_t len, emuptr32_t gidset)
 int16_t Pgetpgrp ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetpgrp, 269);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -177,12 +177,12 @@ int16_t Pgetpgrp ( void )
  * The function Pgetpid returns the PID of the currently active (calling)
  * process, i.e. the one that currently 'owns' the CPU; this is the filetype
  * under which the current process is administered in the directory U:\PROC.
- * 
+ *
  * A PID is dynamically assigned to a process when it is created. You should
  * make no assumption on the PID a process may have. For the kernel, the PID
  * is a WORD but when you program in C, you should use the pid_t type, which
  * complies with the POSIX standard. The FreeMiNT kernel's PID is always 0.
- * 
+ *
  * The PID is useful when it is important to identify a process among others
  * in the system. Knowing the PID of a program, it is possible to do a lot of
  * things: send it a signal with Psignal(), look for its name in /proc by
@@ -192,7 +192,7 @@ int16_t Pgetpgrp ( void )
 int16_t Pgetpid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetpid, 267);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -200,14 +200,14 @@ int16_t Pgetpid ( void )
  *
  * The function Pgetppid returns the PID of the parent process of the
  * currently active (calling) process.
- * 
+ *
  * In the FreeMiNT kernel, processes are represented as a tree. The root of
  * the tree is the kernel itself (PID 0). At boot time, the kernel launches
  * another process (which can be 'init' in case of a Unix-like setup, or an
  * AES, a shell or whatever) specified by the INIT or GEM keyword in the
  * mint.cnf file. This process will launch other processes (daemons,
  * accessories, programs etc) that are its so-called children.
- * 
+ *
  * Therefore, every process (but the kernel, obviously) is created by its
  * so-called parent. The Pgetppid() (get parent's PID) call allows
  * determination the PID of the parent of the calling process. To have a good
@@ -218,7 +218,7 @@ int16_t Pgetpid ( void )
 int16_t Pgetppid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetppid, 268);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -226,28 +226,28 @@ int16_t Pgetppid ( void )
  *
  * The function Pgetpriority obtains the priority of the processes specified
  * by which and who. The interpretation of parameter who depends on which:
- * 
+ *
  * PRIO_PROCESS (0) reads the priority of process with process ID which. A
  * who of 0 implies the process id of the calling process.
- * 
+ *
  * PRIO_PGRP (1) reads the priority of the process group with process group
  * ID who. If the priorities of the process differ, the lowest valued
  * priority (i.e. the highest CPU usage priority) is returned. A who of 0
  * implies the process group id of the calling process.
- * 
+ *
  * PRIO_USER (2) reads the priority of the process of the user with user ID
  * who. For multiple processes the lowest valued priority is returned. A who
  * of 0 implies the user id of the calling process.
- * 
+ *
  * Library functions should first check for an error condition and then
  * decrement the returned value by 20.
- * 
+ *
  * This call makes calls Pnice and Prenice obsolete.
  */
 int32_t Pgetpriority ( int16_t which, int16_t who)
 {
 	NOT_IMPLEMENTED(GDOS, Pgetpriority, 344);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -261,7 +261,7 @@ int32_t Pgetpriority ( int16_t which, int16_t who)
 int16_t Pgetuid ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pgetuid, 271);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -273,7 +273,7 @@ int16_t Pgetuid ( void )
 int16_t Pkill ( int16_t pid, int16_t sig )
 {
 	NOT_IMPLEMENTED(GDOS, Pkill, 273);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -288,7 +288,7 @@ int16_t Pkill ( int16_t pid, int16_t sig )
 int32_t Pmsg ( int16_t mode, int32_t mbox, emuptr32_t msg )
 {
 	NOT_IMPLEMENTED(GDOS, Pmsg, 293);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -299,14 +299,14 @@ int32_t Pmsg ( int16_t mode, int32_t mbox, emuptr32_t msg )
  * time-slice, i.e. it is not switched over so often. In the same way, a
  * lower priority means that the time-slice of the process is reduced, and so
  * it must yield time to the CPU more often.
- * 
+ *
  * For the parameter delta the following must apply:(!nl) - 20 Prenice
  * (Pgetpid, delta) and is implemented for backwards compatibility.
  */
 int16_t Pnice ( int16_t delta )
 {
 	NOT_IMPLEMENTED(GDOS, Pnice, 266);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -317,13 +317,13 @@ int16_t Pnice ( int16_t delta )
  * larger time-slice, i.e. it is not switched over so often. In the same way,
  * a lower priority means that the time-slice of the process is reduced, and
  * so it must yield time to the CPU more often.
- * 
- * For the parameter delta the following must apply:(!nl) - 20 
+ *
+ * For the parameter delta the following must apply:(!nl) - 20
  */
 int32_t Prenice ( int16_t pid, int16_t delta )
 {
 	NOT_IMPLEMENTED(GDOS, Prenice, 295);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -331,7 +331,7 @@ int32_t Prenice ( int16_t pid, int16_t delta )
  *
  * The function Prusage returns information about the system resources
  * required by the current process.
- * 
+ *
  * The information is passed to the outside by a pointer r to an array of 8
  * LONGs; the allocation is as follows: r[0]: Process time spent in MiNT
  * kernel
@@ -348,24 +348,24 @@ void Prusage ( emuptr32_t r )
  *
  * The function Psemaphore implements non-counting semaphores. Only one
  * process can access a semaphore at the same time.
- * 
+ *
  * Semaphores can be used, for instance, to synchronise accesses to data
  * structures in shared memory by different subprocesses: Hence a subprocess
  * must try, before it accesses memory, to obtain possession of the
  * semaphore. This can be created during initialisation, for instance, and
  * removed again at program termination.
- * 
+ *
  * Semaphores are identified by a name. This name is a LONGword that may
  * contain four ASCII characters. Semaphores whose name starts with an
  * underscore '_' are reserved for the operating system.
- * 
+ *
  * The parameter timeout is only used in mode 2. The following assignments
  * apply: timeout = 0: Return immediately.
  */
 int32_t Psemaphore ( int16_t mode, int32_t id, int32_t timeout )
 {
 	NOT_IMPLEMENTED(GDOS, Psemaphore, 308);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -375,48 +375,48 @@ int32_t Psemaphore ( int16_t mode, int32_t id, int32_t timeout )
  * This can only happen once. Together with Pgetauid one can ascertian who
  * was the first logged-in user in a multi-user environment. The parameter id
  * is the desired start ID.
- * 
+ *
  * Warning: This function is optional, hence a call may be answered with
  * EINVFN.
  */
 int16_t Psetauid ( int16_t id )
 {
 	NOT_IMPLEMENTED(GDOS, Psetauid, 325);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
  * Psetegid - 324
  *
  * egid specifies the new effective group ID for the calling process.
- * 
+ *
  * Prior to MiNT version 1.12, this call contained a bug affecting its
  * functionality. Setting effective group id needs root privileges.
- * 
+ *
  * This call is often used by daemon processes to downgrade their privileges
  * to user level.
  */
 int32_t Psetegid ( int16_t egid )
 {
 	NOT_IMPLEMENTED(GDOS, Psetegid, 324);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
  * Pseteuid - 323
  *
  * euid specifies the new effective user ID for the calling process.
- * 
+ *
  * Prior to MiNT version 1.12 this call contained a bug affecting its
  * functionality. Setting effective user ID needs root privileges.
- * 
+ *
  * This call is often used by daemon processes to downgrade their privileges
  * to user level.
  */
 int32_t Pseteuid ( int16_t euid )
 {
 	NOT_IMPLEMENTED(GDOS, Pseteuid, 323);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -428,7 +428,7 @@ int32_t Pseteuid ( int16_t euid )
 int16_t Psetgid ( int16_t id )
 {
 	NOT_IMPLEMENTED(GDOS, Psetgid, 277);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -436,17 +436,17 @@ int16_t Psetgid ( int16_t id )
  *
  * The function Psetgroups sets the supplementary group IDs for the calling
  * process.
- * 
+ *
  * len specifies the length (in words) of the array containing the
  * supplementary group IDs to be set. This value must be a positive number
  * not greater than NGROUPS_MAX. If len is a zero, the call will return the
  * number of supplementary group ids those have been set.
- * 
+ *
  * gidset is a pointer to a word array containing the new supplementary group
  * IDs for the process.
- * 
+ *
  * Setting new supplementary group IDs needs root privileges.
- * 
+ *
  * The NGROUPS_MAX value is returned by Sysconf().
  *
  * int32_t Psetgroups( int16_t len, int16_t *gidset)
@@ -454,7 +454,7 @@ int16_t Psetgid ( int16_t id )
 int32_t Psetgroups( int16_t len, emuptr32_t gidset)
 {
 	NOT_IMPLEMENTED(GDOS, Psetgroups, 328);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -467,7 +467,7 @@ int32_t Psetgroups( int16_t len, emuptr32_t gidset)
 int32_t Psetlimit ( int16_t lim, int32_t value )
 {
 	NOT_IMPLEMENTED(GDOS, Psetlimit, 287);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -476,7 +476,7 @@ int32_t Psetlimit ( int16_t lim, int32_t value )
  * The function Psetpgrp alters the group number of the process with the ID
  * pid to the value newgrp. The process must have the same UID as the current
  * process, or be the parent of it.
- * 
+ *
  * If pid = 0, the process group of the current process will be set. If
  * newgrp = 0, the process group will be set to the value of the PID of the
  * current process.
@@ -484,7 +484,7 @@ int32_t Psetlimit ( int16_t lim, int32_t value )
 int16_t Psetpgrp ( int16_t pid, int16_t newgrp )
 {
 	NOT_IMPLEMENTED(GDOS, Psetpgrp, 270);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -493,26 +493,26 @@ int16_t Psetpgrp ( int16_t pid, int16_t newgrp )
  * The function Psetpriority sets the priority pri (not an increment but an
  * absolute value) for the processes specified by which and who. The
  * interpretation of parameter who depends on which:
- * 
+ *
  * PRIO_PROCESS (0) sets the priority of process with process ID which. A who
  * of 0 implies the process ID of the calling process.
- * 
+ *
  * PRIO_PGRP (1) sets the priority of the process group with process group ID
  * who. A who of 0 implies the process group ID of the calling process.
- * 
+ *
  * PRIO_USER (2) sets the priority of the process of the user with user ID
  * who. A who of 0 implies the user ID of the calling process.
- * 
+ *
  * The pri argument is silently changed to the maximum (resp. minimum)
  * possible value if it is not in the range between PRIO_MIN (-20) and
  * PRIO_MAX (+20).
- * 
+ *
  * This call makes calls Pnice and Prenice obsolete.
  */
 int32_t Psetpriority ( int16_t which, int16_t who, int16_t pri )
 {
 	NOT_IMPLEMENTED(GDOS, Psetpriority, 345);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -520,20 +520,20 @@ int32_t Psetpriority ( int16_t which, int16_t who, int16_t pri )
  *
  * The function Psetregid sets the real and/or effective group ID for the
  * calling process.
- * 
+ *
  * rgid specifies the new real group ID and egid specifies the new effective
  * group ID for the calling process. If either argument is -1, only the other
  * gets changed
- * 
+ *
  * Setting group IDs needs root privileges.
- * 
+ *
  * This call is often used by daemon processes to downgrade their privileges
  * to user level.
  */
 int32_t Psetregid ( int16_t rgid, int16_t egid)
 {
 	NOT_IMPLEMENTED(GDOS, Psetregid, 335);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -541,20 +541,20 @@ int32_t Psetregid ( int16_t rgid, int16_t egid)
  *
  * The function Psetreuid sets the real and/or effective user ID for the
  * calling process.
- * 
+ *
  * ruid specifies the new real user ID and euid specifies the new effective
  * user ID for the calling process. If either argument is -1, only the other
  * gets changed.
- * 
+ *
  * Setting user ids needs root privileges.
- * 
+ *
  * This call is often used by daemon processes to downgrade their privileges
  * to user level.
  */
 int32_t Psetreuid ( int16_t ruid, int16_t euid)
 {
 	NOT_IMPLEMENTED(GDOS, Psetreuid, 334);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -568,7 +568,7 @@ int32_t Psetreuid ( int16_t ruid, int16_t euid)
 int16_t Psetuid ( int16_t id )
 {
 	NOT_IMPLEMENTED(GDOS, Psetuid, 272);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -584,7 +584,7 @@ int16_t Psetuid ( int16_t id )
 int32_t Psigaction ( int16_t sig, emuptr32_t act, emuptr32_t oact )
 {
 	NOT_IMPLEMENTED(GDOS, Psigaction, 311);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -594,23 +594,23 @@ int32_t Psigaction ( int16_t sig, emuptr32_t act, emuptr32_t oact )
  * signals specified in mask to the set of currently blocking signals. For
  * this, each bit of the parameter mask represents one signal. If bit n in
  * mask is set, it means that the signal with the number n will be blocked.
- * 
+ *
  * One should note that some signals (e.g. SIGKILL) can not be blocked. The
  * kernel will delete these signals from mask before any change of the signal
  * set is performed.
- * 
+ *
  * Furthermore it should be pointed out that blocked signals also remain
  * blocked via Pfork/Pvfork calls. After a Pexec call the child always starts
  * with an empty set of signals to be blocked, irrespective of which signals
  * were blocked by its parent.
- * 
+ *
  * Warning: This function is optional, hence a call may be answered with
  * EINVFN.
  */
 int32_t Psigblock ( int32_t mask )
 {
 	NOT_IMPLEMENTED(GDOS, Psigblock, 278);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -618,28 +618,28 @@ int32_t Psigblock ( int32_t mask )
  *
  * The function Psigintr assigns a signal to a particular exception vector.
  * When the exception occurs, the kernel will send the signal to the process.
- * 
+ *
  * vec specifies the exception vector. This is the same value as specified
  * for Setexc() call. sig specifies the signal number that is supposed to be
  * delivered when an exception assigned to the vector vec occurs. When both
  * sig and vec are zero, all handlers installed by your program are removed.
- * 
+ *
  * You should install a signal-handler prior to making this call, otherwise
  * your process will most probably get killed by the first occurrence of the
  * interrupt assigned to vec vector.(!nl) Also notice that the function is
  * not available on machines equipped with 68000 and 68010 processors.
- * 
+ *
  * This function has been totally rewritten as of MiNT version 1.15.1.
  * However, the only change visible to programs is that the old value of vec
  * is no longer returned (it had little use anyway). Also, since long stack
  * frames are needed, a 68020 or newer processor is required.
- * 
+ *
  * The handler set up by Psigintr gets removed when your process terminates.
  */
 int32_t Psigintr ( int16_t vec, int16_t sig )
 {
 	NOT_IMPLEMENTED(GDOS, Psigintr, 318);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -652,7 +652,7 @@ int32_t Psigintr ( int16_t vec, int16_t sig )
 int32_t Psignal ( int16_t sig, int32_t handler )
 {
 	NOT_IMPLEMENTED(GDOS, Psignal, 274);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -660,12 +660,12 @@ int32_t Psignal ( int16_t sig, int32_t handler )
  *
  * The function Psigpause sets a new signal mask mask, and suspends the
  * called process until a signal arrives that is not masked or ignored.
- * 
+ *
  * If a handler has been installed for this signal with Psignal, then this
  * will be called before the function returns. If the handler executes a
  * longjump to another part of the program, or the process terminates, then
  * the function will never return.
- * 
+ *
  * Note: When the function returns, the signal mask will be reset to the
  * value that applied before the call of Psigpause. Thus the signal mask set
  * by the function is only valid temporarily. In MagiC, problems may arise if
@@ -687,7 +687,7 @@ void Psigpause ( int32_t mask )
 int32_t Psigpending ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Psigpending, 291);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -697,9 +697,9 @@ int32_t Psigpending ( void )
  * this happens automatically when the handler returns, calling Psigreturn is
  * only necessary if the handler executes a non-local jump (perhaps with
  * longjump) rather than using RTS.
- * 
+ *
  * The call has no effect when no signal is being processed at the time.
- * 
+ *
  * In MagiC, the thread of the active signal-handler will become the main
  * thread of the process and then be removed. All other signal processes will
  * be removed as well (nesting). The locked semaphores of the main thread
@@ -716,11 +716,11 @@ void Psigreturn ( void )
  *
  * The function Psigsetmask replaces the set of signals that are currently to
  * be blocked completely by the signals specified in the parameter mask.
- * 
+ *
  * One should note that some signals (e.g. SIGKILL) can not be blocked. The
  * kernel will delete these signals from mask before any change of the signal
  * set is performed.
- * 
+ *
  * Furthermore it should be pointed out that blocked signals also remain
  * blocked via Pfork/Pvfork calls. After a Pexec call the child always starts
  * with an empty set of signals to be blocked, irrespective of which signals
@@ -729,7 +729,7 @@ void Psigreturn ( void )
 int32_t Psigsetmask ( int32_t mask )
 {
 	NOT_IMPLEMENTED(GDOS, Psigsetmask, 279);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -748,7 +748,7 @@ void Pterm ( uint16_t retcode )
  *
  * The GEMDOS routine Pterm0 terminates a TOS program and does not return
  * again. The routine returns an exit code of 0.
- * 
+ *
  * Note: In MagiC this function is executed directly as Pterm(0).
  */
 void Pterm0 ( void )
@@ -778,7 +778,7 @@ void Ptermres ( int32_t keepcnt, int16_t retcode )
  * via wait(2) or the delivery of a SIGCHLD signal, examine the state of the
  * stopped process, and cause it to terminate or continue as appropriate.
  * Ptrace is the mechanism by which all this happens.
- * 
+ *
  * The request argument specifies what operation is being performed; the
  * meaning of the rest of the arguments depends on the operation, but except
  * for one special case noted below, all ptrace calls are made by the tracing
@@ -791,14 +791,14 @@ void Ptermres ( int32_t keepcnt, int16_t retcode )
  * except via ptrace.) When a process has used this request and calls
  * execve(2) or any of the routines built on it (such as execv(3)), it will
  * stop before executing the first instruction of the new image. Also, any
- * setuid or setgid bits on the executable being executed will be ignored. 
+ * setuid or setgid bits on the executable being executed will be ignored.
  *
  * int16_t Ptrace(int16_t request, int16_t pid, void * addr, int32_t data)
  */
 int16_t Ptrace(int16_t request, int16_t pid, emuptr32_t  addr, int32_t data)
 {
 	NOT_IMPLEMENTED(GDOS, Ptrace, 265);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -808,23 +808,23 @@ int16_t Ptrace(int16_t request, int16_t pid, emuptr32_t  addr, int32_t data)
  * process to mode, which is a WORD bitmask of various access permission
  * flags as defined in Fchmod. The new value of the mask is inherited by
  * child processes.
- * 
+ *
  * When a new file or a new directory is created (with Fcreate or Dcreate
  * respectively), the access rights are normally set so that full access is
  * permitted. (Exception: New files are normally not executable.)
- * 
+ *
  * With the aid of Pumask one can specify which access rights during creation
  * of a file are not (!) to be permitted.
- * 
+ *
  * Explicit Fchmod calls are not affected by Pumask.
- * 
+ *
  * Warning: In MagiC however the mask is not evaluated by any internal XFS of
  * MagiC, and finds use exclusively in UNIX-like file-systems.
  */
 int16_t Pumask ( int16_t mode )
 {
 	NOT_IMPLEMENTED(GDOS, Pumask, 307);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -833,13 +833,13 @@ int16_t Pumask ( int16_t mode )
  * The function Pusrval permits the setting or interrogation of
  * process-specific information. These are stored in a LONGword, and
  * inherited by all child processes.
- * 
+ *
  * The meaning of the value can be freely determined by the calling program.
  */
 int32_t Pusrval ( int32_t val )
 {
 	NOT_IMPLEMENTED(GDOS, Pusrval, 280);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -849,10 +849,10 @@ int32_t Pusrval ( int32_t val )
  * child process share the same address and data space, i.e. every change
  * that the child makes to variables will also affect the parent. The new
  * process starts its work when the function Pvfork returns.
- * 
+ *
  * Note that if the parent is in supervisor-mode when the call is made, the
  * child is placed in user-mode anyway.
- * 
+ *
  * As both processes share the same address space (and stack), problems would
  * arise if both ran at the same time. For this reason the parent is paused
  * until the child process is either terminated or uses Pexec (mode 200) to
@@ -861,7 +861,7 @@ int32_t Pusrval ( int32_t val )
 int16_t Pvfork ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pvfork, 275);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -869,17 +869,17 @@ int16_t Pvfork ( void )
  *
  * The function Pwait is equivalent to Pwait3 (2, NULL) and is offered for
  * reasons of backwards compatibility.
- * 
+ *
  * According to POSIX, the library function 'wait' should be implemented as
  * Pwaitpid (-1, 0, NULL). Hence Pwait should not be used for a
  * POSIX-compatible library.
- * 
+ *
  * Warning: In MagiC the function is implemented as Pwaitpid (-1, 2, NULL).
  */
 int32_t Pwait ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Pwait, 265);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -888,7 +888,7 @@ int32_t Pwait ( void )
  * The function Pwait3 is equivalent to a call of Pwaitpid (-1, flag, rusage)
  * and determines with it the exit code as well as the CPU load of a
  * terminated or stopped child process.
- * 
+ *
  * flag is a bit-mask showing the specifics of this call as follows: Value
  * Meaning
  *
@@ -897,7 +897,7 @@ int32_t Pwait ( void )
 int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
 {
 	NOT_IMPLEMENTED(GDOS, Pwait3, 284);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
 
 /**
@@ -908,11 +908,11 @@ int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
  * set, then the child processes currently stopped will be reported; if
  * clear, child processes newly terminated or stopped by tracing will be
  * reported.
- * 
+ *
  * A stopped process will be reported once, as a rule, (as long as it has not
  * been restarted and stopped again). Equally, a terminated process will be
  * reported only once.
- * 
+ *
  * If child processes are present that have neither been stopped nor
  * terminated (or are waiting for such an event), then the further behaviour
  * of the function is determined by bit 0 of the parameter flag. The
@@ -924,6 +924,5 @@ int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
 int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusage )
 {
 	NOT_IMPLEMENTED(GDOS, Pwaitpid, 314);
-	return -TOS_ENOSYS;
+	return TOS_ENOSYS;
 }
-
