@@ -1,5 +1,16 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "common.h"
 #include "tos_errors.h"
+
+#include "m68k.h"
+#include "m68kcpu.h"
 
 /**
  * Fattrib - 67
@@ -62,8 +73,7 @@ int32_t Fchown ( emuptr32_t name, int16_t uid, int16_t gid )
  */
 int16_t Fclose ( int16_t handle )
 {
-	NOT_IMPLEMENTED(GDOS, Fclose, 62);
-	return -TOS_ENOSYS;
+	return close(handle);
 }
 
 /**
@@ -421,8 +431,35 @@ int32_t Fmidipipe ( int16_t pid, int16_t in, int16_t out )
  */
 int32_t Fopen ( emuptr32_t fname, int16_t mode )
 {
-	NOT_IMPLEMENTED(GDOS, Fopen, 61);
-	return -TOS_ENOSYS;
+	char buffer[1024];
+	m68k_read_string(fname, buffer, 1023, 1);
+	int flags = 0;
+ 	switch(mode & 3)
+	{
+		case 0:
+		flags = O_RDONLY;
+		break;
+		case 1:
+		flags = O_WRONLY;
+		break;
+		case 2:
+		flags = O_RDWR;
+		break;
+	}
+
+	if (mode & 0x200)
+	{
+		flags |= O_CREAT;
+	}
+	if (mode & 0x400)
+	{
+		flags |= O_TRUNC;
+	}
+
+	int retval = open(buffer, flags, 0777);
+	if (retval < 1)
+		retval = -errno;
+	return retval;
 }
 
 /**
@@ -495,10 +532,19 @@ int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
  *
  * int32_t Fread ( int16_t handle, int32_t count, void *buf )
  */
-int32_t Fread ( int16_t handle, int32_t count, emuptr32_t buf )
+int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
 {
-	NOT_IMPLEMENTED(GDOS, Fread, 63);
-	return -TOS_ENOSYS;
+	uint8_t* buffer = alloca(count);
+	int32_t bytes_read = read(handle, buffer, count);
+	if (bytes_read < 0)
+	{
+		return -errno;
+	}
+	for (int i=0; i<bytes_read; i++)
+	{
+		m68k_write_memory_8(address+i, buffer[i]);
+	}
+	return bytes_read;
 }
 
 /**
@@ -540,8 +586,7 @@ int32_t Frename ( emuptr32_t oldname, emuptr32_t newname )
  */
 int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
 {
-	NOT_IMPLEMENTED(GDOS, Fseek, 66);
-	return -TOS_ENOSYS;
+	return lseek(handle, offset, seekmode);
 }
 
 /**
@@ -666,10 +711,19 @@ int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
  *
  * int32_t Fwrite ( int16_t handle, int32_t count, void *buf )
  */
-int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t buf )
+int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
 {
-	NOT_IMPLEMENTED(GDOS, Fwrite, 64);
-	return -TOS_ENOSYS;
+	uint8_t* buffer = alloca(count);
+	for (int i=0; i<count; i++)
+	{
+		buffer[i] = m68k_read_memory_8(address+i);
+	}
+	int32_t bytes_written = write(handle, buffer, count);
+	if (bytes_written < 0)
+	{
+		return -errno;
+	}
+	return bytes_written;
 }
 
 /**

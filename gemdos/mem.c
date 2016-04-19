@@ -1,3 +1,7 @@
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/types.h>
 #include "common.h"
 #include "tos_errors.h"
 
@@ -25,10 +29,17 @@ int32_t Maddalt ( emuptr32_t start, int32_t size )
  *
  * void *Malloc ( int32_t number )
  */
-emuptr32_t Malloc ( int32_t number )
+emuptr32_t Malloc ( int32_t size )
 {
-	NOT_IMPLEMENTED(GDOS, Malloc, 72);
-	return -TOS_ENOSYS;
+	//printf("Malloc(%d)\n", size);
+	if (size == -1)
+	{
+		return 1024 * 1024 * 16;
+	}
+	int32_t retval = memory_sz;
+	memory_sz += size;
+	memory = realloc(memory, memory_sz);
+	return retval;
 }
 
 /**
@@ -36,10 +47,10 @@ emuptr32_t Malloc ( int32_t number )
  *
  * The GEMDOS routine Mfree releases a block of memory previously reserved
  * with Malloc.
- * 
+ *
  * The parameter block contains the start address of the memory block to be
  * released.
- * 
+ *
  * Note: In almost all GEMDOS versions no check is made whether the block to
  * be released really belongs to the relevant process. Hence particular care
  * is needed, specially in multitasking systems.
@@ -63,7 +74,7 @@ int32_t Mfree ( emuptr32_t block )
 int32_t Mshrink ( emuptr32_t block, int32_t newsiz )
 {
 	NOT_IMPLEMENTED(GDOS, Mshrink, 74);
-	return -TOS_ENOSYS;
+	return newsiz;
 }
 
 /**
@@ -80,4 +91,3 @@ emuptr32_t Mxalloc ( int32_t amount, int16_t mode )
 	NOT_IMPLEMENTED(GDOS, Mxalloc, 68);
 	return -TOS_ENOSYS;
 }
-

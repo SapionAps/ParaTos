@@ -10,7 +10,34 @@
 
 extern char **environ;
 
-basepage_t* LoadExe(const char* filename, const char* commandTail)
+#define MAX_TOS_ARG 126
+
+void BuildTosArglist(uint32_t args, char* argv[], int argc)
+{
+	int n = 1;
+    for (int i = 0; i < argc; ++i)
+    {
+        if (i > 0)
+		{
+			m68k_write_memory_8(args+(n++), ' ');
+			if (n>MAX_TOS_ARG)
+				goto trunc;
+		}
+		for(char* c = argv[i]; *c; c++)
+		{
+			m68k_write_memory_8(args+(n++), *c);
+			if (n>MAX_TOS_ARG)
+				goto trunc;
+		}
+    }
+trunc:
+	m68k_write_memory_8(args+n, '\0');
+    m68k_write_memory_8(args, n-1);
+}
+
+
+
+basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 {
 	tos_header_t header;
 	FILE* file = fopen(filename,"r");
@@ -29,12 +56,9 @@ basepage_t* LoadExe(const char* filename, const char* commandTail)
 
 	// Copy command line
 	uint32_t command_line = base_tpa+offsetof(basepage_t, p_cmdlin);
-	for(int i=0; i<128; i++)
-	{
-		m68k_write_memory_8(command_line+i, commandTail[i]);
-		if(!commandTail[i])
-			break;
-	}
+	BuildTosArglist(command_line, argv, argc);
+
+	// Base page is long word aligned; all long entries are pre-byeswapped in memory
 	basepage_t* basepage = (basepage_t*)(memory + base_tpa);
 	basepage->p_lowtpa = base_tpa;
 	basepage->p_hitpa = memory_sz;
@@ -78,7 +102,7 @@ basepage_t* LoadExe(const char* filename, const char* commandTail)
 		uint8_t byte;
 		if(!fread(&byte,sizeof(char),1, file))
 		{
-			return -1;
+			return 0;
 		}
 		m68k_write_memory_8(i, byte);
 	}

@@ -1,6 +1,6 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/types.h>
@@ -132,7 +132,7 @@ void dispatch_xbios_trap()
 		retval = 3; // ST Mono
 		break;
 		case 17: // random
-		retval = random() & 0x00ffffff;
+		retval = rand() & 0x00ffffff;
 		break;
 		case 38: // Supexec
 		// We're just going to fake it an run it in user mode anyway
@@ -151,62 +151,33 @@ void dispatch_xbios_trap()
     m68k_set_reg(M68K_REG_D0, retval);
 }
 
-static int int_ack_callback_vector = M68K_INT_ACK_AUTOVECTOR;
-
-// Exception vector callback
-int int_ack_callback(int int_level)
-{
-    return int_ack_callback_vector;
-}
-
-void buildCommandTail(char tail[128], char* argv[], int argc)
-{
-    int i;
-
-    tail[1] = '\0';
-    for (i = 0; i < argc; ++i)
-    {
-        if (i > 0)
-            strcat(tail + 1, " ");
-
-        strcat(tail + 1, argv[i]);
-    }
-
-    tail[0] = (char)strlen(tail + 1);
-}
-
 int main(int argc, char* argv[])
 {
-
     if (argc < 2)
     {
         fprintf(stderr, "usage: %s <program.tos> [arguments...]\n", argv[0]);
-
         return 1;
     }
+
 	memory_sz = 16 * 1024 * 1024;
 	memory = calloc(1, memory_sz);// 16 Mb memory
-	InitCookieJar(0x1000);
-    char tail[128];
-    buildCommandTail(tail, argv + 2, argc - 2);
 
-	basepage_t* bp = LoadExe(argv[1], tail);
-    if ((long)bp < 0)
+	InitCookieJar(0x1000);
+	basepage_t* bp = LoadExe(argv[1], argv+2, argc-2);
+    if (bp == 0)
     {
         fprintf(stderr, "error: cannot load %s.\n", argv[1]);
         return 1;
     }
-	
-	
+
 	m68k_init();
 	m68k_set_cpu_type(M68K_CPU_TYPE_68020);
-	m68k_pulse_reset(); 
+	m68k_pulse_reset();
 
 	uint32_t stack = bp->p_hitpa;
 	uint32_t base = (uint32_t)((uint64_t)bp-(uint64_t)memory);
 
 	stack-=4;
-	//fprintf(stderr, "pushing base pointer(%08x) onto stack at %08x.\n", base, stack);
 	m68k_write_memory_32(stack, base);
 	stack-=4;
 	m68k_write_memory_32(stack, 0);
@@ -216,7 +187,6 @@ int main(int argc, char* argv[])
     m68k_set_reg(M68K_REG_SP, stack);
     m68k_set_reg(M68K_REG_PC, bp->p_tbase);
 
-	//fprintf(stderr, "running %s.\n", argv[1]);
     for (;;)
     {
         m68k_execute(10000);

@@ -32,4 +32,4 @@ typedef struct
    int8_t    p_cmdlin[128]; /* Command line                        */
 } __attribute__((packed)) basepage_t;
 
-basepage_t* LoadExe(const char* filename, const char* commandTail);
+basepage_t* LoadExe(const char* filename, char* argv[], int argc);
