@@ -1729,12 +1729,35 @@ INLINE void m68ki_exception_trap(uint vector)
 	USE_CYCLES(CYC_EXCEPTION[vector]);
 }
 
+void dispatch_gdos_trap();
+void dispatch_gem_trap();
+void dispatch_bios_trap();
+void dispatch_xbios_trap();
+
 /* Trap#n stacks a 0 frame but behaves like group2 otherwise */
 INLINE void m68ki_exception_trapN(uint vector)
 {
-	uint sr = m68ki_init_exception();
-	m68ki_stack_frame_0000(REG_PC, sr, vector);
-	m68ki_jump_vector(vector);
+	switch (vector)
+	{
+		case 33:
+			dispatch_gdos_trap();
+			break;
+		case 34:
+			dispatch_gem_trap();
+			break;
+		case 45:
+			dispatch_bios_trap();
+			break;
+		case 46:
+			dispatch_xbios_trap();
+			break;
+		default:
+		{
+			uint sr = m68ki_init_exception();
+			m68ki_stack_frame_0000(REG_PC, sr, vector);
+			m68ki_jump_vector(vector);
+		}
+	}
 
 	/* Use up some clock cycles */
 	USE_CYCLES(CYC_EXCEPTION[vector]);

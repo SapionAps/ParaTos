@@ -1,14 +1,15 @@
 #include "common.h"
-#include "musashi/m68k.h"
-#include "musashi/m68kcpu.h"
+#include "m68k.h"
+#include "m68kcpu.h"
+#include "gdos.h"
 
-void m68ki_hook_trap1()
+void dispatch_gdos_trap()
 {
 	uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t num = m68k_read_memory_16(sp);
 	int32_t retval = 0;
-	
+
 	switch (num) {
 	case    0	:
 		Pterm0();
@@ -275,7 +276,7 @@ void m68ki_hook_trap1()
 		retval = Pwait3(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4));
 		break;
 	case  285	:
-		retval = Fselect(m68k_read_memory_32(sp+2));
+		retval = Fselect(m68k_read_memory_32(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
 		break;
 	case  286	:
 		Prusage(m68k_read_memory_32(sp+2));

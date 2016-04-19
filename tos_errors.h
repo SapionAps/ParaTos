@@ -26,6 +26,7 @@
 #define TOS_EINVAL -25
 #define TOS_EFTYPE -26
 #define TOS_EILSEQ -27
+#define TOS_ENOSYS -32
 #define TOS_EINVFN -32
 #define TOS_EFILNF -33
 #define TOS_EPTHNF -34
@@ -42,7 +43,7 @@
 #define TOS_ENFILE -50
 #define TOS_ELOCKED -58
 #define TOS_ENSLOCK -59
-#define TOS_ERANGE -64
+#define TOS_EBADARG -64
 #define TOS_EINTRN -65
 #define TOS_EPLFMT -66
 #define TOS_EGSBF -67

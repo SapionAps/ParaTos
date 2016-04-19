@@ -20,8 +20,8 @@ int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
  *
  * The function alters the access rights for the GEMDOS file name. The
  * parameter mode contains the new access rights:
- * 
- * Access by mode Meaning 
+ *
+ * Access by mode Meaning
  *
  * int32_t Fchmod ( int8_t *name, int16_t mode )
  */
@@ -36,7 +36,7 @@ int32_t Fchmod ( emuptr32_t name, int16_t mode )
  *
  * The function alters the user/group ID of the file name, which control the
  * access rights of the file.
- * 
+ *
  * This call can only be issued by a process that has an effective user
  * identifier (EUID) which is 0, or which corresponds to the UID of the file;
  * in the latter case the new UID must correspond to the old one, and in
@@ -55,7 +55,7 @@ int32_t Fchown ( emuptr32_t name, int16_t uid, int16_t gid )
  * Fclose - 62
  *
  * The GEMDOS routine Fclose closes a file with the file ID handle.
- * 
+ *
  * Note: In a network the active locking is lifted. During closing of
  * standard channels, from GEMDOS Version 0.15 onwards the original channel
  * will be reinstated.
@@ -72,36 +72,36 @@ int16_t Fclose ( int16_t handle )
  * The function performs various command operations on the file with the
  * handle fh. The parameter cmd describes the desired operation, and can
  * assume the following values. (arg here depends on the selected command):
- * 
+ *
  * F_DUPFD (0):
  * Duplicates the specified file handle. The following applies for the new
  * interval: arg ENHNDL will be returned. A call of Fdup (handle) is
  * therefore equivalent to Fcntl (handle, 6L, F_DUPFD).
- * 
+ *
  * F_GETFD (1):
  * This command returns the non-inheritance flag for the handle fh. The flag
  * is 0 when child processes started with Pexec are to inherit the file
  * handle, otherwise it has the value 1 and the parameter arg is ignored.
- * 
+ *
  * F_SETFD (2):
  * This command sets the non-inheritance flag for the handle fh. arg
  * specifies if child processes started with Pexec will inherit the file
  * handle; a value of 1 indicates they will not, a value of 0 that they will.
  * The default value for the flag is 0 for the standard GEMDOS handles in the
  * region 0...5 and 1 for all others, i.e. non-standard handles.
- * 
+ *
  * F_GETFL (3):
  * This command returns the file descriptor flags that can be altered by the
  * user. We are here dealing with the parameter mode specified at Fopen, as
  * long as this has not been altered by another call of Fcntl. arg is
  * ignored.
- * 
+ *
  * F_SETFL (4):
  * This command sets the file descriptor flags that can be altered by the
  * user to arg (the other bits are ignored, and should be set to the value
  * 0). It is not possible to alter the read/write mode or the modes for file
  * sharing.
- * 
+ *
  * F_GETLK (5):
  * The parameter arg is a pointer to an flock structure, in which information
  * about file locks are stored. If a lock exists then it will be copied into
@@ -110,7 +110,7 @@ int16_t Fclose ( int16_t handle )
  * the value F_UNLCK. For the case that the lock is held by another computer
  * in a network, the element l_pid is set to a value defined by the NFS
  * (Network File System). For this value, 0x1000 l_pid
- * 
+ *
  * F_SETLK (6):
  * This command sets (l_type = F_RDLCK or F_WRLCK) or lifts (l_type =
  * F_UNLCK) an advisory lock on the specified file. If this is a FIFO queue
@@ -121,18 +121,18 @@ int16_t Fclose ( int16_t handle )
  * may overlap, but write-locks may not. If a locked file is closed, or the
  * corresponding process terminates, then all set locks will be lifted
  * automatically (i.e. reset).
- * 
+ *
  * F_SETLKW (7):
  * Similar to F_SETLK, with the difference that if the lock conflicts with
  * those from other processes, then ELOCKED is not returned but the locked
  * process is suspended until the locking from the other process is lifted.
- * 
+ *
  * FSTAT (0x4600):
  * Gets the extended attributes of a file. The parameter arg returns a
  * pointer to an XATTR structure that is filled in with the file's extended
  * attributes, as if an Fxattr call had been made. This command is supported
  * in MagiC as of Version 3.0.
- * 
+ *
  * FIONREAD (0x4601):
  * In the parameter arg a pointer to a LONG value is returned which shows the
  * number of bytes that may be read currently from a specified file handle
@@ -140,67 +140,67 @@ int16_t Fclose ( int16_t handle )
  * value is not necessarily correct, as the exact amount can only be
  * estimated in some cases. The command is supported in MagiC as of Version
  * 3.0.
- * 
+ *
  * FIONWRITE (0x4602):
  * Similar to FIONREAD, only here the number of bytes that may be written at
  * present is returned. The command is supported in MagiC as of Version 3.0.
- * 
+ *
  * FUTIME (0x4603):
  * No information available at present.
- * 
+ *
  * FTRUNCATE (0x4604):
  * The parameter arg is a pointer to a LONG value that contains the new
  * length of the file to be truncated. The command is supported in MagiC as
  * of Version 3.0.
- * 
+ *
  * FIOEXECPT (0x4605):
  * In the parameter arg a pointer to a LONG value is returned which specifies
  * whether the file is in an exception state (1) or not (0).
- * 
+ *
  * The following commands are to be applied to all terminal devices such as
  * the console or a pseudo-terminal:
- * 
+ *
  * TIOCGETP (0x5400):
  * This command returns via the parameter arg a pointer to a sgttyb
  * structure, in which the parameters of the terminal are defined.
- * 
+ *
  * TIOCSETN (0x5401):
  * With this command one can set a new sgttyb structure which sets the
  * parameters of the terminal. You should first get the terminal control
  * parameters, modify what you wish to change, and then set them with this
  * call.
- * 
+ *
  * TIOCGETC (0x5402):
  * This command returns via the parameter arg a pointer to a tchars structure
  * in which the terminal control characters are defined.
- * 
+ *
  * TIOCSETC (0x5403):
  * With this command new terminal control characters can be set. For this one
  * passes a pointer in arg to a tchars structure in which the control
  * characters are defined. If a character is set to 0 then the corresponding
  * function will be disabled.
- * 
+ *
  * TIOCGLTC (0x5404):
  * This command returns via the parameter arg a pointer to a ltchars
  * structure in which extended terminal control characters are defined.
- * 
+ *
  * TIOCSLTC (0x5405):
  * With this command one can set new extended terminal control characters. To
  * do this, one passes in arg a pointer to a ltchars structure in which the
  * control characters are defined. If a character is set to 0 then the
  * corresponding function will be disabled.
- * 
+ *
  * TIOCGPGRP (0x5406):
  * This command returns via the parameter arg a pointer to the process group
  * ID of the terminal.
- * 
+ *
  * TIOCSPGRP (0x5407):
  * With this command one can set the process group ID of the terminal. To do
  * this, one passes in the parameter arg a pointer to the corresponding
  * process group. If processes from other groups should attempt to access
  * this terminal (read or write) then they will be sent job control signals
  * (SIGTSTP etc.).
- * 
+ *
  * TIOCFLUSH (0x5408):
  * With this command one can specify the type of flushing. For this, one
  * passes a pointer in the parameter arg to a LONG value that describes the
@@ -244,7 +244,7 @@ void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
  * Fdelete - 65
  *
  * The GEMDOS routine Fdelete deletes the file designated by fname.
- * 
+ *
  * Note: The function should not be applied to opened files. As of MagiC 4,
  * deletion also works for files with the 'Hidden' and 'System' attributes.
  * In MagiC, furthermore, no symbolic links will be dereferenced, i.e. the
@@ -288,7 +288,7 @@ int32_t Ffchmod ( int16_t fd, int16_t mode)
  *
  * This function changes ownership of an open file to uid and gid
  * respectively.
- * 
+ *
  * A non-privileged process can only change the ownership of a file that is
  * owned by this user to the effective group id of the process or one of its
  * supplementary groups.
@@ -344,10 +344,10 @@ emuptr32_t Fgetdta ( void )
  *
  * The function Finstat returns the maximum number of bytes that may be read
  * from a file with the handle fh without having to wait.
- * 
+ *
  * If the number of bytes cannot be reported exactly, then the value 1 will
  * be returned.
- * 
+ *
  * Note: In MagiC, the kernel first tries to implement the call in Fcntl
  * (FIONREAD). If this subfunction of dev_ioctl does not exist (i.e. the file
  * driver returns EINVFN), then dev_stat will be called. In that case this
@@ -368,7 +368,7 @@ int32_t Finstat ( int16_t fh )
  * The function Flink creates a new name (newname) for the file named
  * oldname. The file can later be addressed under both names, and the
  * deletion (with Fdelete) of one name has no effect on the other.
- * 
+ *
  * One should note that oldname and newname have to lie on the same physical
  * drive, and also that not all file-systems offer the option of setting
  * links.
@@ -400,10 +400,10 @@ int32_t Flock ( int16_t handle, int16_t mode, int32_t start, int32_t length )
  * for the process with the ID pid. The parameters in and out describe the
  * GEMDOS handles that take on MIDI input and output respectively for the
  * process.
- * 
+ *
  * In the case pid = 0, the current process will be used. Then The function
  * call is equivalent to the following two lines:Fforce (-4, in); Fforce (-5,
- * out); 
+ * out);
  */
 int32_t Fmidipipe ( int16_t pid, int16_t in, int16_t out )
 {
@@ -430,10 +430,10 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
  *
  * The function Foutstat returns the number of bytes that may be written to
  * the file with the handle fh without blocking the corresponding process.
- * 
+ *
  * If the exact number of bytes cannot be specified, then the value 1 will be
  * returned.
- * 
+ *
  * Note: In MagiC, the kernel first tries to implement the call in Fcntl
  * (FIONWRITE). If this subfunction of dev_ioctl does not exist (i.e. the
  * file driver returns EINVFN), then dev_stat will be called. In that case
@@ -458,10 +458,10 @@ int32_t Foutstat ( int16_t fh )
  * child process, the shell redirects its input and output (as necessary) to
  * the read and write ends of the newly created file. On a successful call,
  * two GEMDOS handles will be returned in usrh.
- * 
+ *
  * usrh[0] denotes the handle for the read-end of the pipe, (read-only) while
  * usrh[1] the handle for the write-end of the pipe (write-only).
- * 
+ *
  * The pipe produced in this way will be created in the directory U:\PIPE as
  * a pseudo-file and will be named 'sys$pipe.xxx', where 'xxx' represent a
  * three-digit integer.
@@ -506,7 +506,7 @@ int32_t Fread ( int16_t handle, int32_t count, emuptr32_t buf )
  *
  * The function Freadlink determines the filename of the symbolic link name.
  * This is the name that was specified for the first parameter of Fsymlink.
- * 
+ *
  * The name is stored in buffer buf, which has a length of bufsiz characters.
  *
  * int32_t Freadlink ( int16_t bufsiz, int8_t *buf, int8_t *name )
@@ -550,30 +550,30 @@ int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
  * The function Fselect checks which open files are ready for reading or
  * writing. The parameter rfds points to a LONG bitmap which describes the
  * set of GEMDOS read file descriptors to wait for.
- * 
+ *
  * In this longword, bit n is set when the file descriptor n is to be checked
  * for input. An empty set may also be represented optionally by a
  * NULL-pointer.
- * 
+ *
  * In the same way, wfds points to a set of write file descriptors whose
  * output status is to be checked.
- * 
+ *
  * On return of the function, the handles of the files that are ready for
  * reading or writing respectively and also should be checked are passed in
  * rfds and wfds.
- * 
+ *
  * Note that currently the only BIOS device Fselect works with is the
  * keyboard.
- * 
+ *
  * With timeout one can specify how many milliseconds one should wait before
  * the function returns. A value of 0 means in this case that the function
  * waits until one of the specified files is ready for reading or writing.
- * 
+ *
  * Example: Fselect (0, 0L, 0L, 0L) waits forever
  *
  * int32_t Fselect ( uint16_t timeout, int32_t *rfds, int32_t *wfds, ((int32_t) 0) )
  */
-int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds, ((int32_t) 0) )
+int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds )
 {
 	NOT_IMPLEMENTED(GDOS, Fselect, 285);
 	return -TOS_ENOSYS;
@@ -585,7 +585,7 @@ int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds, ((int32_t)
  * The GEMDOS routine Fsetdta sets the address of the memory segment that
  * will be used as the new DTA. The parameter buf is a pointer to this
  * structure.
- * 
+ *
  * Note: At program launch the DTA will be established starting at offset
  * 0x80 in the basepage.
  *
@@ -618,12 +618,12 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
  * the criteria specified in Fsfirst. It should be called as often as
  * necessary after a Fsfirst call to find all files that match the search
  * criteria.
- * 
+ *
  * Be aware that this function uses the application's DTA which initially
  * shares its memory location with the processes' command line. Hence using
  * this function without first assigning a new DTA will corrupt the command
  * line.
- * 
+ *
  * Note: If the program runs in the MiNT-domain, Fsnext will return lower
  * case filenames. As file-systems exist that are case sensitive, you should
  * avoid making such conversions manually. However, if you absolutely need
@@ -645,7 +645,7 @@ int16_t Fsnext ( void )
  * itself, but only the symbolic link. However, if Fdelete is applied to
  * oldname, then the file will be deleted as usual, and accesses to newname
  * are no longer possible.
- * 
+ *
  * The difference to hard links lies in the fact that symbolic links can
  * exist between different physical devices (and with that even different
  * file-system types).
@@ -677,7 +677,7 @@ int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t buf )
  *
  * The function Fxattr obtains the extended attributes of the file whose
  * complete name is specified in name, and saves these in xattr.
- * 
+ *
  * The parameter flag specifies how symbolic links are to be treated. The
  * following apply: flag Meaning
  *
@@ -688,4 +688,3 @@ int32_t Fxattr ( int16_t flag, emuptr32_t name, emuptr32_t xattr )
 	NOT_IMPLEMENTED(GDOS, Fxattr, 300);
 	return -TOS_ENOSYS;
 }
-

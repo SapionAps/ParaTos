@@ -7,7 +7,7 @@
  * The path parameter is a pathname of the folder that will be the new root
  * directory for the calling process. Directories and files which are outside
  * of the specified tree will no longer be accessible.
- * 
+ *
  * Dchroot does not automatically change the current directory to the newly
  * specified root. Also, the call needs root privileges to operate properly.
  * This function is used by e.g. ftpd to limit the user privileges in
@@ -38,11 +38,11 @@ int32_t Dclosedir ( int32_t dirhandle )
  * The function Dcntl executes the command cmd on the file or the directory
  * name. Details depend on the file-system to which name refers. The meaning
  * of the parameter arg is in turn dependent on cmd.
- * 
+ *
  * Normally the Dcntl call is supported by the file-systems U:\\ and U:\DEV.
- * 
+ *
  * The unified file-system U:\ knows the following commands: Command
- * Description 
+ * Description
  *
  * int32_t Dcntl ( int16_t cmd, int8_t *name, int32_t arg )
  */
@@ -58,7 +58,7 @@ int32_t Dcntl ( int16_t cmd, emuptr32_t name, int32_t arg )
  * The GEMDOS routine Dcreate creates a directory with the pathname path,
  * which has to be terminated with the ASCII character 0, on the specified
  * drive.
- * 
+ *
  * Note: Due to defective error-handling in GEMDOS Versions MagiC 3, the call
  * is passed on by the kernel as xfs_dcreate with creation mode Fxattr
  * %0100000111101101 (i.e. a 'directory file' with access permissions
@@ -80,10 +80,10 @@ int32_t Dcreate ( emuptr32_t path )
  * The GEMDOS routine Ddelete deletes a directory with the pathname path,
  * which may not contain any files or subdirectories. The string path must be
  * terminated with the ASCII character 0.
- * 
+ *
  * Note: In GEMDOS Versions Dcreate with an immediately following Ddelete did
  * not work - only a further Ddelete achieved the desired result.
- * 
+ *
  * In MagiC the kernel first checks whether the directory is a current path
  * and if appropriate returns an error-message. If possible, only empty
  * directories should be deleted; this is however up to the XFS. As of MagiC
@@ -132,7 +132,7 @@ int32_t Dgetcwd ( emuptr32_t path, int16_t drv, int16_t size )
  *
  * The GEMDOS routine Dgetdrv obtains the current drive.
  */
-int16_t Dgetdrv ( VOID )
+int16_t Dgetdrv ( void )
 {
 	NOT_IMPLEMENTED(GDOS, Dgetdrv, 25);
 	return -TOS_ENOSYS;
@@ -159,12 +159,12 @@ int16_t Dgetpath ( emuptr32_t path, int16_t driveno )
  * The function Dlock permits the locking of the BIOS device drv, or
  * releasing it again. On a locked drive no GEMDOS file operations are
  * permitted; Rwabs is only allowed for the locking process.
- * 
+ *
  * The purpose of the function is to allow low-level programs (such as those
  * for formatting) to perform (X)BIOS functions, while the device remains
  * locked for normal file accesses.
- * 
- * Bit 0 of mode = 1: Lock device 
+ *
+ * Bit 0 of mode = 1: Lock device
  */
 int32_t Dlock ( int16_t mode, int16_t drv )
 {
@@ -193,7 +193,7 @@ int32_t Dopendir ( emuptr32_t name, int16_t flag )
  *
  * The function Dpathconf makes it possible to obtain information about the
  * file-system that contains the file name.
- * 
+ *
  * The parameter mode specifies which possibilities or restrictions of the
  * file-systems are to be inquired. Possible values here are: mode Meaning
  *
@@ -210,14 +210,14 @@ int32_t Dpathconf ( emuptr32_t name, int16_t mode )
  *
  * The function Dreaddir returns the next file in the directory dirhandle.
  * The filename and an optional 4-byte index for the file are written to buf.
- * 
+ *
  * The file index is omitted if the directory was opened im compatibility
  * mode, otherwise it appears as the first in buf followed by a
  * (NULL-terminated) filename.
- * 
+ *
  * (Possibly different) names with the same index belong to the same file.
  * (Possibly same) names with different indexes belong to different files.
- * 
+ *
  * Note about MagiC: For FAT file-systems the function returns the following
  * index data: Directories: Start cluster in Motorola format Other files:
  * High word = Start cluster of the directory
@@ -275,13 +275,13 @@ int32_t Dsetdrv ( int16_t drv )
  *
  * The GEMDOS routine Dsetpath sets a new access path for the current drive.
  * The parameter path contains the new current access path for the drive.
- * 
+ *
  * Note: For each drive, GEMDOS will remember the current directory. However,
  * the function Dsetpath should be used only for the current drive. For other
  * drives the following method should be applied instead: Establish current
  * drive Set desired drive Set path for this drive Make the old (remembered)
  * drive the current one again
- * 
+ *
  * On some (older) versions of GEMDOS, a too frequent setting of non-existing
  * paths can lead to disturbance in the internal structures.
  *
@@ -298,7 +298,7 @@ int16_t Dsetpath ( emuptr32_t path )
  *
  * The function Dwritelabel writes the name specified in label to the
  * file-system specified in path.
- * 
+ *
  * Prior to MiNT version 1.14.5 this call contained a bug that allowed the
  * label to be changed by all users.
  *
@@ -317,9 +317,9 @@ int32_t Dwritelabel ( emuptr32_t path, emuptr32_t label )
  * and flag in a chained list, so that Dreaddir and Dxreaddir know what they
  * have to convert for this directory. Dcloseddir deletes the handle again
  * from the list.
- * 
+ *
  * Dreaddirand Dxreaddir convert the returned name to lower case.
- * 
+ *
  * The function opens the directory name for reading. The parameter flag
  * describes the manner how the directory is to be opened: flag Meaning
  *
@@ -337,11 +337,11 @@ int32_t Dxopendir ( emuptr32_t name, int16_t flag )
  * The function Dxreaddir returns the next file from the directory with the
  * handle dirh. The filename and the optional 4 byte long file index are
  * stored in the buffer specified in buf.
- * 
+ *
  * The file index is omitted if the compatibility mode was specified for
  * Dopendir. If two filenames have the same index, they represent the same
  * file.
- * 
+ *
  * MagiCreturns for FAT file-systems the following index data: Directories:
  * Start cluster in Motorola format Other files: High word = Start cluster of
  * the directory
@@ -353,4 +353,3 @@ int32_t Dxreaddir ( int16_t ln, int32_t dirh, emuptr32_t buf, emuptr32_t xattr, 
 	NOT_IMPLEMENTED(GDOS, Dxreaddir, 322);
 	return -TOS_ENOSYS;
 }
-

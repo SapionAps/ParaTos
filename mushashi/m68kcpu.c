@@ -783,12 +783,13 @@ void m68k_pulse_reset(void)
 	CPU_PREF_ADDR = 0x1000;
 #endif /* M68K_EMULATE_PREFETCH */
 
+#if 0
 	/* Read the initial stack pointer and program counter */
 	m68ki_jump(0);
 	REG_SP = m68ki_read_imm_32();
 	REG_PC = m68ki_read_imm_32();
 	m68ki_jump(REG_PC);
-
+#endif
 	CPU_RUN_MODE = RUN_MODE_NORMAL;
 }
 

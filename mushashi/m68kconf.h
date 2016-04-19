@@ -52,7 +52,7 @@
  * to OPT_ON and use m68kmame.h to configure the 68k core.
  */
 #ifndef M68K_COMPILE_FOR_MAME
-#define M68K_COMPILE_FOR_MAME      OPT_ON
+#define M68K_COMPILE_FOR_MAME      OPT_OFF
 #endif /* M68K_COMPILE_FOR_MAME */
 
 
@@ -64,8 +64,8 @@
 /* ======================================================================== */
 
 /* Turn ON if you want to use the following M68K variants */
-#define M68K_EMULATE_010            OPT_ON
-#define M68K_EMULATE_EC020          OPT_ON
+#define M68K_EMULATE_010            OPT_OFF
+#define M68K_EMULATE_EC020          OPT_OFF
 #define M68K_EMULATE_020            OPT_ON
 
 
@@ -87,7 +87,7 @@
  * If off, all interrupts will be autovectored and all interrupt requests will
  * auto-clear when the interrupt is serviced.
  */
-#define M68K_EMULATE_INT_ACK        OPT_OFF
+#define M68K_EMULATE_INT_ACK        OPT_ON
 #define M68K_INT_ACK_CALLBACK(A)    your_int_ack_handler_function(A)
 
 
