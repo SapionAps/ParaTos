@@ -1,5 +1,17 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/time.h>
 #include "common.h"
 #include "tos_errors.h"
+#include "sysvars.h"
+#include "cookiejar.h"
+
+#include "m68k.h"
+#include "m68kcpu.h"
 
 /**
  * STEFcntrl - 24000
@@ -158,6 +170,57 @@ void Ssync ( void )
 	NOT_IMPLEMENTED(GDOS, Ssync, 336);
 }
 
+enum ssystem_mode
+{
+	S_OSNAME = 0,
+	S_OSXNAME = 1,
+	S_OSVERSION = 2,
+	S_OSHEADER = 3,
+	S_OSBUILDDATE = 4,
+	S_OSBUILDTIME = 5,
+	S_OSCOMPILE = 6,
+	S_OSFEATURES = 7,
+	S_GETCOOKIE = 8,
+	S_SETCOOKIE = 9,
+	S_GETLVAL = 10,
+	S_GETWVAL = 11,
+	S_GETBVAL = 12,
+	S_SETLVAL = 13,
+	S_SETWVAL = 14,
+	S_SETBVAL = 15,
+	S_SECLEVEL = 16,
+	S_RUNLEVEL = 17,	/* currently disabled, reserved */
+	S_TSLICE = 18,
+	S_FASTLOAD = 19,
+	S_SYNCTIME = 20,
+	S_BLOCKCACHE = 21,
+	S_FLUSHCACHE = 22,
+	S_CTRLCACHE = 23,
+	S_INITIALTPA = 24,
+	S_CTRLALTDEL = 25, /* ctraltdel behavoiur */
+	S_DELCOOKIE = 26,
+	S_LOADKBD = 27,	/* reload the keyboard table */
+	S_CLOCKUTC = 100,
+	S_TIOCMGET = 0x54f8,	/* 21752 */
+
+	/* experimental - need feedback
+	 * additional informations about the kernel
+	 * reserved 900 - 999
+	 */
+	S_KNAME = 900,	/* kernel name - arg1 pointer to a buffer of arg2 len */
+	S_CNAME = 910,	/* compiler name - arg1 pointer to a buffer of arg2 len */
+	S_CVERSION = 911,	/* compiler version - arg1 pointer to a buffer of arg2 len */
+	S_CDEFINES = 912,	/* compiler definitions - arg1 pointer to a buffer of arg2 len */
+	S_COPTIM = 913,	/* compiler flags - arg1 pointer to a buffer of arg2 len */
+
+	/* debug section
+	 * reserved 1000 - 1999
+	 */
+	S_DEBUGLEVEL = 1000,	/* debug level */
+	S_DEBUGDEVICE = 1001,	/* BIOS device number */
+	S_DEBUGKMTRACE = 1100,	/* KM_TRACE debug feature */
+
+};
 /**
  * Ssystem - 340
  *
@@ -173,10 +236,45 @@ void Ssync ( void )
  * for future compatibility. mode specifies a particular action as follows:
  * mode Meaning
  */
-int32_t Ssystem ( int16_t mode, int32_t arg1, int32_t arg2 )
-{
-	NOT_IMPLEMENTED(GDOS, Ssystem, 340);
-	return TOS_ENOSYS;
+ int32_t Ssystem(uint16_t mode, int32_t arg1, int32_t arg2)
+ {
+ 	//printf("SSystem(0x%04x, %x, %x)\n", mode, arg1, arg2);
+ 	switch(mode)
+ 	{
+ 		case 0xffff:
+ 		return 0;
+ 		case S_GETLVAL:
+ 		switch (arg1)
+ 		{
+ 			case _hz_200:
+ 			{
+ 			    struct timeval tv;
+ 			    if(gettimeofday(&tv, NULL) != 0)
+ 			        return 0;
+
+ 			    return (tv.tv_sec * 200) + (tv.tv_usec / 5000);
+ 			}
+ 			default:
+ 			{
+ 				return m68k_read_memory_32((uint32_t)arg1);
+ 			}
+ 		}
+ 		case S_GETCOOKIE:
+ 		{
+ 			uint32_t value;
+ 			int found = ReadCookie(arg1, &value);
+ 			printf("ReadCookie %08x, %d, %d\n", arg1, value, found);
+ 			if (arg2)
+ 			{
+ 				m68k_write_memory_32(arg2, value);
+ 				return found;
+ 			}
+ 			return value;
+ 		}
+ 		default:
+			NOT_IMPLEMENTED(GDOS, Ssystem_mode, mode);
+			return TOS_ENOSYS;
+ 	}
 }
 
 /**

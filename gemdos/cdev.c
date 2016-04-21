@@ -129,8 +129,7 @@ int16_t Cconos ( void )
  */
 int32_t Cconout ( int16_t c )
 {
-	NOT_IMPLEMENTED(GDOS, Cconout, 2);
-	return TOS_ENOSYS;
+	return write(1, &c, 1);
 }
 
 /**
@@ -165,10 +164,31 @@ int32_t Cconrs ( emuptr32_t buf )
  *
  * int32_t Cconws ( CONST BYTE *buf )
  */
-int32_t Cconws ( emuptr32_t buf )
+int32_t Cconws ( emuptr32_t address )
 {
-	NOT_IMPLEMENTED(GDOS, Cconws, 9);
-	return TOS_ENOSYS;
+	uint8_t buffer[256];
+	int done = 0;
+	while(!done)
+	{
+		int count = 0;
+		for(;count < 256;count++)
+		{
+			buffer[count] = m68k_read_memory_8(address++);
+			if (buffer[count] == 0)
+			{
+				count--;
+				done=1;
+				break;
+			}
+		}
+
+		int32_t bytes_written = write(1, buffer, count);
+		if (bytes_written < 0)
+		{
+			return MapErrno();
+		}
+	}
+	return 0;
 }
 
 /**

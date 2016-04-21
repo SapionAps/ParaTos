@@ -1,3 +1,6 @@
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "common.h"
 #include "tos_errors.h"
 
@@ -23,10 +26,23 @@ void Pause ( void )
  * the process is executed. This domain can influence the behaviour of the
  * process drastically in parts. The following apply: dom Meaning
  */
+int16_t DOMAIN = 1;
+
 int16_t Pdomain ( int16_t dom )
 {
-	NOT_IMPLEMENTED(GDOS, Pdomain, 281);
-	return TOS_ENOSYS;
+	if (dom > -1)
+	{
+		if (dom > 1)
+		{
+			return -1;
+		}
+		else
+		{
+			DOMAIN = dom;
+		}
+	}
+
+	return DOMAIN;
 }
 
 /**
@@ -96,8 +112,7 @@ int16_t Pgetauid ( void )
  */
 int32_t Pgetegid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetegid, 313);
-	return TOS_ENOSYS;
+	return getegid();
 }
 
 /**
@@ -117,8 +132,7 @@ int32_t Pgetegid ( void )
  */
 int32_t Pgeteuid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgeteuid, 312);
-	return TOS_ENOSYS;
+	return geteuid();
 }
 
 /**
@@ -130,8 +144,7 @@ int32_t Pgeteuid ( void )
  */
 int16_t Pgetgid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetgid, 276);
-	return TOS_ENOSYS;
+	return getgid();
 }
 
 /**
@@ -260,8 +273,7 @@ int32_t Pgetpriority ( int16_t which, int16_t who)
  */
 int16_t Pgetuid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetuid, 271);
-	return TOS_ENOSYS;
+	return getuid();
 }
 
 /**
@@ -740,7 +752,7 @@ int32_t Psigsetmask ( int32_t mask )
  */
 void Pterm ( uint16_t retcode )
 {
-	NOT_IMPLEMENTED(GDOS, Pterm, 76);
+	exit(retcode);
 }
 
 /**
@@ -753,7 +765,7 @@ void Pterm ( uint16_t retcode )
  */
 void Pterm0 ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pterm0, 0);
+	exit(0);
 }
 
 /**
@@ -766,6 +778,7 @@ void Pterm0 ( void )
 void Ptermres ( int32_t keepcnt, int16_t retcode )
 {
 	NOT_IMPLEMENTED(GDOS, Ptermres, 49);
+	exit(retcode);
 }
 
 /**
@@ -823,8 +836,7 @@ int16_t Ptrace(int16_t request, int16_t pid, emuptr32_t  addr, int32_t data)
  */
 int16_t Pumask ( int16_t mode )
 {
-	NOT_IMPLEMENTED(GDOS, Pumask, 307);
-	return TOS_ENOSYS;
+	return umask(mode);
 }
 
 /**

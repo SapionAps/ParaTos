@@ -87,6 +87,7 @@ int32_t MapErrno()
 		return TOS_ETIME;
 	case E2BIG:
 		return TOS_E2BIG;
+#ifdef LINUX
 	case ERESTART:
 		return TOS_ERESTART;
 	case ECHRNG:
@@ -147,6 +148,7 @@ int32_t MapErrno()
 		return TOS_ENAVAIL;
 	case EREMOTEIO:
 		return TOS_EREMOTEIO;
+#endif
 	case ENOTSOCK:
 		return TOS_ENOTSOCK;
 	case EDESTADDRREQ:

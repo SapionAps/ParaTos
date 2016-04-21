@@ -31,7 +31,6 @@ int32_t Maddalt ( emuptr32_t start, int32_t size )
  */
 emuptr32_t Malloc ( int32_t size )
 {
-	//printf("Malloc(%d)\n", size);
 	if (size == -1)
 	{
 		return 1024 * 1024 * 16;

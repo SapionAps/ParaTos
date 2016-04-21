@@ -41,6 +41,10 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 {
 	tos_header_t header;
 	FILE* file = fopen(filename,"r");
+	if (!file)
+	{
+		return 0;
+	}
 	fread(&header, sizeof(tos_header_t), 1, file);
 	printf("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 	header.PRG_tsize = be32toh(header.PRG_tsize);
@@ -77,7 +81,7 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 
 	}
 	m68k_write_memory_8(current++, 0);
-	while(current & 3 !=0)
+	while((current & 3) !=0)
 		current++;
 
 	// Set up rest of base page (offset is 32 bit aligned, so we can access the 32 bit values directly)

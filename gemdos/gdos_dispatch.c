@@ -5,7 +5,6 @@
 
 void dispatch_gdos_trap()
 {
-	uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t num = m68k_read_memory_16(sp);
 	int32_t retval = 0;
@@ -407,6 +406,9 @@ void dispatch_gdos_trap()
 	case  330	:
 		retval = Dchroot(m68k_read_memory_32(sp+2));
 		break;
+	case 331:
+		retval = Fstat64(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
+		break;
 	case  334	:
 		retval = Psetreuid(m68k_read_memory_16(sp+2), m68k_read_memory_16(sp+4));
 		break;
@@ -439,6 +441,9 @@ void dispatch_gdos_trap()
 		break;
 	case  345	:
 		retval = Psetpriority(m68k_read_memory_16(sp+2), m68k_read_memory_16(sp+4), m68k_read_memory_16(sp+6));
+		break;
+	case 349:
+		retval = Ffstat64(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4));
 		break;
 	case  1296	:
 		retval = Dxopendir(m68k_read_memory_32(sp+2), m68k_read_memory_16(sp+6));

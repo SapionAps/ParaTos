@@ -5,9 +5,11 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include "common.h"
 #include "tos_errors.h"
+#include "gdos.h"
 
 #include "m68k.h"
 #include "m68kcpu.h"
@@ -218,8 +220,86 @@ int16_t Fclose ( int16_t handle )
  */
 int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 {
-	NOT_IMPLEMENTED(GDOS, Fcntl, 260);
-	return TOS_ENOSYS;
+	int32_t retval;
+	if (cmd <=7)
+		retval = fcntl(fh, cmd, arg, 0);
+	else {
+		pid_t nativePid;
+		switch (cmd)
+		{
+			case 0x5406: //TIOCGPGRP
+			retval = ioctl(fh, TIOCGPGRP, &nativePid);
+			m68k_write_memory_32(arg, nativePid);
+			//printf(" pid=%d ", m68k_read_memory_32(arg));
+			break;
+			case 0x5407: //TIOCSPGRP
+			nativePid = m68k_read_memory_32(arg);
+			retval = ioctl(fh, TIOCSPGRP, &nativePid);
+			break;
+			default:
+			retval = TOS_ENOSYS;
+			NOT_IMPLEMENTED(GDOS, Fcntl_cmd, cmd);
+		}
+	}
+	return retval;
+}
+
+static void convert_stat(const struct stat* st, uint32_t address)
+{
+	m68k_write_memory_64(address, st->st_dev);
+	m68k_write_memory_32(address+8, st->st_ino);
+	m68k_write_memory_32(address+12, st->st_mode);
+	m68k_write_memory_32(address+16, st->st_nlink);
+	m68k_write_memory_32(address+20, st->st_uid);
+	m68k_write_memory_32(address+24, st->st_gid);
+	m68k_write_memory_64(address+28, st->st_rdev);
+	m68k_write_memory_32(address+36, 0);//st->__st_high_atime);
+	m68k_write_memory_32(address+40, 0);//st->st_atime);
+	m68k_write_memory_32(address+44, st->st_atime);
+	m68k_write_memory_32(address+48, 0);//st->st_high_mtime);
+	m68k_write_memory_32(address+52, 0);//st->st_mtime);
+	m68k_write_memory_32(address+56, st->st_mtime);
+	m68k_write_memory_32(address+60, 0);//st->st_high_ctime);
+	m68k_write_memory_32(address+64, 0);//st->st_ctime);
+	m68k_write_memory_32(address+68, st->st_ctime);
+	m68k_write_memory_64(address+72, st->st_size);
+	m68k_write_memory_64(address+80, st->st_blocks);
+	m68k_write_memory_32(address+88, st->st_blksize);
+	m68k_write_memory_32(address+92, 0);
+	m68k_write_memory_32(address+96, 0);
+}
+
+int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
+{
+
+	//printf("Ffstat64(%d, 0x%08x)\n", fd, address);
+	struct stat st;
+	if(fstat(fd, &st) < 0)
+	{
+		return -errno;
+	}
+	else
+	{
+		convert_stat(&st, address);
+	}
+	return 0;
+}
+
+int16_t Fstat64 (uint16_t flag, uint32_t name, /*struct stat */ uint32_t address)
+{
+	char buffer[1024];
+	m68k_read_string(name, buffer, 1023, 1);
+	//printf("Fstat64(%d, %s, 0x%08x)\n", flag, buffer, address);
+	struct stat st;
+	if(stat(buffer, &st) < 0)
+	{
+		return -errno;
+	}
+	else
+	{
+		convert_stat(&st, address);
+	}
+	return 0;
 }
 
 /**
@@ -233,8 +313,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
  */
 int16_t Fcreate ( emuptr32_t fname, int16_t attr )
 {
-	NOT_IMPLEMENTED(GDOS, Fcreate, 60);
-	return TOS_ENOSYS;
+	return Fopen(fname, attr | 0x600);
 }
 
 /**
@@ -265,8 +344,11 @@ void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
  */
 int16_t Fdelete ( emuptr32_t fname )
 {
-	NOT_IMPLEMENTED(GDOS, Fdelete, 65);
-	return TOS_ENOSYS;
+	char buffer[1024];
+	m68k_read_string(fname, buffer, 1023, 1);
+	if (unlink(buffer) < 0)
+		return -errno;
+	return 0;
 }
 
 /**
@@ -387,8 +469,13 @@ int32_t Finstat ( int16_t fh )
  */
 int32_t Flink ( emuptr32_t oldname, emuptr32_t newname )
 {
-	NOT_IMPLEMENTED(GDOS, Flink, 301);
-	return TOS_ENOSYS;
+	char buffer1[1024];
+	char buffer2[1024];
+	m68k_read_string(oldname, buffer1, 1023, 1);
+	m68k_read_string(newname, buffer2, 1023, 1);
+	if (link(buffer1, buffer2) < 0)
+		return MapErrno();
+	return 0;
 }
 
 /**
@@ -507,8 +594,15 @@ int32_t Foutstat ( int16_t fh )
  */
 int16_t Fpipe ( emuptr32_t usrh )
 {
-	NOT_IMPLEMENTED(GDOS, Fpipe, 256);
-	return TOS_ENOSYS;
+	int pipefd[2];
+	int retval = pipe(pipefd);
+	if(retval != 0)
+	{
+		return MapErrno();
+	}
+	m68k_write_memory_16(usrh, pipefd[0]);
+	m68k_write_memory_16(usrh+2, pipefd[1]);
+	return 0;
 }
 
 /**
@@ -520,8 +614,14 @@ int16_t Fpipe ( emuptr32_t usrh )
  */
 int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
 {
-	NOT_IMPLEMENTED(GDOS, Fputchar, 264);
-	return TOS_ENOSYS;
+	char c = (char)ch;
+	int retval = write(fh, &c, 1);
+	if (retval < 0)
+	{
+		return MapErrno();
+	}
+	return retval;
+
 }
 
 /**
@@ -559,8 +659,17 @@ int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
  */
 int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
 {
-	NOT_IMPLEMENTED(GDOS, Freadlink, 303);
-	return TOS_ENOSYS;
+	char path[1024];
+	char* buffer = alloca(bufsiz);
+	m68k_read_string(name, path, 1023, 1);
+	int32_t retval = readlink(path, buffer, bufsiz);
+	if(retval < 0)
+	return MapErrno();
+	for(int i=0; i<retval; i++)
+	{
+		m68k_write_memory_8(buf+i,buffer[i]);
+	}
+	return retval;
 }
 
 /**
@@ -574,8 +683,13 @@ int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
  */
 int32_t Frename ( emuptr32_t oldname, emuptr32_t newname )
 {
-	NOT_IMPLEMENTED(GDOS, Frename, 86);
-	return TOS_ENOSYS;
+	char buffer1[1024];
+	char buffer2[1024];
+	m68k_read_string(oldname, buffer1, 1023, 1);
+	m68k_read_string(newname, buffer2, 1023, 1);
+	if (rename(buffer1, buffer2) < 0)
+		return MapErrno();
+	return 0;
 }
 
 /**
@@ -699,8 +813,13 @@ int16_t Fsnext ( void )
  */
 int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
 {
-	NOT_IMPLEMENTED(GDOS, Fsymlink, 302);
-	return TOS_ENOSYS;
+	char buffer1[1024];
+	char buffer2[1024];
+	m68k_read_string(oldname, buffer1, 1023, 1);
+	m68k_read_string(newname, buffer2, 1023, 1);
+	if (symlink(buffer1, buffer2) < 0)
+		return MapErrno();
+	return 0;
 }
 
 /**
@@ -721,7 +840,7 @@ int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
 	int32_t bytes_written = write(handle, buffer, count);
 	if (bytes_written < 0)
 	{
-		return -errno;
+		return MapErrno();
 	}
 	return bytes_written;
 }
