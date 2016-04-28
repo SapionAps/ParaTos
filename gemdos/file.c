@@ -750,10 +750,9 @@ int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds )
  * void Fsetdta ( DTA *buf )
  */
 
-static emuptr32_t CurrentDta;
 void Fsetdta ( emuptr32_t buf )
 {
-	CurrentDta = buf;
+	m68k_write_field(current_process, basepage_t, p_dta, buf);
 }
 
 /**
@@ -807,20 +806,24 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 	strcpy(priv->pattern, pattern);
 	priv->attr = attr;
 	priv->glob = glob;
-	printf(">>>opendir %s (%s) %04x\n", dir, pattern, attr);
 	priv->dirh = opendir(dir);
+
+	emuptr32_t current_dta = m68k_read_field(current_process, basepage_t, p_dta);
+
 	if (!priv->dirh)
 	{
-		printf(">>>not found\n");
 		free(priv);
-		m68k_write_memory_64(CurrentDta, (uint64_t)0);
+		m68k_write_memory_64(current_dta, (uint64_t)0);
 		return TOS_EFILNF;
 	}
 	else
 	{
-		printf(">>>fsnext\n");
-		m68k_write_memory_64(CurrentDta, (uint64_t)priv);
-		return Fsnext();
+		m68k_write_memory_64(current_dta, (uint64_t)priv);
+		int16_t retval = Fsnext();
+		if (retval == TOS_ENMFIL)
+			return TOS_EFILNF;
+		else
+			return retval;
 	}
 }
 
@@ -845,9 +848,10 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
  */
 int16_t Fsnext ( void )
 {
+	emuptr32_t current_dta = m68k_read_field(current_process, basepage_t, p_dta);
 	int16_t retval = TOS_ENMFIL;
 	bool glob = true;
-	struct DTAPrivate* priv = (struct DTAPrivate*)m68k_read_memory_64(CurrentDta);
+	struct DTAPrivate* priv = (struct DTAPrivate*)m68k_read_memory_64(current_dta);
 	if (!priv || !priv->dirh)
 	{
 		goto cleanup;
@@ -889,20 +893,19 @@ int16_t Fsnext ( void )
 	struct tm* t = localtime(&fileStat.st_mtime);
 	uint16_t time = ((t->tm_sec/2)&0xF) | (t->tm_min << 5) | (t->tm_hour << 11);
 	uint16_t date = t->tm_mday | ((t->tm_mon+1)<<5) | (((t->tm_year-80)&0x7f)<<9);
-	m68k_write_field(CurrentDta, struct DTA, d_time, time);
-	m68k_write_field(CurrentDta, struct DTA, d_date, date);
-	m68k_write_field(CurrentDta, struct DTA, d_length, (int32_t)fileStat.st_size);
-	m68k_write_field(CurrentDta, struct DTA, d_attrib, attrib);
-	m68k_write_string(CurrentDta+offsetof(struct DTA, d_fname), entry->d_name, 13);
+	m68k_write_field(current_dta, struct DTA, d_time, time);
+	m68k_write_field(current_dta, struct DTA, d_date, date);
+	m68k_write_field(current_dta, struct DTA, d_length, (int32_t)fileStat.st_size);
+	m68k_write_field(current_dta, struct DTA, d_attrib, attrib);
+	m68k_write_string(current_dta+offsetof(struct DTA, d_fname), entry->d_name, 13);
 
 cleanup:
 	if ( retval <0 || !glob)
 	{
-		printf(">>>cleanup \n");
 		if (priv->dirh)
 			closedir(priv->dirh);
 		free(priv);
-		m68k_write_memory_64(CurrentDta, (uint64_t)0);
+		m68k_write_memory_64(current_dta, (uint64_t)0);
 	}
 	return retval;
 }

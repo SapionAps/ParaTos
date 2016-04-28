@@ -6,6 +6,7 @@
 #include "byteorder.h"
 #include "m68k.h"
 #include "m68kcpu.h"
+#include "gdos.h"
 #include "loader.h"
 
 extern char **environ;

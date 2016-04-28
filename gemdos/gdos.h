@@ -172,6 +172,7 @@ uint16_t Sversion ( void );
 void Syield ( void );
 int32_t Sysconf ( int16_t n );
 
+
 // Data types
 struct DTA
 {
@@ -182,3 +183,26 @@ struct DTA
     int32_t   d_length;        /* File length         */
     int8_t    d_fname[14];     /* Filename            */
 } __attribute__((packed))__ ;
+
+typedef struct
+{
+   uint32_t p_lowtpa;       /* Start address of the TPA            */
+   uint32_t p_hitpa;        /* First byte after the end of the TPA */
+   uint32_t p_tbase;        /* Start address of the program code   */
+   int32_t  p_tlen;         /* Length of the program code          */
+   uint32_t p_dbase;        /* Start address of the DATA segment   */
+   int32_t  p_dlen;         /* Length of the DATA section          */
+   uint32_t p_bbase;        /* Start address of the BSS segment    */
+   int32_t  p_blen;         /* Length of the BSS section           */
+   uint32_t p_dta;          /* Pointer to the  DTA          */
+                            /* Warning: Points first to the        */
+                            /* command line !                      */
+   uint32_t p_parent;       /* Pointer to the basepage of the      */
+                            /* calling processes                   */
+   int32_t  p_resrvd0;      /* Reserved                            */
+   uint32_t p_env;          /* Address of the environment string   */
+   int8_t    p_resrvd1[80]; /* Reserved                            */
+   int8_t    p_cmdlin[128]; /* Command line                        */
+} __attribute__((packed)) basepage_t;
+
+extern emuptr32_t current_process; // Current process

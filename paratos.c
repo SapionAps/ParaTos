@@ -8,6 +8,7 @@
 
 #include "m68k.h"
 #include "m68kcpu.h"
+#include "gdos.h"
 #include "loader.h"
 #include "sysvars.h"
 #include "cookiejar.h"
@@ -68,6 +69,8 @@ void dispatch_xbios_trap()
     m68k_set_reg(M68K_REG_D0, retval);
 }
 
+emuptr32_t current_process;
+
 int main(int argc, char* argv[])
 {
 	const char const* const tt="01cd";
@@ -85,26 +88,26 @@ int main(int argc, char* argv[])
 	m68k_write_memory_32(_memtop, 0xffffff);
 	m68k_write_memory_32(phystop, 0xffffff+1);
 
-	basepage_t* bp = LoadExe(argv[1], argv+2, argc-2);
+	basepage_t *bp = LoadExe(argv[1], argv+2, argc-2);
     if (bp == 0)
     {
         fprintf(stderr, "error: cannot load %s.\n", argv[1]);
         return 1;
     }
+	current_process = (uint32_t)((void*)bp-(void*)memory);
 
 	m68k_init();
 	m68k_set_cpu_type(M68K_CPU_TYPE_68020);
 	m68k_pulse_reset();
 
 	uint32_t stack = bp->p_hitpa;
-	uint32_t base = (uint32_t)((uint64_t)bp-(uint64_t)memory);
 
 	stack-=4;
-	m68k_write_memory_32(stack, base);
+	m68k_write_memory_32(stack, current_process);
 	stack-=4;
 	m68k_write_memory_32(stack, 0);
 
-    m68k_set_reg(M68K_REG_SP, (uint32_t)(((uint64_t)bp-4)-(uint64_t)memory));
+    m68k_set_reg(M68K_REG_SP, current_process-4);
     m68k_set_reg(M68K_REG_SR, 0x0300);
     m68k_set_reg(M68K_REG_SP, stack);
     m68k_set_reg(M68K_REG_PC, bp->p_tbase);
