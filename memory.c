@@ -91,3 +91,50 @@ uint32_t m68k_read_string(uint32_t address, char* dest, uint32_t maxLen, int is_
 		dest[++i] = 0;
 	return i;
 }
+
+uint32_t m68k_write_string(uint32_t address, const char* value, uint32_t maxLen)
+{
+	uint32_t i = 0;
+	for(i=0; i<maxLen; i++)
+	{
+		m68k_write_memory_8(address+i, value[i]);
+		if (value[i] == 0)
+			break;
+	}
+	if(m68k_read_memory_8(address+i) != 0)
+		m68k_write_memory_8(address+(++i), 0);
+	return i;
+}
+
+void  m68k_read_array8(uint32_t address, char* dest, uint32_t size)
+{
+	for(uint32_t  i=0; i<size; i++)
+	{
+		dest[i] = m68k_read_memory_8(address+i);
+	}
+}
+
+void m68k_write_array8(uint32_t address, const char* value, uint32_t size)
+{
+	for(uint32_t  i=0; i<size; i++)
+	{
+		m68k_write_memory_8(address+i, value[i]);
+	}
+}
+
+void m68k_read_to_64(uint32_t address, uint64_t* dest)
+{
+	*dest = m68k_read_memory_64(address);
+}
+void m68k_read_to_32(uint32_t address, uint32_t* dest)
+{
+	*dest = m68k_read_memory_32(address);
+}
+void m68k_read_to_16(uint32_t address, uint16_t* dest)
+{
+	*dest = m68k_read_memory_16(address);
+}
+void m68k_read_to_8(uint32_t address, uint8_t* dest)
+{
+	*dest = m68k_read_memory_8(address);
+}

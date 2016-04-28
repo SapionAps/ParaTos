@@ -171,3 +171,14 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage );
 uint16_t Sversion ( void );
 void Syield ( void );
 int32_t Sysconf ( int16_t n );
+
+// Data types
+struct DTA
+{
+    int8_t    d_reserved[21];  /* Reserved for GEMDOS */
+    uint8_t   d_attrib;        /* File attributes     */
+    uint16_t  d_time;          /* Time                */
+    uint16_t  d_date;          /* Date                */
+    int32_t   d_length;        /* File length         */
+    int8_t    d_fname[14];     /* Filename            */
+} __attribute__((packed))__ ;

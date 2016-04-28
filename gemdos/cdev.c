@@ -266,7 +266,7 @@ int32_t Crawcin ( void )
     if (tcgetattr(0, &tp) != -1)
     {
 		save = tp;                          /* So we can restore settings later */
-	    tp.c_lflag &= ~ECHO;                /* ECHO off, other bits unchanged */
+		cfmakeraw(&tp);						/* Switch termial to raw mode */
 	    needRestore = (tcsetattr(0, TCSAFLUSH, &tp) != -1);
 	}
 
@@ -280,9 +280,9 @@ int32_t Crawcin ( void )
 	{
 		retval = input;
 	}
-
 	if (needRestore)
 		tcsetattr(STDIN_FILENO, TCSAFLUSH, &save);
+	//printf("Crawcin --> %08x %c\n", retval, retval);
 
 	return retval;
 }
@@ -296,6 +296,8 @@ int32_t Crawcin ( void )
  */
 int32_t Crawio ( int16_t w )
 {
-	NOT_IMPLEMENTED(GDOS, Crawio, 6);
-	return TOS_ENOSYS;
+	if((w & 0xff) == 0xff)
+		return Crawcin();
+	else
+		return Cconout(w);
 }

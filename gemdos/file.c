@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -6,14 +7,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <dirent.h>
 #include <fcntl.h>
+#include <time.h>
 #include "common.h"
 #include "tos_errors.h"
 #include "gdos.h"
-
-#include "m68k.h"
-#include "m68kcpu.h"
-
 /**
  * Fattrib - 67
  *
@@ -750,9 +749,11 @@ int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds )
  *
  * void Fsetdta ( DTA *buf )
  */
+
+static emuptr32_t CurrentDta;
 void Fsetdta ( emuptr32_t buf )
 {
-	NOT_IMPLEMENTED(GDOS, Fsetdta, 26);
+	CurrentDta = buf;
 }
 
 /**
@@ -764,10 +765,63 @@ void Fsetdta ( emuptr32_t buf )
  *
  * int32_t Fsfirst ( const int8_t *filename, int16_t attr )
  */
+struct DTAPrivate
+{
+	DIR* dirh;
+	int16_t attr;
+	bool glob;
+	char pattern[1];
+};
+
 int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 {
-	NOT_IMPLEMENTED(GDOS, Fsfirst, 78);
-	return TOS_ENOSYS;
+	char path[1024];
+	int s=m68k_read_string(filename, path, 1023, 1);
+	char* dir = path;
+	char* pattern = path;
+	bool glob = false;
+	for(char* c = path+s-1;c>=path;c--)
+	{
+		//printf("%s\n", c);
+		if(*c == '/')
+		{
+			*c = '\0';
+			pattern=c+1;
+			break;
+		}
+		if (*c == '*' || *c == '?')
+		{
+			glob = true;
+		}
+	}
+	if (pattern == dir)
+	{
+		dir = ".";
+	}
+	if (strcmp("*.*", pattern) == 0 )
+	{
+		pattern = "";
+	}
+
+	struct DTAPrivate* priv = calloc(sizeof(struct DTAPrivate)+strlen(pattern),1);
+	strcpy(priv->pattern, pattern);
+	priv->attr = attr;
+	priv->glob = glob;
+	printf(">>>opendir %s (%s) %04x\n", dir, pattern, attr);
+	priv->dirh = opendir(dir);
+	if (!priv->dirh)
+	{
+		printf(">>>not found\n");
+		free(priv);
+		m68k_write_memory_64(CurrentDta, (uint64_t)0);
+		return TOS_EFILNF;
+	}
+	else
+	{
+		printf(">>>fsnext\n");
+		m68k_write_memory_64(CurrentDta, (uint64_t)priv);
+		return Fsnext();
+	}
 }
 
 /**
@@ -791,8 +845,66 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
  */
 int16_t Fsnext ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Fsnext, 79);
-	return TOS_ENOSYS;
+	int16_t retval = TOS_ENMFIL;
+	bool glob = true;
+	struct DTAPrivate* priv = (struct DTAPrivate*)m68k_read_memory_64(CurrentDta);
+	if (!priv || !priv->dirh)
+	{
+		goto cleanup;
+	}
+	glob = priv->glob;
+	struct dirent* entry;
+	struct stat fileStat;
+	int attrib;
+	while(true)
+	{
+		attrib = 0;
+		entry = readdir(priv->dirh);
+		if (!entry)
+		{
+			goto cleanup;
+		}
+
+		// .. and . only match exactly
+		if (glob && (strcmp("..", entry->d_name) == 0 || strcmp(".", entry->d_name) == 0))
+		{
+			continue;
+		}
+
+		if (priv->pattern[0] == 0
+			|| strcasecmp(priv->pattern, entry->d_name) == 0)
+		{
+			fstatat(dirfd(priv->dirh),entry->d_name, &fileStat, 0);
+			if(entry->d_name[0] == '.')
+				attrib |= 0x02;
+			if((fileStat.st_mode & S_IFMT) == S_IFDIR)
+				attrib |= 0x10;
+			if((fileStat.st_mode & 0200) == 0)
+				attrib |= 0x1;
+			if ((attrib & priv->attr) == attrib)
+				break;
+		}
+	}
+	retval = TOS_E_OK;
+	struct tm* t = localtime(&fileStat.st_mtime);
+	uint16_t time = ((t->tm_sec/2)&0xF) | (t->tm_min << 5) | (t->tm_hour << 11);
+	uint16_t date = t->tm_mday | ((t->tm_mon+1)<<5) | (((t->tm_year-80)&0x7f)<<9);
+	m68k_write_field(CurrentDta, struct DTA, d_time, time);
+	m68k_write_field(CurrentDta, struct DTA, d_date, date);
+	m68k_write_field(CurrentDta, struct DTA, d_length, (int32_t)fileStat.st_size);
+	m68k_write_field(CurrentDta, struct DTA, d_attrib, attrib);
+	m68k_write_string(CurrentDta+offsetof(struct DTA, d_fname), entry->d_name, 13);
+
+cleanup:
+	if ( retval <0 || !glob)
+	{
+		printf(">>>cleanup \n");
+		if (priv->dirh)
+			closedir(priv->dirh);
+		free(priv);
+		m68k_write_memory_64(CurrentDta, (uint64_t)0);
+	}
+	return retval;
 }
 
 /**
