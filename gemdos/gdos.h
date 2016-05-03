@@ -172,6 +172,8 @@ uint16_t Sversion ( void );
 void Syield ( void );
 int32_t Sysconf ( int16_t n );
 
+const char* filename8_3(char* dest, const char* source);
+
 
 // Data types
 struct DTA
@@ -203,6 +205,8 @@ typedef struct
    uint32_t p_env;          /* Address of the environment string   */
    int8_t    p_resrvd1[80]; /* Reserved                            */
    int8_t    p_cmdlin[128]; /* Command line                        */
+   // the following are non-standard extensions
+   int32_t mint_domain;
 } __attribute__((packed)) basepage_t;
 
 extern emuptr32_t current_process; // Current process

@@ -1,4 +1,10 @@
+#include <unistd.h>
+#include <alloca.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "common.h"
+#include "gdos.h"
 #include "tos_errors.h"
 
 /**
@@ -112,6 +118,8 @@ int16_t Dfree ( emuptr32_t buf, int16_t driveno )
 	return TOS_ENOSYS;
 }
 
+char* get_current_dir_name(void);
+
 /**
  * Dgetcwd - 315
  *
@@ -121,10 +129,25 @@ int16_t Dfree ( emuptr32_t buf, int16_t driveno )
  *
  * int32_t Dgetcwd ( int8_t *path, int16_t drv, int16_t size )
  */
-int32_t Dgetcwd ( emuptr32_t path, int16_t drv, int16_t size )
+int32_t Dgetcwd ( emuptr32_t path, int16_t driveno, int16_t size )
 {
-	NOT_IMPLEMENTED(GDOS, Dgetcwd, 315);
-	return TOS_ENOSYS;
+	int32_t retval = TOS_EDRIVE;
+	if(driveno == 0 || driveno == 'u'-'a'+1)
+	{
+		char* unix_path=get_current_dir_name();
+		size_t required = strlen(unix_path)+1;
+		if(size >= required)
+		{
+			m68k_write_string(path, unix_path, size);
+			retval = TOS_E_OK;
+		}
+		else
+		{
+			retval = TOS_ENAMETOOLONG;
+		}
+		free(unix_path);
+	}
+	return retval;
 }
 
 /**
@@ -134,8 +157,7 @@ int32_t Dgetcwd ( emuptr32_t path, int16_t drv, int16_t size )
  */
 int16_t Dgetdrv ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Dgetdrv, 25);
-	return TOS_ENOSYS;
+	return 'u' - 'a';
 }
 
 /**
@@ -149,8 +171,34 @@ int16_t Dgetdrv ( void )
  */
 int16_t Dgetpath ( emuptr32_t path, int16_t driveno )
 {
-	NOT_IMPLEMENTED(GDOS, Dgetpath, 71);
-	return TOS_ENOSYS;
+	if(driveno == 0 || driveno == 'u'-'a'+1)
+	{
+		char* unix_path=get_current_dir_name();
+		char* tmp=alloca(strlen(unix_path)+1);
+
+		char* d=tmp;
+		for(const char* s=unix_path;*s;)
+		{
+			if(*s == '/')
+			{
+				*d++='\\';
+				s++;
+			}
+			else
+			{
+				s=filename8_3(d,s);
+				while(*d)
+					d++;
+			}
+		}
+		m68k_write_string(path, tmp, 1024);
+		free(unix_path);
+		return TOS_E_OK;
+	}
+	else
+	{
+		return TOS_EDRIVE;
+	}
 }
 
 /**
@@ -266,8 +314,7 @@ int32_t Drewinddir ( int32_t handle )
  */
 int32_t Dsetdrv ( int16_t drv )
 {
-	NOT_IMPLEMENTED(GDOS, Dsetdrv, 14);
-	return TOS_ENOSYS;
+	return 1 << ('u'-'a');
 }
 
 /**

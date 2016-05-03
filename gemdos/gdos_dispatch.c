@@ -161,7 +161,7 @@ void dispatch_gdos_trap()
 		retval = Mfree(m68k_read_memory_32(sp+2));
 		break;
 	case   74	:
-		retval = Mshrink(m68k_read_memory_32(sp+2), m68k_read_memory_32(sp+6));
+		retval = Mshrink(m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
 		break;
 	case   75	:
 		retval = Pexec(m68k_read_memory_16(sp+2), sp+4);
@@ -176,7 +176,7 @@ void dispatch_gdos_trap()
 		retval = Fsnext();
 		break;
 	case   86	:
-		retval = Frename(m68k_read_memory_32(sp+2), m68k_read_memory_32(sp+6));
+		retval = Frename(m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
 		break;
 	case   87	:
 		Fdatime(m68k_read_memory_32(sp+2), m68k_read_memory_16(sp+6), m68k_read_memory_16(sp+8));

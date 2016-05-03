@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include "common.h"
 #include "tos_errors.h"
+#include "gdos.h"
 
 /**
  * Pause - 289
@@ -27,8 +28,6 @@ void Pause ( void )
  * the process is executed. This domain can influence the behaviour of the
  * process drastically in parts. The following apply: dom Meaning
  */
-int16_t DOMAIN = 1;
-
 int16_t Pdomain ( int16_t dom )
 {
 	if (dom > -1)
@@ -39,11 +38,11 @@ int16_t Pdomain ( int16_t dom )
 		}
 		else
 		{
-			DOMAIN = dom;
+			m68k_write_field(current_process, basepage_t, mint_domain, dom);
 		}
 	}
 
-	return DOMAIN;
+	return m68k_read_field(current_process, basepage_t, mint_domain);
 }
 
 /**

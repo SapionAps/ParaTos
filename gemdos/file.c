@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -13,6 +14,8 @@
 #include "common.h"
 #include "tos_errors.h"
 #include "gdos.h"
+
+
 /**
  * Fattrib - 67
  *
@@ -312,7 +315,7 @@ int16_t Fstat64 (uint16_t flag, uint32_t name, /*struct stat */ uint32_t address
  */
 int16_t Fcreate ( emuptr32_t fname, int16_t attr )
 {
-	return Fopen(fname, attr | 0x600);
+	return Fopen(fname, 0x602);
 }
 
 /**
@@ -520,6 +523,7 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
 	char buffer[1024];
 	m68k_read_string(fname, buffer, 1023, 1);
 	int flags = 0;
+	printf("FOpen(%x)\n", mode);
  	switch(mode & 3)
 	{
 		case 0:
@@ -860,6 +864,7 @@ int16_t Fsnext ( void )
 	struct dirent* entry;
 	struct stat fileStat;
 	int attrib;
+	char fn83[13];
 	while(true)
 	{
 		attrib = 0;
@@ -875,8 +880,10 @@ int16_t Fsnext ( void )
 			continue;
 		}
 
+		filename8_3(fn83, entry->d_name);
 		if (priv->pattern[0] == 0
-			|| strcasecmp(priv->pattern, entry->d_name) == 0)
+			|| strcasecmp(priv->pattern, entry->d_name) == 0
+			|| strcasecmp(priv->pattern, fn83) == 0)
 		{
 			fstatat(dirfd(priv->dirh),entry->d_name, &fileStat, 0);
 			if(entry->d_name[0] == '.')
@@ -897,10 +904,10 @@ int16_t Fsnext ( void )
 	m68k_write_field(current_dta, struct DTA, d_date, date);
 	m68k_write_field(current_dta, struct DTA, d_length, (int32_t)fileStat.st_size);
 	m68k_write_field(current_dta, struct DTA, d_attrib, attrib);
-	m68k_write_string(current_dta+offsetof(struct DTA, d_fname), entry->d_name, 13);
+	m68k_write_string(current_dta+offsetof(struct DTA, d_fname), fn83, 13);
 
 cleanup:
-	if ( retval <0 || !glob)
+	if (priv && (retval <0 || !glob))
 	{
 		if (priv->dirh)
 			closedir(priv->dirh);
@@ -975,4 +982,101 @@ int32_t Fxattr ( int16_t flag, emuptr32_t name, emuptr32_t xattr )
 {
 	NOT_IMPLEMENTED(GDOS, Fxattr, 300);
 	return TOS_ENOSYS;
+}
+
+#define END_OF_NAME(c) ((c)==0 || (c)=='/' || (c)=='\\')
+
+const char* filename8_3(char* dest, const char* source)
+{
+	bool needsHash = false;
+	bool uppercase = !m68k_read_field(current_process, basepage_t, mint_domain);
+	int slen = 0; const char* retval;
+	for(slen=0;!END_OF_NAME(source[slen]);slen++);
+	retval = source + slen;
+
+	char* d=dest;
+	if (source[0] == '.' && ( slen == 1 || slen == 2 && source[1] == '.'))
+	{
+		// special case for . and ..
+		for(int i = 0; i<slen;i++)
+		{
+			*d++='.';
+		}
+		*d++=0;
+		return retval;
+	}
+
+	// Find last dot in filename
+	const char* dot=0;
+	for (const char* c=source+slen-1; c>=source; c--)
+	{
+		if (*c == '.')
+		{
+			dot=c;
+			break;
+		}
+	}
+
+	// If last dot is at the front of the filename, treat as no extension
+	const char* s=source;
+	if (dot == source)
+	{
+		dot=0;
+	}
+
+	// If any parts of the file name don't fit withing the 8.3 limits, we'll need to mangle the filename
+	if(slen > 12 || dot && ((dot-source) > 8 || (slen - (dot-source)) > 4) ||!dot && slen > 8)
+	{
+		needsHash=true;
+	}
+
+	for(int i=0; i<8; i++)
+	{
+		if(END_OF_NAME(*s) || (dot && s==dot))
+		{
+			// make room for the hash
+			if(needsHash)
+			{
+				for(int j=i; j<8; j++)
+					*d++='~';
+			}
+			break;
+		}
+		if( *s == '.')
+		{
+			*d++='_'; s++;
+			needsHash=true;
+		}
+		else
+		{
+			*d++=uppercase?toupper(*s++):*s++;
+		}
+	}
+
+	if(dot)
+	{
+		*d++='.';
+		s=dot+1;
+		for(int i=0; i<3; i++)
+		{
+			if(END_OF_NAME(*s))
+				break;
+			*d++=uppercase?toupper(*s++):*s++;
+		}
+	}
+	*d=0;
+
+	if(needsHash)
+	{
+		static const char hash_alphabet[32] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+		uint16_t hash=0xf00f;
+		for (s=source; !END_OF_NAME(s[1]); s++)
+			hash = (hash << 3) ^ (hash >> 5) ^ *s ^ (s[1] << 8);
+		hash = (hash << 3) ^ (hash >> 5) ^ *s;
+		dest[4]='~';
+		dest[5]=hash_alphabet[(hash>>10)&0x1f];
+		dest[6]=hash_alphabet[(hash>>5)&0x1f];
+		dest[7]=hash_alphabet[hash&0x1f];
+	}
+	return retval;
 }
