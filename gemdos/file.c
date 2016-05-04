@@ -523,7 +523,6 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
 	char buffer[1024];
 	m68k_read_string(fname, buffer, 1023, 1);
 	int flags = 0;
-	printf("FOpen(%x)\n", mode);
  	switch(mode & 3)
 	{
 		case 0:

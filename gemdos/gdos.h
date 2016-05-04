@@ -173,6 +173,7 @@ void Syield ( void );
 int32_t Sysconf ( int16_t n );
 
 const char* filename8_3(char* dest, const char* source);
+void InitMemory();
 
 
 // Data types

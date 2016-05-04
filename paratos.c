@@ -83,10 +83,8 @@ int main(int argc, char* argv[])
 	memory_sz = 16 * 1024 * 1024;
 	memory = calloc(1, memory_sz);// 16 Mb memory
 
-	InitCookieJar(0x1000);
-	m68k_write_memory_32(_membot, 0x2000);
-	m68k_write_memory_32(_memtop, 0xffffff);
-	m68k_write_memory_32(phystop, 0xffffff+1);
+	InitMemory();
+	InitCookieJar();
 
 	basepage_t *bp = LoadExe(argv[1], argv+2, argc-2);
     if (bp == 0)

@@ -47,7 +47,6 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 		return 0;
 	}
 	fread(&header, sizeof(tos_header_t), 1, file);
-	printf("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 	header.PRG_tsize = be32toh(header.PRG_tsize);
 	header.PRG_dsize = be32toh(header.PRG_dsize);
 	header.PRG_bsize = be32toh(header.PRG_bsize);
@@ -57,7 +56,7 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 	header.ABSFLAG = be16toh(header.ABSFLAG);
 	printf("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 
-	uint32_t base_tpa = 0x2000;
+	uint32_t base_tpa = Malloc(Malloc(-1));
 
 	// Copy command line
 	uint32_t command_line = base_tpa+offsetof(basepage_t, p_cmdlin);
