@@ -1,3 +1,4 @@
+#include <time.h>
 #include "common.h"
 #include "tos_errors.h"
 
@@ -27,8 +28,9 @@ int32_t Talarm ( int32_t time )
  */
 uint32_t Tgetdate ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Tgetdate, 42);
-	return TOS_ENOSYS;
+	time_t current=time(NULL);
+	struct tm* t = localtime(&current);
+	return t->tm_mday | ((t->tm_mon+1)<<5) | (((t->tm_year-80)&0x7f)<<9);
 }
 
 /**
@@ -38,8 +40,9 @@ uint32_t Tgetdate ( void )
  */
 uint32_t Tgettime ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Tgettime, 44);
-	return TOS_ENOSYS;
+	time_t current=time(NULL);
+	struct tm* t = localtime(&current);
+	return ((t->tm_sec/2)&0xF) | (t->tm_min << 5) | (t->tm_hour << 11);
 }
 
 /**

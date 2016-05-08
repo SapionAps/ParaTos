@@ -256,13 +256,13 @@ static void convert_stat(const struct stat* st, uint32_t address)
 	m68k_write_memory_32(address+24, st->st_gid);
 	m68k_write_memory_64(address+28, st->st_rdev);
 	m68k_write_memory_32(address+36, 0);//st->__st_high_atime);
-	m68k_write_memory_32(address+40, 0);//st->st_atime);
+	m68k_write_memory_32(address+40, st->st_atime);
 	m68k_write_memory_32(address+44, st->st_atime);
 	m68k_write_memory_32(address+48, 0);//st->st_high_mtime);
-	m68k_write_memory_32(address+52, 0);//st->st_mtime);
+	m68k_write_memory_32(address+52, st->st_mtime);
 	m68k_write_memory_32(address+56, st->st_mtime);
 	m68k_write_memory_32(address+60, 0);//st->st_high_ctime);
-	m68k_write_memory_32(address+64, 0);//st->st_ctime);
+	m68k_write_memory_32(address+64, st->st_ctime);
 	m68k_write_memory_32(address+68, st->st_ctime);
 	m68k_write_memory_64(address+72, st->st_size);
 	m68k_write_memory_64(address+80, st->st_blocks);
@@ -403,7 +403,7 @@ int32_t Ffchown ( int16_t fd, int16_t uid, int16_t gid )
 int16_t Fforce ( int16_t stdh, int16_t nonstdh )
 {
 	NOT_IMPLEMENTED(GDOS, Fforce, 70);
-	return TOS_ENOSYS;
+	return TOS_E_OK;
 }
 
 /**
@@ -429,8 +429,7 @@ int32_t Fgetchar ( int16_t fh, int16_t mode )
  */
 emuptr32_t Fgetdta ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Fgetdta, 47);
-	return TOS_ENOSYS;
+	return m68k_read_field(current_process, basepage_t, p_dta);
 }
 
 /**

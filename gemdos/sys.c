@@ -5,10 +5,15 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <sys/sysinfo.h>
 #include "common.h"
 #include "tos_errors.h"
 #include "sysvars.h"
 #include "cookiejar.h"
+#include <linux/unistd.h>
+#include <linux/kernel.h>
+#include <signal.h>
+
 
 #include "m68k.h"
 #include "m68kcpu.h"
@@ -167,7 +172,7 @@ int32_t Srealloc ( int32_t len )
  */
 void Ssync ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Ssync, 336);
+	sync();
 }
 
 enum ssystem_mode
@@ -242,28 +247,33 @@ enum ssystem_mode
  	switch(mode)
  	{
  		case 0xffff:
- 		return 0;
- 		case S_GETLVAL:
- 		switch (arg1)
- 		{
- 			case _hz_200:
- 			{
- 			    struct timeval tv;
- 			    if(gettimeofday(&tv, NULL) != 0)
- 			        return 0;
-
- 			    return (tv.tv_sec * 200) + (tv.tv_usec / 5000);
- 			}
- 			default:
- 			{
- 				return m68k_read_memory_32((uint32_t)arg1);
- 			}
- 		}
+			return 0;
+		case S_OSNAME:
+			return 0x70544f53; // 'pTOS'
+		case S_OSXNAME:
+			return 0;
+		case S_OSVERSION:
+			return 0x00000061; // 0.0.0a
+		case S_OSHEADER:
+		switch (arg1)
+		{
+			case 0:
+			return 0;
+			case 2:
+			return 0x0400;
+			default:
+			printf("Invalid S_OSHEADER value %x\n", arg1);
+			return TOS_EINVAL;
+		}
+		case S_OSCOMPILE:
+			return 0x0014; // 68020
+		case S_OSFEATURES:
+			return 0x3; // memory protection + virtual memory
  		case S_GETCOOKIE:
  		{
  			uint32_t value;
  			int found = ReadCookie(arg1, &value);
- 			printf("ReadCookie %08x, %d, %d\n", arg1, value, found);
+ 			printf("ReadCookie %08x(%c%c%c%c), %d, %d\n", arg1, arg1>>24, arg1>>16, arg1>>8, arg1, value, found);
  			if (arg2)
  			{
  				m68k_write_memory_32(arg2, value);
@@ -271,6 +281,33 @@ enum ssystem_mode
  			}
  			return value;
  		}
+		case S_SETCOOKIE:
+			return TOS_EACCDN; // Changing cookies from client code does currently not make sense in paratos
+		case S_GETLVAL:
+	 		switch (arg1)
+	 		{
+	 			case _hz_200:
+	 			{
+	 			    struct timeval tv;
+	 			    if(gettimeofday(&tv, NULL) != 0)
+	 			        return 0;
+
+	 			    return (tv.tv_sec * 200) + (tv.tv_usec / 5000);
+	 			}
+	 			default:
+	 			{
+	 				return m68k_read_memory_32((uint32_t)(arg1&0xffff));
+	 			}
+	 		}
+		case S_GETWVAL:
+ 			return m68k_read_memory_16((uint32_t)(arg1&0xffff));
+		case S_GETBVAL:
+ 			return m68k_read_memory_8((uint32_t)(arg1&0xffff));
+		case S_SETLVAL:
+		case S_SETWVAL:
+		case S_SETBVAL:
+		case S_SECLEVEL:
+			return TOS_EACCDN;
  		default:
 			NOT_IMPLEMENTED(GDOS, Ssystem_mode, mode);
 			return TOS_ENOSYS;
@@ -304,8 +341,9 @@ enum ssystem_mode
  */
 int32_t Super ( emuptr32_t stack )
 {
-	NOT_IMPLEMENTED(GDOS, Super, 32);
-	return TOS_ENOSYS;
+	// Emulating Mint SECURELEVEL>1 behavior for a non-root process:
+	kill(getpid(), SIGSYS);
+	return TOS_EACCDN;
 }
 
 /**
@@ -335,8 +373,14 @@ int32_t Super ( emuptr32_t stack )
  */
 int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
 {
-	NOT_IMPLEMENTED(GDOS, Suptime, 319);
-	return TOS_ENOSYS;
+	struct sysinfo info;
+	sysinfo(&info);
+	m68k_write_memory_32(uptime, info.uptime);
+	m68k_write_memory_32(loadaverage, (int32_t)(info.loads[0]*2048));
+	m68k_write_memory_32(loadaverage+1, (int32_t)(info.loads[1]*2048));
+	m68k_write_memory_32(loadaverage+2, (int32_t)(info.loads[2]*2048));
+
+	return TOS_E_OK;
 }
 
 /**

@@ -126,7 +126,8 @@ void InitCookieJar()
 	m68k_write_memory_32(_p_cookies, base);
 	m68k_write_memory_32(base, 0);
 	m68k_write_memory_32(base+4, numCookies);
-	WriteCookie(0x4d694e54, 0x110); // MiNT
+	WriteCookie(0x4d694e54, 0x200); // MiNT
 	WriteCookie(0x5f435055, 20); // _CPU => 20
 	WriteCookie(0x5f465055, 0); // _FPU => none
+	WriteCookie(0x5f4d4348, 0x60000); // _MCH => 6/0 (paraTos specific)
 }

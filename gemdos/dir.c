@@ -2,6 +2,9 @@
 #include <alloca.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <errno.h>
 
 #include "common.h"
 #include "gdos.h"
@@ -34,8 +37,14 @@ int32_t Dchroot( emuptr32_t path )
  */
 int32_t Dclosedir ( int32_t dirhandle )
 {
-	NOT_IMPLEMENTED(GDOS, Dclosedir, 299);
-	return TOS_ENOSYS;
+	int32_t retval = TOS_E_OK;
+	DIR* dirP = (DIR*)m68k_read_memory_64(dirhandle);
+	retval = Mfree(dirhandle);
+	if (retval < 0)
+		return retval;
+	if (!closedir(dirP))
+		return TOS_EIHNDL;
+	return retval;
 }
 
 /**
@@ -232,8 +241,21 @@ int32_t Dlock ( int16_t mode, int16_t drv )
  */
 int32_t Dopendir ( emuptr32_t name, int16_t flag )
 {
-	NOT_IMPLEMENTED(GDOS, Dopendir, 296);
-	return TOS_ENOSYS;
+	if(flag == 1)
+		return TOS_ENOSYS;
+	char buffer[1024];
+	m68k_read_string(name, buffer, 1023, 1);
+	DIR* dirP = opendir(buffer);
+	if(dirP)
+	{
+		int32_t dirH = Malloc(16); // Allocate memory to store the dir pointer
+		m68k_write_memory_64(dirH, (uint64_t)dirP);
+		return dirH;
+	}
+	else
+	{
+		return TOS_EPTHNF;
+	}
 }
 
 /**
@@ -249,7 +271,18 @@ int32_t Dopendir ( emuptr32_t name, int16_t flag )
  */
 int32_t Dpathconf ( emuptr32_t name, int16_t mode )
 {
-	NOT_IMPLEMENTED(GDOS, Dpathconf, 292);
+	switch (mode)
+	{
+		case 0:
+		return 1024;
+		case 2:
+		return PATH_MAX;
+		case 3:
+		return NAME_MAX;
+		case 6:
+		return 0;
+	}
+	NOT_IMPLEMENTED(GDOS, Dpathconf_mode, mode);
 	return TOS_ENOSYS;
 }
 
@@ -274,8 +307,17 @@ int32_t Dpathconf ( emuptr32_t name, int16_t mode )
  */
 int32_t Dreaddir ( int16_t len, int32_t dirhandle, emuptr32_t buf )
 {
-	NOT_IMPLEMENTED(GDOS, Dreaddir, 297);
-	return TOS_ENOSYS;
+	int32_t retval = TOS_E_OK;
+	DIR* dirP = (DIR*)m68k_read_memory_64(dirhandle);
+	struct dirent *entry = readdir(dirP);
+	if(! entry)
+	{
+		return errno?TOS_EIHNDL:TOS_ENMFIL;
+	}
+	m68k_write_memory_32(buf, entry->d_ino&0xffffffff);
+	m68k_write_string(buf+4, entry->d_name, NAME_MAX);
+	return TOS_E_OK;
+
 }
 
 /**
@@ -300,10 +342,12 @@ int32_t Dreadlabel ( emuptr32_t path, emuptr32_t label, int16_t length )
  * the next call of Dreaddir reads the first entry in the directory once
  * more.
  */
-int32_t Drewinddir ( int32_t handle )
+int32_t Drewinddir ( int32_t dirhandle )
 {
-	NOT_IMPLEMENTED(GDOS, Drewinddir, 298);
-	return TOS_ENOSYS;
+	int32_t retval = TOS_E_OK;
+	DIR* dirP = (DIR*)m68k_read_memory_64(dirhandle);
+	rewinddir(dirP);
+	return retval;
 }
 
 /**

@@ -78,8 +78,7 @@ int32_t Pexec ( uint16_t mode, emureg_t sp )
  */
 int16_t Pfork ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pfork, 283);
-	return TOS_ENOSYS;
+	return fork();
 }
 
 /**
