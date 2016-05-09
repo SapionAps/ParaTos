@@ -1,4 +1,5 @@
 #include <time.h>
+#include <sys/time.h>
 #include "common.h"
 #include "tos_errors.h"
 
@@ -76,8 +77,22 @@ uint32_t Tgettime ( void )
  */
 int32_t Tgettimeofday ( emuptr32_t tv, emuptr32_t tzp )
 {
-	NOT_IMPLEMENTED(GDOS, Tgettimeofday, 341);
-	return TOS_ENOSYS;
+	struct timeval timeval;
+	struct timezone timezone;
+	if( 0 == gettimeofday(&timeval, &timezone))
+	{
+		if( tv )
+		{
+			m68k_write_memory_32(tv, timeval.tv_sec);
+			m68k_write_memory_32(tv+4, timeval.tv_usec);
+		}
+		if ( tzp )
+		{
+			m68k_write_memory_32(tzp, timezone.tz_minuteswest);
+			m68k_write_memory_32(tzp+4, timezone.tz_dsttime);
+		}
+	}
+	return TOS_E_OK;
 }
 
 /**
