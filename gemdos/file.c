@@ -246,11 +246,66 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 	return retval;
 }
 
+// Mint file types are different from linux
+#define MINT_S_IFSOCK      0010000 /* Socket.  */
+#define MINT_S_IFCHR       0020000 /* Character device.  */
+#define MINT_S_IFDIR       0040000 /* Directory.  */
+#define MINT_S_IFBLK       0060000 /* Block device.  */
+#define MINT_S_IFREG       0100000 /* Regular file.  */
+#define MINT_S_IFIFO       0120000 /* FIFO.  */
+#define MINT_S_IFMEM       0140000 /* memory region or process */
+#define MINT_S_IFLNK       0160000 /* Symbolic link.  */
+
+
 static void convert_stat(const struct stat* st, uint32_t address)
 {
+	mode_t mint_mode = st->st_mode & 007777; // permission bits are the same
+	switch(st->st_mode & S_IFMT)
+	{
+		case S_IFSOCK:
+		{
+			mint_mode |= MINT_S_IFSOCK;
+			break;
+		}
+		case S_IFLNK:
+		{
+			mint_mode |= MINT_S_IFLNK;
+			break;
+		}
+		case S_IFREG:
+		{
+			mint_mode |= MINT_S_IFREG;
+			break;
+		}
+		case S_IFBLK:
+		{
+			mint_mode |= MINT_S_IFBLK;
+			break;
+		}
+		case S_IFDIR:
+		{
+			mint_mode |= MINT_S_IFDIR;
+			break;
+		}
+		case S_IFCHR:
+		{
+			mint_mode |= MINT_S_IFCHR;
+			break;
+		}
+		case S_IFIFO:
+		{
+			mint_mode |= MINT_S_IFIFO;
+			break;
+		}
+		default:
+		{
+			fprintf(stderr, "Warning: Unknown S_IFMT %0x\n", (st->st_mode & S_IFMT));
+			mint_mode |= MINT_S_IFREG;
+		}
+	}
 	m68k_write_memory_64(address, st->st_dev);
 	m68k_write_memory_32(address+8, st->st_ino);
-	m68k_write_memory_32(address+12, st->st_mode);
+	m68k_write_memory_32(address+12, mint_mode);
 	m68k_write_memory_32(address+16, st->st_nlink);
 	m68k_write_memory_32(address+20, st->st_uid);
 	m68k_write_memory_32(address+24, st->st_gid);
@@ -278,7 +333,7 @@ int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
 	struct stat st;
 	if(fstat(fd, &st) < 0)
 	{
-		return -errno;
+		return MapErrno();
 	}
 	else
 	{
@@ -287,15 +342,15 @@ int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
 	return 0;
 }
 
-int16_t Fstat64 (uint16_t flag, uint32_t name, /*struct stat */ uint32_t address)
+int16_t Fstat64 (uint16_t lflag, uint32_t name, /*struct stat */ uint32_t address)
 {
 	char buffer[1024];
 	m68k_read_string(name, buffer, 1023, 1);
-	//printf("Fstat64(%d, %s, 0x%08x)\n", flag, buffer, address);
+	//printf("Fstat64(%d, %s, 0x%08x)\n", lflag, buffer, address);
 	struct stat st;
-	if(stat(buffer, &st) < 0)
+	if((lflag?lstat(buffer,&st):stat(buffer, &st)) < 0)
 	{
-		return -errno;
+		return MapErrno();
 	}
 	else
 	{
@@ -665,7 +720,7 @@ int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
 	m68k_read_string(name, path, 1023, 1);
 	int32_t retval = readlink(path, buffer, bufsiz);
 	if(retval < 0)
-	return MapErrno();
+		return MapErrno();
 	for(int i=0; i<retval; i++)
 	{
 		m68k_write_memory_8(buf+i,buffer[i]);
