@@ -90,6 +90,7 @@ int16_t Fstat64 (uint16_t flag, uint32_t name, /*struct stat */ uint32_t address
 int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname );
 int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t buf );
 int32_t Fxattr ( int16_t flag, emuptr32_t name, emuptr32_t xattr );
+int32_t _Ffxattr ( int16_t handle, emuptr32_t xattr );
 
 // Memory management
 

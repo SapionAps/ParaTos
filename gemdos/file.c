@@ -266,6 +266,9 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 		pid_t nativePid;
 		switch (cmd)
 		{
+			case 0x4600: // FSTAT (actually _Ffxattr)
+			retval = _Ffxattr(fh, arg);
+			break;
 			case 0x5406: //TIOCGPGRP
 			retval = ioctl(fh, TIOCGPGRP, &nativePid);
 			m68k_write_memory_32(arg, nativePid);
@@ -366,6 +369,34 @@ static void convert_stat(const struct stat* st, uint32_t address)
 	WRITE(mst_blksize, st->st_blksize);
 	WRITE(mst_flags, 0);
 	WRITE(mst_gen, 0);
+#	undef WRITE
+}
+
+static void convert_xattr(const struct stat* st, uint32_t address)
+{
+#	define WRITE(field, value) m68k_write_field(address, XATTR, field, value)
+	WRITE(mode, convert_mode(st->st_mode) & 0xffff);
+	WRITE(index, st->st_ino);
+	WRITE(dev, st->st_dev);
+	WRITE(rdev, st->st_rdev);
+	WRITE(nlink, st->st_nlink);
+	WRITE(uid, st->st_uid);
+	WRITE(gid, st->st_gid);
+	WRITE(size, st->st_size);
+	WRITE(blksize, st->st_blksize);
+	WRITE(nblocks, st->st_blocks);
+	WRITE(mdostime, unixtime2dos(&st->st_mtime));
+	WRITE(adostime, unixtime2dos(&st->st_atime));
+	WRITE(cdostime, unixtime2dos(&st->st_ctime));
+	uint32_t attrib = 0;
+	if((st->st_mode & S_IFMT) == S_IFDIR)
+		attrib |= 0x10;
+	if((st->st_mode & 0200) == 0)
+		attrib |= 0x1;
+
+	WRITE(attr, attrib);
+	WRITE(reserved2, 0);
+	WRITE(reserved3, 0);
 #	undef WRITE
 }
 
@@ -1134,30 +1165,22 @@ int32_t Fxattr ( int16_t lflag, emuptr32_t name, emuptr32_t xattr )
 	}
 	else
 	{
-#		define WRITE(field, value) m68k_write_field(xattr, XATTR, field, value)
-		WRITE(mode, convert_mode(st.st_mode) & 0xffff);
-		WRITE(index, st.st_ino);
-		WRITE(dev, st.st_dev);
-		WRITE(rdev, st.st_rdev);
-		WRITE(nlink, st.st_nlink);
-		WRITE(uid, st.st_uid);
-		WRITE(gid, st.st_gid);
-		WRITE(size, st.st_size);
-		WRITE(blksize, st.st_blksize);
-		WRITE(nblocks, st.st_blocks);
-		WRITE(mdostime, unixtime2dos(&st.st_mtime));
-		WRITE(adostime, unixtime2dos(&st.st_atime));
-		WRITE(cdostime, unixtime2dos(&st.st_ctime));
-		uint32_t attrib = 0;
-		if((st.st_mode & S_IFMT) == S_IFDIR)
-			attrib |= 0x10;
-		if((st.st_mode & 0200) == 0)
-			attrib |= 0x1;
+		convert_xattr(&st, xattr);
+	}
+	return TOS_E_OK;
+}
 
-		WRITE(attr, attrib);
-		WRITE(reserved2, 0);
-		WRITE(reserved3, 0);
-#		undef WRITE
+/* _Ffxattr is called via Fcntl, setting cmd to FSTAT(0x4600) */
+int32_t _Ffxattr ( int16_t handle, emuptr32_t xattr )
+{
+	struct stat st;
+	if(fstat(handle, &st) < 0)
+	{
+		return MapErrno();
+	}
+	else
+	{
+		convert_xattr(&st, xattr);
 	}
 	return TOS_E_OK;
 }
