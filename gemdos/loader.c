@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include "common.h"
 #include "byteorder.h"
@@ -13,10 +14,10 @@ extern char **environ;
 
 #define MAX_TOS_ARG 126
 
-void BuildTosArglist(uint32_t args, char* argv[], int argc)
+uint32_t BuildTosArglist(uint32_t args, char* argv[], int argc, uint32_t env)
 {
 	int n = 1;
-    for (int i = 0; i < argc; ++i)
+    for (int i = 1; i < argc; ++i)
     {
         if (i > 0)
 		{
@@ -24,16 +25,63 @@ void BuildTosArglist(uint32_t args, char* argv[], int argc)
 			if (n>MAX_TOS_ARG)
 				goto trunc;
 		}
-		for(char* c = argv[i]; *c; c++)
+		if(argv[i][0]==0)
 		{
-			m68k_write_memory_8(args+(n++), *c);
+			m68k_write_memory_8(args+(n++), '\'');
+			if (n>MAX_TOS_ARG)
+			{
+				n--;
+				goto trunc;
+			}
+			m68k_write_memory_8(args+(n++), '\'');
 			if (n>MAX_TOS_ARG)
 				goto trunc;
+
+		}
+		else
+		{
+			for(char* c = argv[i]; *c; c++)
+			{
+				m68k_write_memory_8(args+(n++), *c);
+				if (n>MAX_TOS_ARG)
+					goto trunc;
+			}
 		}
     }
 trunc:
 	m68k_write_memory_8(args+n, '\0');
-    m68k_write_memory_8(args, n-1);
+    m68k_write_memory_8(args, 127);
+
+	// ARGV procedure - pass complete command line at the end of the env string
+	env+=m68k_write_string(env, "ARGV=", 5);
+	// Check for empty parameters and enable extended ARGV procedure in that case
+	bool nullAdded = false;
+	char buffer[21]; // buffer for sprintf
+	for (int i = 0; i < argc; ++i)
+	{
+		if(argv[i][0]==0)
+		{
+			snprintf(buffer, 21, nullAdded?",%d":"NULL:%d", i);
+			nullAdded = true;
+			env+=m68k_write_string(env, buffer, 20);
+		}
+	}
+	m68k_write_memory_8(env++, '\0');
+	for (int i = 0; i < argc; ++i)
+	{
+		if(argv[i][0]==0)
+		{
+			m68k_write_memory_8(env++, ' ');
+		}
+		else
+		{
+			env+=m68k_write_string(env, argv[i], 0x7fffffff);
+		}
+		m68k_write_memory_8(env++, '\0');
+	}
+
+
+	return env;
 }
 
 
@@ -58,10 +106,6 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 
 	uint32_t base_tpa = Malloc(Malloc(-1));
 
-	// Copy command line
-	uint32_t command_line = base_tpa+offsetof(basepage_t, p_cmdlin);
-	BuildTosArglist(command_line, argv, argc);
-
 	// Base page is long word aligned; all long entries are pre-byeswapped in memory
 	basepage_t* basepage = (basepage_t*)(memory + base_tpa);
 	basepage->p_lowtpa = base_tpa;
@@ -80,6 +124,10 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 		m68k_write_memory_8(current++, 0);
 
 	}
+	// Copy command line
+	uint32_t command_line = base_tpa+offsetof(basepage_t, p_cmdlin);
+	current = BuildTosArglist(command_line, argv, argc, current);
+
 	m68k_write_memory_8(current++, 0);
 	while((current & 3) !=0)
 		current++;

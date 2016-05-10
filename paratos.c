@@ -86,7 +86,7 @@ int main(int argc, char* argv[])
 	InitMemory();
 	InitCookieJar();
 
-	basepage_t *bp = LoadExe(argv[1], argv+2, argc-2);
+	basepage_t *bp = LoadExe(argv[1], argv+1, argc-1);
     if (bp == 0)
     {
         fprintf(stderr, "error: cannot load %s.\n", argv[1]);
