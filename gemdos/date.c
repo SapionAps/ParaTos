@@ -18,7 +18,7 @@
  */
 int32_t Talarm ( int32_t time )
 {
-	NOT_IMPLEMENTED(GDOS, Talarm, 288);
+	NOT_IMPLEMENTED(GEMDOS, Talarm, 288);
 	return TOS_ENOSYS;
 }
 
@@ -110,7 +110,7 @@ int32_t Tgettimeofday ( emuptr32_t tv, emuptr32_t tzp )
  */
 int32_t Tmalarm( int32_t time )
 {
-	NOT_IMPLEMENTED(GDOS, Tmalarm, 317);
+	NOT_IMPLEMENTED(GEMDOS, Tmalarm, 317);
 	return TOS_ENOSYS;
 }
 
@@ -122,7 +122,7 @@ int32_t Tmalarm( int32_t time )
  */
 int16_t Tsetdate ( uint16_t date )
 {
-	NOT_IMPLEMENTED(GDOS, Tsetdate, 43);
+	NOT_IMPLEMENTED(GEMDOS, Tsetdate, 43);
 	return TOS_ENOSYS;
 }
 
@@ -136,7 +136,7 @@ int16_t Tsetdate ( uint16_t date )
  */
 int32_t Tsetitimer ( int16_t which, emuptr32_t interval, emuptr32_t value, emuptr32_t ointerval, emuptr32_t ovalue )
 {
-	NOT_IMPLEMENTED(GDOS, Tsetitimer, 329);
+	NOT_IMPLEMENTED(GEMDOS, Tsetitimer, 329);
 	return TOS_ENOSYS;
 }
 
@@ -148,7 +148,7 @@ int32_t Tsetitimer ( int16_t which, emuptr32_t interval, emuptr32_t value, emupt
  */
 int16_t Tsettime ( uint16_t time )
 {
-	NOT_IMPLEMENTED(GDOS, Tsettime, 45);
+	NOT_IMPLEMENTED(GEMDOS, Tsettime, 45);
 	return TOS_ENOSYS;
 }
 
@@ -187,6 +187,6 @@ int16_t Tsettime ( uint16_t time )
  */
 int32_t Tsettimeofday ( emuptr32_t tv, emuptr32_t tzp )
 {
-	NOT_IMPLEMENTED(GDOS, Tsettimeofday, 342);
+	NOT_IMPLEMENTED(GEMDOS, Tsettimeofday, 342);
 	return TOS_ENOSYS;
 }

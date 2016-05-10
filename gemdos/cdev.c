@@ -16,7 +16,7 @@
  */
 int32_t Cauxin ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cauxin, 3);
+	NOT_IMPLEMENTED(GEMDOS, Cauxin, 3);
 	return TOS_ENOSYS;
 }
 
@@ -33,7 +33,7 @@ int32_t Cauxin ( void )
  */
 int16_t Cauxis ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cauxis, 18);
+	NOT_IMPLEMENTED(GEMDOS, Cauxis, 18);
 	return TOS_ENOSYS;
 }
 
@@ -47,7 +47,7 @@ int16_t Cauxis ( void )
  */
 int16_t Cauxos ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cauxos, 19);
+	NOT_IMPLEMENTED(GEMDOS, Cauxos, 19);
 	return TOS_ENOSYS;
 }
 
@@ -63,7 +63,7 @@ int16_t Cauxos ( void )
  */
 int32_t Cauxout ( int16_t c )
 {
-	NOT_IMPLEMENTED(GDOS, Cauxout, 4);
+	NOT_IMPLEMENTED(GEMDOS, Cauxout, 4);
 	return TOS_ENOSYS;
 }
 
@@ -82,7 +82,7 @@ int32_t Cauxout ( int16_t c )
  */
 int32_t Cconin ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cconin, 1);
+	NOT_IMPLEMENTED(GEMDOS, Cconin, 1);
 	return TOS_ENOSYS;
 }
 
@@ -94,7 +94,7 @@ int32_t Cconin ( void )
  */
 int32_t Cconis ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cconis, 11);
+	NOT_IMPLEMENTED(GEMDOS, Cconis, 11);
 	return TOS_ENOSYS;
 }
 
@@ -109,7 +109,7 @@ int32_t Cconis ( void )
  */
 int16_t Cconos ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cconos, 16);
+	NOT_IMPLEMENTED(GEMDOS, Cconos, 16);
 	return TOS_ENOSYS;
 }
 
@@ -149,7 +149,7 @@ int32_t Cconout ( int16_t c )
  */
 int32_t Cconrs ( emuptr32_t buf )
 {
-	NOT_IMPLEMENTED(GDOS, Cconrs, 10);
+	NOT_IMPLEMENTED(GEMDOS, Cconrs, 10);
 	return TOS_ENOSYS;
 }
 
@@ -205,7 +205,7 @@ int32_t Cconws ( emuptr32_t address )
  */
 int32_t Cnecin ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cnecin, 8);
+	NOT_IMPLEMENTED(GEMDOS, Cnecin, 8);
 	return TOS_ENOSYS;
 }
 
@@ -221,7 +221,7 @@ int32_t Cnecin ( void )
  */
 int16_t Cprnos ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Cprnos, 17);
+	NOT_IMPLEMENTED(GEMDOS, Cprnos, 17);
 	return TOS_ENOSYS;
 }
 
@@ -241,7 +241,7 @@ int16_t Cprnos ( void )
  */
 int32_t Cprnout ( int16_t c )
 {
-	NOT_IMPLEMENTED(GDOS, Cprnout, 5);
+	NOT_IMPLEMENTED(GEMDOS, Cprnout, 5);
 	return TOS_ENOSYS;
 }
 

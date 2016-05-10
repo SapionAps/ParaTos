@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include "common.h"
-#include "gdos.h"
+#include "gemdos.h"
 #include "tos_errors.h"
 #include "sysvars.h"
 

@@ -4,7 +4,7 @@
 #include <sys/stat.h>
 #include "common.h"
 #include "tos_errors.h"
-#include "gdos.h"
+#include "gemdos.h"
 
 /**
  * Pause - 289
@@ -18,7 +18,7 @@
  */
 void Pause ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pause, 289);
+	NOT_IMPLEMENTED(GEMDOS, Pause, 289);
 }
 
 /**
@@ -55,7 +55,7 @@ int16_t Pdomain ( int16_t dom )
  */
 int32_t Pexec ( uint16_t mode, emureg_t sp )
 {
-	NOT_IMPLEMENTED(GDOS, Pexec, 75);
+	NOT_IMPLEMENTED(GEMDOS, Pexec, 75);
 	return TOS_ENOSYS;
 }
 
@@ -90,7 +90,7 @@ int16_t Pfork ( void )
  */
 int16_t Pgetauid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetauid, 326);
+	NOT_IMPLEMENTED(GEMDOS, Pgetauid, 326);
 	return TOS_ENOSYS;
 }
 
@@ -166,7 +166,7 @@ int16_t Pgetgid ( void )
  */
 int32_t Pgetgroups( int16_t len, emuptr32_t gidset)
 {
-	NOT_IMPLEMENTED(GDOS, Pgetgroups, 327);
+	NOT_IMPLEMENTED(GEMDOS, Pgetgroups, 327);
 	return TOS_ENOSYS;
 }
 
@@ -179,7 +179,7 @@ int32_t Pgetgroups( int16_t len, emuptr32_t gidset)
  */
 int16_t Pgetpgrp ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetpgrp, 269);
+	NOT_IMPLEMENTED(GEMDOS, Pgetpgrp, 269);
 	return TOS_ENOSYS;
 }
 
@@ -203,7 +203,7 @@ int16_t Pgetpgrp ( void )
  */
 int16_t Pgetpid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetpid, 267);
+	NOT_IMPLEMENTED(GEMDOS, Pgetpid, 267);
 	return TOS_ENOSYS;
 }
 
@@ -229,7 +229,7 @@ int16_t Pgetpid ( void )
  */
 int16_t Pgetppid ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pgetppid, 268);
+	NOT_IMPLEMENTED(GEMDOS, Pgetppid, 268);
 	return TOS_ENOSYS;
 }
 
@@ -258,7 +258,7 @@ int16_t Pgetppid ( void )
  */
 int32_t Pgetpriority ( int16_t which, int16_t who)
 {
-	NOT_IMPLEMENTED(GDOS, Pgetpriority, 344);
+	NOT_IMPLEMENTED(GEMDOS, Pgetpriority, 344);
 	return TOS_ENOSYS;
 }
 
@@ -283,7 +283,7 @@ int16_t Pgetuid ( void )
  */
 int16_t Pkill ( int16_t pid, int16_t sig )
 {
-	NOT_IMPLEMENTED(GDOS, Pkill, 273);
+	NOT_IMPLEMENTED(GEMDOS, Pkill, 273);
 	return TOS_ENOSYS;
 }
 
@@ -298,7 +298,7 @@ int16_t Pkill ( int16_t pid, int16_t sig )
  */
 int32_t Pmsg ( int16_t mode, int32_t mbox, emuptr32_t msg )
 {
-	NOT_IMPLEMENTED(GDOS, Pmsg, 293);
+	NOT_IMPLEMENTED(GEMDOS, Pmsg, 293);
 	return TOS_ENOSYS;
 }
 
@@ -316,7 +316,7 @@ int32_t Pmsg ( int16_t mode, int32_t mbox, emuptr32_t msg )
  */
 int16_t Pnice ( int16_t delta )
 {
-	NOT_IMPLEMENTED(GDOS, Pnice, 266);
+	NOT_IMPLEMENTED(GEMDOS, Pnice, 266);
 	return TOS_ENOSYS;
 }
 
@@ -333,7 +333,7 @@ int16_t Pnice ( int16_t delta )
  */
 int32_t Prenice ( int16_t pid, int16_t delta )
 {
-	NOT_IMPLEMENTED(GDOS, Prenice, 295);
+	NOT_IMPLEMENTED(GEMDOS, Prenice, 295);
 	return TOS_ENOSYS;
 }
 
@@ -351,7 +351,7 @@ int32_t Prenice ( int16_t pid, int16_t delta )
  */
 void Prusage ( emuptr32_t r )
 {
-	NOT_IMPLEMENTED(GDOS, Prusage, 286);
+	NOT_IMPLEMENTED(GEMDOS, Prusage, 286);
 }
 
 /**
@@ -375,7 +375,7 @@ void Prusage ( emuptr32_t r )
  */
 int32_t Psemaphore ( int16_t mode, int32_t id, int32_t timeout )
 {
-	NOT_IMPLEMENTED(GDOS, Psemaphore, 308);
+	NOT_IMPLEMENTED(GEMDOS, Psemaphore, 308);
 	return TOS_ENOSYS;
 }
 
@@ -392,7 +392,7 @@ int32_t Psemaphore ( int16_t mode, int32_t id, int32_t timeout )
  */
 int16_t Psetauid ( int16_t id )
 {
-	NOT_IMPLEMENTED(GDOS, Psetauid, 325);
+	NOT_IMPLEMENTED(GEMDOS, Psetauid, 325);
 	return TOS_ENOSYS;
 }
 
@@ -409,7 +409,7 @@ int16_t Psetauid ( int16_t id )
  */
 int32_t Psetegid ( int16_t egid )
 {
-	NOT_IMPLEMENTED(GDOS, Psetegid, 324);
+	NOT_IMPLEMENTED(GEMDOS, Psetegid, 324);
 	return TOS_ENOSYS;
 }
 
@@ -426,7 +426,7 @@ int32_t Psetegid ( int16_t egid )
  */
 int32_t Pseteuid ( int16_t euid )
 {
-	NOT_IMPLEMENTED(GDOS, Pseteuid, 323);
+	NOT_IMPLEMENTED(GEMDOS, Pseteuid, 323);
 	return TOS_ENOSYS;
 }
 
@@ -438,7 +438,7 @@ int32_t Pseteuid ( int16_t euid )
  */
 int16_t Psetgid ( int16_t id )
 {
-	NOT_IMPLEMENTED(GDOS, Psetgid, 277);
+	NOT_IMPLEMENTED(GEMDOS, Psetgid, 277);
 	return TOS_ENOSYS;
 }
 
@@ -464,7 +464,7 @@ int16_t Psetgid ( int16_t id )
  */
 int32_t Psetgroups( int16_t len, emuptr32_t gidset)
 {
-	NOT_IMPLEMENTED(GDOS, Psetgroups, 328);
+	NOT_IMPLEMENTED(GEMDOS, Psetgroups, 328);
 	return TOS_ENOSYS;
 }
 
@@ -477,7 +477,7 @@ int32_t Psetgroups( int16_t len, emuptr32_t gidset)
  */
 int32_t Psetlimit ( int16_t lim, int32_t value )
 {
-	NOT_IMPLEMENTED(GDOS, Psetlimit, 287);
+	NOT_IMPLEMENTED(GEMDOS, Psetlimit, 287);
 	return TOS_ENOSYS;
 }
 
@@ -494,7 +494,7 @@ int32_t Psetlimit ( int16_t lim, int32_t value )
  */
 int16_t Psetpgrp ( int16_t pid, int16_t newgrp )
 {
-	NOT_IMPLEMENTED(GDOS, Psetpgrp, 270);
+	NOT_IMPLEMENTED(GEMDOS, Psetpgrp, 270);
 	return TOS_ENOSYS;
 }
 
@@ -522,7 +522,7 @@ int16_t Psetpgrp ( int16_t pid, int16_t newgrp )
  */
 int32_t Psetpriority ( int16_t which, int16_t who, int16_t pri )
 {
-	NOT_IMPLEMENTED(GDOS, Psetpriority, 345);
+	NOT_IMPLEMENTED(GEMDOS, Psetpriority, 345);
 	return TOS_ENOSYS;
 }
 
@@ -543,7 +543,7 @@ int32_t Psetpriority ( int16_t which, int16_t who, int16_t pri )
  */
 int32_t Psetregid ( int16_t rgid, int16_t egid)
 {
-	NOT_IMPLEMENTED(GDOS, Psetregid, 335);
+	NOT_IMPLEMENTED(GEMDOS, Psetregid, 335);
 	return TOS_ENOSYS;
 }
 
@@ -564,7 +564,7 @@ int32_t Psetregid ( int16_t rgid, int16_t egid)
  */
 int32_t Psetreuid ( int16_t ruid, int16_t euid)
 {
-	NOT_IMPLEMENTED(GDOS, Psetreuid, 334);
+	NOT_IMPLEMENTED(GEMDOS, Psetreuid, 334);
 	return TOS_ENOSYS;
 }
 
@@ -578,7 +578,7 @@ int32_t Psetreuid ( int16_t ruid, int16_t euid)
  */
 int16_t Psetuid ( int16_t id )
 {
-	NOT_IMPLEMENTED(GDOS, Psetuid, 272);
+	NOT_IMPLEMENTED(GEMDOS, Psetuid, 272);
 	return TOS_ENOSYS;
 }
 
@@ -594,7 +594,7 @@ int16_t Psetuid ( int16_t id )
  */
 int32_t Psigaction ( int16_t sig, emuptr32_t act, emuptr32_t oact )
 {
-	NOT_IMPLEMENTED(GDOS, Psigaction, 311);
+	NOT_IMPLEMENTED(GEMDOS, Psigaction, 311);
 	return TOS_ENOSYS;
 }
 
@@ -620,7 +620,7 @@ int32_t Psigaction ( int16_t sig, emuptr32_t act, emuptr32_t oact )
  */
 int32_t Psigblock ( int32_t mask )
 {
-	NOT_IMPLEMENTED(GDOS, Psigblock, 278);
+	NOT_IMPLEMENTED(GEMDOS, Psigblock, 278);
 	return TOS_ENOSYS;
 }
 
@@ -649,7 +649,7 @@ int32_t Psigblock ( int32_t mask )
  */
 int32_t Psigintr ( int16_t vec, int16_t sig )
 {
-	NOT_IMPLEMENTED(GDOS, Psigintr, 318);
+	NOT_IMPLEMENTED(GEMDOS, Psigintr, 318);
 	return TOS_ENOSYS;
 }
 
@@ -662,7 +662,7 @@ int32_t Psigintr ( int16_t vec, int16_t sig )
  */
 int32_t Psignal ( int16_t sig, int32_t handler )
 {
-	NOT_IMPLEMENTED(GDOS, Psignal, 274);
+	NOT_IMPLEMENTED(GEMDOS, Psignal, 274);
 	return TOS_ENOSYS;
 }
 
@@ -685,7 +685,7 @@ int32_t Psignal ( int16_t sig, int32_t handler )
  */
 void Psigpause ( int32_t mask )
 {
-	NOT_IMPLEMENTED(GDOS, Psigpause, 310);
+	NOT_IMPLEMENTED(GEMDOS, Psigpause, 310);
 }
 
 /**
@@ -697,7 +697,7 @@ void Psigpause ( int32_t mask )
  */
 int32_t Psigpending ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Psigpending, 291);
+	NOT_IMPLEMENTED(GEMDOS, Psigpending, 291);
 	return TOS_ENOSYS;
 }
 
@@ -719,7 +719,7 @@ int32_t Psigpending ( void )
  */
 void Psigreturn ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Psigreturn, 282);
+	NOT_IMPLEMENTED(GEMDOS, Psigreturn, 282);
 }
 
 /**
@@ -739,7 +739,7 @@ void Psigreturn ( void )
  */
 int32_t Psigsetmask ( int32_t mask )
 {
-	NOT_IMPLEMENTED(GDOS, Psigsetmask, 279);
+	NOT_IMPLEMENTED(GEMDOS, Psigsetmask, 279);
 	return TOS_ENOSYS;
 }
 
@@ -776,7 +776,7 @@ void Pterm0 ( void )
  */
 void Ptermres ( int32_t keepcnt, int16_t retcode )
 {
-	NOT_IMPLEMENTED(GDOS, Ptermres, 49);
+	NOT_IMPLEMENTED(GEMDOS, Ptermres, 49);
 	exit(retcode);
 }
 
@@ -809,7 +809,7 @@ void Ptermres ( int32_t keepcnt, int16_t retcode )
  */
 int16_t Ptrace(int16_t request, int16_t pid, emuptr32_t  addr, int32_t data)
 {
-	NOT_IMPLEMENTED(GDOS, Ptrace, 265);
+	NOT_IMPLEMENTED(GEMDOS, Ptrace, 265);
 	return TOS_ENOSYS;
 }
 
@@ -849,7 +849,7 @@ int16_t Pumask ( int16_t mode )
  */
 int32_t Pusrval ( int32_t val )
 {
-	NOT_IMPLEMENTED(GDOS, Pusrval, 280);
+	NOT_IMPLEMENTED(GEMDOS, Pusrval, 280);
 	return TOS_ENOSYS;
 }
 
@@ -871,7 +871,7 @@ int32_t Pusrval ( int32_t val )
  */
 int16_t Pvfork ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pvfork, 275);
+	NOT_IMPLEMENTED(GEMDOS, Pvfork, 275);
 	return TOS_ENOSYS;
 }
 
@@ -889,7 +889,7 @@ int16_t Pvfork ( void )
  */
 int32_t Pwait ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Pwait, 265);
+	NOT_IMPLEMENTED(GEMDOS, Pwait, 265);
 	return TOS_ENOSYS;
 }
 
@@ -907,7 +907,7 @@ int32_t Pwait ( void )
  */
 int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
 {
-	NOT_IMPLEMENTED(GDOS, Pwait3, 284);
+	NOT_IMPLEMENTED(GEMDOS, Pwait3, 284);
 	return TOS_ENOSYS;
 }
 
@@ -934,6 +934,6 @@ int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
  */
 int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusage )
 {
-	NOT_IMPLEMENTED(GDOS, Pwaitpid, 314);
+	NOT_IMPLEMENTED(GEMDOS, Pwaitpid, 314);
 	return TOS_ENOSYS;
 }

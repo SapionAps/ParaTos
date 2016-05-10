@@ -7,7 +7,7 @@
 #include <errno.h>
 
 #include "common.h"
-#include "gdos.h"
+#include "gemdos.h"
 #include "tos_errors.h"
 
 /**
@@ -26,7 +26,7 @@
  */
 int32_t Dchroot( emuptr32_t path )
 {
-	NOT_IMPLEMENTED(GDOS, Dchroot, 330);
+	NOT_IMPLEMENTED(GEMDOS, Dchroot, 330);
 	return TOS_ENOSYS;
 }
 
@@ -63,7 +63,7 @@ int32_t Dclosedir ( int32_t dirhandle )
  */
 int32_t Dcntl ( int16_t cmd, emuptr32_t name, int32_t arg )
 {
-	NOT_IMPLEMENTED(GDOS, Dcntl, 304);
+	NOT_IMPLEMENTED(GEMDOS, Dcntl, 304);
 	return TOS_ENOSYS;
 }
 
@@ -85,7 +85,7 @@ int32_t Dcntl ( int16_t cmd, emuptr32_t name, int32_t arg )
  */
 int32_t Dcreate ( emuptr32_t path )
 {
-	NOT_IMPLEMENTED(GDOS, Dcreate, 57);
+	NOT_IMPLEMENTED(GEMDOS, Dcreate, 57);
 	return TOS_ENOSYS;
 }
 
@@ -109,7 +109,7 @@ int32_t Dcreate ( emuptr32_t path )
  */
 int32_t Ddelete ( emuptr32_t path )
 {
-	NOT_IMPLEMENTED(GDOS, Ddelete, 58);
+	NOT_IMPLEMENTED(GEMDOS, Ddelete, 58);
 	return TOS_ENOSYS;
 }
 
@@ -123,7 +123,7 @@ int32_t Ddelete ( emuptr32_t path )
  */
 int16_t Dfree ( emuptr32_t buf, int16_t driveno )
 {
-	NOT_IMPLEMENTED(GDOS, Dfree, 54);
+	NOT_IMPLEMENTED(GEMDOS, Dfree, 54);
 	return TOS_ENOSYS;
 }
 
@@ -225,7 +225,7 @@ int16_t Dgetpath ( emuptr32_t path, int16_t driveno )
  */
 int32_t Dlock ( int16_t mode, int16_t drv )
 {
-	NOT_IMPLEMENTED(GDOS, Dlock, 309);
+	NOT_IMPLEMENTED(GEMDOS, Dlock, 309);
 	return TOS_ENOSYS;
 }
 
@@ -282,7 +282,7 @@ int32_t Dpathconf ( emuptr32_t name, int16_t mode )
 		case 6:
 		return 0;
 	}
-	NOT_IMPLEMENTED(GDOS, Dpathconf_mode, mode);
+	NOT_IMPLEMENTED(GEMDOS, Dpathconf_mode, mode);
 	return TOS_ENOSYS;
 }
 
@@ -331,7 +331,7 @@ int32_t Dreaddir ( int16_t len, int32_t dirhandle, emuptr32_t buf )
  */
 int32_t Dreadlabel ( emuptr32_t path, emuptr32_t label, int16_t length )
 {
-	NOT_IMPLEMENTED(GDOS, Dreadlabel, 338);
+	NOT_IMPLEMENTED(GEMDOS, Dreadlabel, 338);
 	return TOS_ENOSYS;
 }
 
@@ -380,7 +380,7 @@ int32_t Dsetdrv ( int16_t drv )
  */
 int16_t Dsetpath ( emuptr32_t path )
 {
-	NOT_IMPLEMENTED(GDOS, Dsetpath, 59);
+	NOT_IMPLEMENTED(GEMDOS, Dsetpath, 59);
 	return TOS_ENOSYS;
 }
 
@@ -397,7 +397,7 @@ int16_t Dsetpath ( emuptr32_t path )
  */
 int32_t Dwritelabel ( emuptr32_t path, emuptr32_t label )
 {
-	NOT_IMPLEMENTED(GDOS, Dwritelabel, 339);
+	NOT_IMPLEMENTED(GEMDOS, Dwritelabel, 339);
 	return TOS_ENOSYS;
 }
 
@@ -418,7 +418,7 @@ int32_t Dwritelabel ( emuptr32_t path, emuptr32_t label )
  */
 int32_t Dxopendir ( emuptr32_t name, int16_t flag )
 {
-	NOT_IMPLEMENTED(GDOS, Dxopendir, 1296);
+	NOT_IMPLEMENTED(GEMDOS, Dxopendir, 1296);
 	return TOS_ENOSYS;
 }
 
@@ -441,6 +441,6 @@ int32_t Dxopendir ( emuptr32_t name, int16_t flag )
  */
 int32_t Dxreaddir ( int16_t ln, int32_t dirh, emuptr32_t buf, emuptr32_t xattr, emuptr32_t xr )
 {
-	NOT_IMPLEMENTED(GDOS, Dxreaddir, 322);
+	NOT_IMPLEMENTED(GEMDOS, Dxreaddir, 322);
 	return TOS_ENOSYS;
 }

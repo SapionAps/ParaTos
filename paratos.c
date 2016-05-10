@@ -8,7 +8,7 @@
 
 #include "m68k.h"
 #include "m68kcpu.h"
-#include "gdos.h"
+#include "gemdos.h"
 #include "loader.h"
 #include "sysvars.h"
 #include "cookiejar.h"

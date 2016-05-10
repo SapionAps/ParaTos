@@ -1,9 +1,9 @@
 #include "common.h"
 #include "m68k.h"
 #include "m68kcpu.h"
-#include "gdos.h"
+#include "gemdos.h"
 
-void dispatch_gdos_trap()
+void dispatch_gemdos_trap()
 {
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t num = m68k_read_memory_16(sp);

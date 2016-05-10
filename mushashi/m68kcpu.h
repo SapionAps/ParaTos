@@ -1729,7 +1729,7 @@ INLINE void m68ki_exception_trap(uint vector)
 	USE_CYCLES(CYC_EXCEPTION[vector]);
 }
 
-void dispatch_gdos_trap();
+void dispatch_gemdos_trap();
 void dispatch_gem_trap();
 void dispatch_bios_trap();
 void dispatch_xbios_trap();
@@ -1740,7 +1740,7 @@ INLINE void m68ki_exception_trapN(uint vector)
 	switch (vector)
 	{
 		case 33:
-			dispatch_gdos_trap();
+			dispatch_gemdos_trap();
 			break;
 		case 34:
 			dispatch_gem_trap();

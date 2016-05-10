@@ -46,7 +46,7 @@
  */
 int32_t STEFcntrl ( int16_t func, int32_t special1, int32_t special2 )
 {
-	NOT_IMPLEMENTED(GDOS, STEFcntrl, 24000);
+	NOT_IMPLEMENTED(GEMDOS, STEFcntrl, 24000);
 	return TOS_ENOSYS;
 }
 
@@ -68,7 +68,7 @@ int32_t STEFcntrl ( int16_t func, int32_t special1, int32_t special2 )
  */
 void Salert ( emuptr32_t msg )
 {
-	NOT_IMPLEMENTED(GDOS, Salert, 316);
+	NOT_IMPLEMENTED(GEMDOS, Salert, 316);
 }
 
 /**
@@ -79,7 +79,7 @@ void Salert ( emuptr32_t msg )
  */
 int32_t Sconfig ( int16_t mode, int32_t flags )
 {
-	NOT_IMPLEMENTED(GDOS, Sconfig, 51);
+	NOT_IMPLEMENTED(GEMDOS, Sconfig, 51);
 	return TOS_ENOSYS;
 }
 
@@ -116,7 +116,7 @@ int32_t Sconfig ( int16_t mode, int32_t flags )
  */
 void Shutdown ( int32_t mode )
 {
-	NOT_IMPLEMENTED(GDOS, Shutdown, 337);
+	NOT_IMPLEMENTED(GEMDOS, Shutdown, 337);
 }
 
 /**
@@ -130,7 +130,7 @@ void Shutdown ( int32_t mode )
  */
 int32_t Slbclose( emuptr32_t sl )
 {
-	NOT_IMPLEMENTED(GDOS, Slbclose, 23);
+	NOT_IMPLEMENTED(GEMDOS, Slbclose, 23);
 	return TOS_ENOSYS;
 }
 
@@ -143,7 +143,7 @@ int32_t Slbclose( emuptr32_t sl )
  */
 int32_t Slbopen( emuptr32_t name, emuptr32_t path, int32_t min_ver, emuptr32_t sl, emuptr32_t fn )
 {
-	NOT_IMPLEMENTED(GDOS, Slbopen, 22);
+	NOT_IMPLEMENTED(GEMDOS, Slbopen, 22);
 	return TOS_ENOSYS;
 }
 
@@ -159,7 +159,7 @@ int32_t Slbopen( emuptr32_t name, emuptr32_t path, int32_t min_ver, emuptr32_t s
  */
 int32_t Srealloc ( int32_t len )
 {
-	NOT_IMPLEMENTED(GDOS, Srealloc, 21);
+	NOT_IMPLEMENTED(GEMDOS, Srealloc, 21);
 	return TOS_ENOSYS;
 }
 
@@ -309,7 +309,7 @@ enum ssystem_mode
 		case S_SECLEVEL:
 			return TOS_EACCDN;
  		default:
-			NOT_IMPLEMENTED(GDOS, Ssystem_mode, mode);
+			NOT_IMPLEMENTED(GEMDOS, Ssystem_mode, mode);
 			return TOS_ENOSYS;
  	}
 }
@@ -391,7 +391,7 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
  */
 uint16_t Sversion ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Sversion, 48);
+	NOT_IMPLEMENTED(GEMDOS, Sversion, 48);
 	return TOS_ENOSYS;
 }
 
@@ -406,7 +406,7 @@ uint16_t Sversion ( void )
  */
 void Syield ( void )
 {
-	NOT_IMPLEMENTED(GDOS, Syield, 255);
+	NOT_IMPLEMENTED(GEMDOS, Syield, 255);
 }
 
 /**
@@ -418,6 +418,6 @@ void Syield ( void )
  */
 int32_t Sysconf ( int16_t n )
 {
-	NOT_IMPLEMENTED(GDOS, Sysconf, 290);
+	NOT_IMPLEMENTED(GEMDOS, Sysconf, 290);
 	return TOS_ENOSYS;
 }

@@ -45,7 +45,7 @@ void InitMemory()
  */
 int32_t Maddalt ( emuptr32_t start, int32_t size )
 {
-	NOT_IMPLEMENTED(GDOS, Maddalt, 20);
+	NOT_IMPLEMENTED(GEMDOS, Maddalt, 20);
 	return TOS_ENOSYS;
 }
 
@@ -229,6 +229,6 @@ int32_t Mshrink ( emuptr32_t block, int32_t newsiz )
  */
 emuptr32_t Mxalloc ( int32_t amount, int16_t mode )
 {
-	NOT_IMPLEMENTED(GDOS, Mxalloc, 68);
+	NOT_IMPLEMENTED(GEMDOS, Mxalloc, 68);
 	return TOS_ENOSYS;
 }
