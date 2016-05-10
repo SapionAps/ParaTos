@@ -8,9 +8,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <time.h>
+#include <utime.h>
 #include "common.h"
 #include "tos_errors.h"
 #include "gemdos.h"
@@ -26,8 +28,37 @@
  */
 int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fattrib, 67);
-	return TOS_ENOSYS;
+	char buffer[1024];
+	m68k_read_string(filename, buffer, 1023, 1);
+	struct stat st;
+	if(stat(buffer, &st) < 0)
+	{
+		return MapErrno();
+	}
+	else
+	{
+		if(wflag)
+		{
+			if (attrib & 1)
+			{
+				st.st_mode &= ~0200;
+			}
+			else
+			{
+				st.st_mode |= 0200;
+			}
+			if (chmod(buffer, st.st_mode) != 0)
+			{
+				return MapErrno();
+			}
+		}
+		attrib = 0;
+		if((st.st_mode & S_IFMT) == S_IFDIR)
+			attrib |= 0x10;
+		if((st.st_mode & 0200) == 0)
+			attrib |= 0x1;
+	}
+	return attrib;
 }
 
 /**
@@ -40,10 +71,13 @@ int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
  *
  * int32_t Fchmod ( int8_t *name, int16_t mode )
  */
-int32_t Fchmod ( emuptr32_t name, int16_t mode )
+int32_t Fchmod ( emuptr32_t filename, int16_t mode )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fchmod, 306);
-	return TOS_ENOSYS;
+	char buffer[1024];
+	m68k_read_string(filename, buffer, 1023, 1);
+	if(chmod(buffer, mode) != 0)
+		return MapErrno();
+	return TOS_E_OK;
 }
 
 /**
@@ -60,10 +94,13 @@ int32_t Fchmod ( emuptr32_t name, int16_t mode )
  *
  * int32_t Fchown ( int8_t *name, int16_t uid, int16_t gid )
  */
-int32_t Fchown ( emuptr32_t name, int16_t uid, int16_t gid )
+int32_t Fchown ( emuptr32_t filename, int16_t uid, int16_t gid )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fchown, 305);
-	return TOS_ENOSYS;
+	char buffer[1024];
+	m68k_read_string(filename, buffer, 1023, 1);
+	if(chown(buffer, uid, gid) != 0)
+		return MapErrno();
+	return TOS_E_OK;
 }
 
 /**
@@ -256,11 +293,10 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 #define MINT_S_IFMEM       0140000 /* memory region or process */
 #define MINT_S_IFLNK       0160000 /* Symbolic link.  */
 
-
-static void convert_stat(const struct stat* st, uint32_t address)
+static uint32_t convert_mode(mode_t st_mode)
 {
-	mode_t mint_mode = st->st_mode & 007777; // permission bits are the same
-	switch(st->st_mode & S_IFMT)
+	mode_t mint_mode = st_mode & 007777; // permission bits are the same
+	switch(st_mode & S_IFMT)
 	{
 		case S_IFSOCK:
 		{
@@ -299,31 +335,38 @@ static void convert_stat(const struct stat* st, uint32_t address)
 		}
 		default:
 		{
-			fprintf(stderr, "Warning: Unknown S_IFMT %0x\n", (st->st_mode & S_IFMT));
+			fprintf(stderr, "Warning: Unknown S_IFMT %0x\n", (st_mode & S_IFMT));
 			mint_mode |= MINT_S_IFREG;
 		}
 	}
-	m68k_write_memory_64(address, st->st_dev);
-	m68k_write_memory_32(address+8, st->st_ino);
-	m68k_write_memory_32(address+12, mint_mode);
-	m68k_write_memory_32(address+16, st->st_nlink);
-	m68k_write_memory_32(address+20, st->st_uid);
-	m68k_write_memory_32(address+24, st->st_gid);
-	m68k_write_memory_64(address+28, st->st_rdev);
-	m68k_write_memory_32(address+36, 0);//st->__st_high_atime);
-	m68k_write_memory_32(address+40, st->st_atime);
-	m68k_write_memory_32(address+44, st->st_atime);
-	m68k_write_memory_32(address+48, 0);//st->st_high_mtime);
-	m68k_write_memory_32(address+52, st->st_mtime);
-	m68k_write_memory_32(address+56, st->st_mtime);
-	m68k_write_memory_32(address+60, 0);//st->st_high_ctime);
-	m68k_write_memory_32(address+64, st->st_ctime);
-	m68k_write_memory_32(address+68, st->st_ctime);
-	m68k_write_memory_64(address+72, st->st_size);
-	m68k_write_memory_64(address+80, st->st_blocks);
-	m68k_write_memory_32(address+88, st->st_blksize);
-	m68k_write_memory_32(address+92, 0);
-	m68k_write_memory_32(address+96, 0);
+	return mint_mode;
+}
+
+static void convert_stat(const struct stat* st, uint32_t address)
+{
+#	define WRITE(field, value) m68k_write_field(address, struct mint_stat, field, value)
+	WRITE(mst_dev, st->st_dev);
+	WRITE(mst_ino, st->st_ino);
+	WRITE(mst_mode, convert_mode(st->st_mode));
+	WRITE(mst_nlink, st->st_nlink);
+	WRITE(mst_uid, st->st_uid);
+	WRITE(mst_gid, st->st_gid);
+	WRITE(mst_rdev, st->st_rdev);
+	WRITE(mst_high_atime, 0);
+	WRITE(mst_atime, st->st_atime);
+	WRITE(mst_atim, st->st_atime);
+	WRITE(mst_high_mtime, 0);
+	WRITE(mst_mtime, st->st_mtime);
+	WRITE(mst_mtim, st->st_mtime);
+	WRITE(mst_high_ctime, 0);
+	WRITE(mst_ctime, st->st_ctime);
+	WRITE(mst_ctim, st->st_ctime);
+	WRITE(mst_size, st->st_size);
+	WRITE(mst_blocks, st->st_blocks);
+	WRITE(mst_blksize, st->st_blksize);
+	WRITE(mst_flags, 0);
+	WRITE(mst_gen, 0);
+#	undef WRITE
 }
 
 int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
@@ -383,7 +426,21 @@ int16_t Fcreate ( emuptr32_t fname, int16_t attr )
  */
 void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fdatime, 87);
+	if(!wflag)
+	{
+		struct stat st;
+		if(fstat(handle, &st) == 0)
+		{
+			m68k_write_memory_32(timeptr, unixtime2dos(&st.st_mtime));
+		}
+	}
+	else
+	{
+		struct timeval tv[2];
+		tv[0].tv_sec = tv[1].tv_sec = dostime2unix(m68k_read_memory_32(timeptr));
+		tv[0].tv_usec = tv[1].tv_usec = 0;
+		futimes(handle, tv);
+	}
 }
 
 /**
@@ -417,19 +474,19 @@ int16_t Fdelete ( emuptr32_t fname )
  */
 int16_t Fdup ( int16_t handle )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fdup, 69);
-	return TOS_ENOSYS;
+	return dup(handle);
 }
 
 /**
  * Ffchmod - 258
  *
- * See 'Name' above.
+ * See 'Fchmod' above.
  */
 int32_t Ffchmod ( int16_t fd, int16_t mode)
 {
-	NOT_IMPLEMENTED(GEMDOS, Ffchmod, 258);
-	return TOS_ENOSYS;
+	if(fchmod(fd, mode) != 0)
+		return MapErrno();
+	return TOS_E_OK;
 }
 
 /**
@@ -444,8 +501,9 @@ int32_t Ffchmod ( int16_t fd, int16_t mode)
  */
 int32_t Ffchown ( int16_t fd, int16_t uid, int16_t gid )
 {
-	NOT_IMPLEMENTED(GEMDOS, Ffchown, 257);
-	return TOS_ENOSYS;
+	if(fchown(fd, uid, gid) != 0)
+		return MapErrno();
+	return TOS_E_OK;
 }
 
 /**
@@ -457,9 +515,11 @@ int32_t Ffchown ( int16_t fd, int16_t uid, int16_t gid )
  */
 int16_t Fforce ( int16_t stdh, int16_t nonstdh )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fforce, stdh);
-	NOT_IMPLEMENTED(GEMDOS, Fforce, nonstdh);
-	return TOS_ENOSYS;
+	//NOT_IMPLEMENTED(GEMDOS, Fforce, stdh);
+	//NOT_IMPLEMENTED(GEMDOS, Fforce, nonstdh);
+	if ( dup2(nonstdh, stdh) == -1)
+		return MapErrno();
+	return TOS_E_OK;
 }
 
 /**
@@ -471,8 +531,11 @@ int16_t Fforce ( int16_t stdh, int16_t nonstdh )
  */
 int32_t Fgetchar ( int16_t fh, int16_t mode )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fgetchar, 263);
-	return TOS_ENOSYS;
+	char c;
+	if(read(fh, &c, 1) > 0)
+		return MapErrno();
+	else
+		return c;
 }
 
 /**
@@ -591,6 +654,10 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
 		break;
 	}
 
+	if (mode & 0x08)
+	{
+		flags |= O_APPEND;
+	}
 	if (mode & 0x200)
 	{
 		flags |= O_CREAT;
@@ -599,10 +666,34 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
 	{
 		flags |= O_TRUNC;
 	}
+	if (mode & 0x800)
+	{
+		flags |= O_EXCL;
+	}
+	if (mode & 0x4000)
+	{
+		flags |= O_NOCTTY;
+	}
+	if (mode & 0x04)
+	{
+		flags |= O_NOATIME;
+	}
+	if (mode & 0x10000)
+	{
+		flags |= O_DIRECTORY;
+	}
+	if (mode & 0x20000)
+	{
+		flags |= O_NOFOLLOW;
+	}
+	if (mode & 0x100)
+	{
+		flags |= O_NONBLOCK;
+	}
 
 	int retval = open(buffer, flags, 0777);
 	if (retval < 1)
-		retval = -errno;
+		retval = MapErrno();
 	return retval;
 }
 
@@ -1032,9 +1123,43 @@ int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
  *
  * int32_t Fxattr ( int16_t flag, int8_t *name, XATTR *xattr )
  */
-int32_t Fxattr ( int16_t flag, emuptr32_t name, emuptr32_t xattr )
+int32_t Fxattr ( int16_t lflag, emuptr32_t name, emuptr32_t xattr )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fxattr, 300);
+	char buffer[1024];
+	m68k_read_string(name, buffer, 1023, 1);
+	struct stat st;
+	if((lflag?lstat(buffer,&st):stat(buffer, &st)) < 0)
+	{
+		return MapErrno();
+	}
+	else
+	{
+#		define WRITE(field, value) m68k_write_field(xattr, XATTR, field, value)
+		WRITE(mode, convert_mode(st.st_mode) & 0xffff);
+		WRITE(index, st.st_ino);
+		WRITE(dev, st.st_dev);
+		WRITE(rdev, st.st_rdev);
+		WRITE(nlink, st.st_nlink);
+		WRITE(uid, st.st_uid);
+		WRITE(gid, st.st_gid);
+		WRITE(size, st.st_size);
+		WRITE(blksize, st.st_blksize);
+		WRITE(nblocks, st.st_blocks);
+		WRITE(mdostime, unixtime2dos(&st.st_mtime));
+		WRITE(adostime, unixtime2dos(&st.st_atime));
+		WRITE(cdostime, unixtime2dos(&st.st_ctime));
+		uint32_t attrib = 0;
+		if((st.st_mode & S_IFMT) == S_IFDIR)
+			attrib |= 0x10;
+		if((st.st_mode & 0200) == 0)
+			attrib |= 0x1;
+
+		WRITE(attr, attrib);
+		WRITE(reserved2, 0);
+		WRITE(reserved3, 0);
+#		undef WRITE
+	}
+	return TOS_E_OK;
 }
 
 #define END_OF_NAME(c) ((c)==0 || (c)=='/' || (c)=='\\')

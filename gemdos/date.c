@@ -3,6 +3,33 @@
 #include "common.h"
 #include "tos_errors.h"
 
+uint32_t unixtime2dos(time_t* unixtime)
+{
+	struct tm t;
+	if(localtime_r(unixtime, &t) == NULL)
+	{
+		return 0;
+	}
+	return	(t.tm_mday) | ((t.tm_mon+1)<<5) | (((t.tm_year-80)&0x7f)<<9) |
+			((((t.tm_sec/2)&0xF) | (t.tm_min << 5) | (t.tm_hour << 11)) << 16);
+}
+
+time_t dostime2unix(uint32_t dostime)
+{
+	struct tm t;
+	uint16_t timestamp = dostime >> 16;
+	uint16_t datestamp = dostime & 0xffff;
+
+	t.tm_sec = (timestamp & 0x1f) * 2;
+	t.tm_min = (timestamp >> 5) & 0x3f;
+	t.tm_hour = (timestamp >> 11) & 0x1f;
+
+	t.tm_mday = (datestamp & 0x1f);
+	t.tm_mon = ((datestamp >> 5) & 0xf) - 1;
+	t.tm_year = 80 + ((datestamp >> 9) & 0x7f);
+
+	return mktime(&t);
+}
 /**
  * Talarm - 288
  *
@@ -30,8 +57,7 @@ int32_t Talarm ( int32_t time )
 uint32_t Tgetdate ( void )
 {
 	time_t current=time(NULL);
-	struct tm* t = localtime(&current);
-	return t->tm_mday | ((t->tm_mon+1)<<5) | (((t->tm_year-80)&0x7f)<<9);
+	return unixtime2dos(&current) & 0xffff;
 }
 
 /**
@@ -42,8 +68,7 @@ uint32_t Tgetdate ( void )
 uint32_t Tgettime ( void )
 {
 	time_t current=time(NULL);
-	struct tm* t = localtime(&current);
-	return ((t->tm_sec/2)&0xF) | (t->tm_min << 5) | (t->tm_hour << 11);
+	return (unixtime2dos(&current)>>16) & 0xffff;
 }
 
 /**

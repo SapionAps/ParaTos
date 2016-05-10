@@ -1,5 +1,5 @@
 #pragma once
-
+#include <time.h>
 // Character input/output
 
 int32_t Cauxin ( void );
@@ -173,6 +173,9 @@ void Syield ( void );
 int32_t Sysconf ( int16_t n );
 
 const char* filename8_3(char* dest, const char* source);
+uint32_t unixtime2dos(const time_t* unixtime);
+time_t dostime2unix(uint32_t dostime);
+
 void InitMemory();
 
 
@@ -209,5 +212,70 @@ typedef struct
    // the following are non-standard extensions
    int32_t mint_domain;
 } __attribute__((packed)) basepage_t;
+
+typedef struct xattr
+{
+   uint16_t   mode;              /* File mode, statements for */
+                                 /* - possible filetypes      */
+                                 /* - special bits            */
+                                 /* - access rights           */
+   int32_t    index;             /* File number               */
+   uint16_t   dev;               /* Device number             */
+   uint16_t   rdev;              /* Actual device             */
+                                 /* (e.g. for BIOS files)     */
+                                 /* in MagiC however reserved */
+   uint16_t   nlink;             /* Number of links           */
+   uint16_t   uid;               /* User number               */
+   uint16_t   gid;               /* Group number              */
+   int32_t    size;              /* File length               */
+   int32_t    blksize, nblocks;  /* Blocksize/occupied blocks */
+   union {
+	   struct {
+		   uint16_t   mtime, mdate;      /* Date of last modification */
+	   }__attribute__((packed));
+	   uint32_t mdostime;
+   };
+   union {
+	   struct {
+		   uint16_t   atime, adate;      /* Date of last access */
+	   }__attribute__((packed));
+	   uint32_t adostime;
+   };
+   union {
+	   struct {
+		   uint16_t   ctime, cdate;       /* Creation date             */
+	   }__attribute__((packed));
+	   uint32_t cdostime;
+   };
+   uint16_t   attr;              /* TOS file attributes       */
+   uint16_t   reserved2;         /* Reserved                  */
+   uint64_t   reserved3;         /* Reserved                  */
+} __attribute__((packed)) XATTR;
+
+/* This is what Fstat64 wants.  */
+struct mint_stat {
+  int64_t mst_dev;				/* Device.  */
+  uint32_t mst_ino;				/* File serial number.  */
+  uint32_t mst_mode;			/* File mode.  */
+  uint32_t mst_nlink;			/* (Hard) link count.  */
+  uint32_t mst_uid;				/* User ID of the file's owner.  */
+  uint32_t mst_gid;				/* Group ID of the file's group.  */
+  int64_t mst_rdev;				/* Device number, if device.  */
+  int32_t mst_high_atime;
+  int32_t mst_atime;			/* Time of last access, UTC.  */
+  uint32_t mst_atim;
+  int32_t mst_high_mtime;
+  int32_t mst_mtime;			/* Time of last access, UTC.  */
+  uint32_t mst_mtim;
+  int32_t mst_high_ctime;
+  int32_t mst_ctime;			/* Time of last status change, UTC.  */
+  uint32_t mst_ctim;
+  int64_t mst_size;				/* File size, in bytes.  */
+  int64_t mst_blocks;			/* Number of 512-bytes blocks allocated.  */
+  uint32_t mst_blksize;			/* Optimal blocksize for I/O.  */
+  uint32_t mst_flags;			/* User defined flags for file.  */
+  uint32_t mst_gen;				/* File generation number.  */
+  int32_t __res[7];
+} __attribute__((packed));
 
 extern emuptr32_t current_process; // Current process

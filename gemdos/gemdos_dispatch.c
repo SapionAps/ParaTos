@@ -8,7 +8,6 @@ void dispatch_gemdos_trap()
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t num = m68k_read_memory_16(sp);
 	int32_t retval = 0;
-
 	switch (num) {
 	case    0	:
 		Pterm0();
@@ -454,5 +453,6 @@ void dispatch_gemdos_trap()
 	default:
 		retval = TOS_ENOSYS;
 	}
+	//fprintf(stderr,"GEMDOS %x -> %x\n", num, retval);
 	m68k_set_reg(M68K_REG_D0, retval);
 }
