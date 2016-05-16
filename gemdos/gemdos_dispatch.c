@@ -274,7 +274,7 @@ void dispatch_gemdos_trap()
 		retval = Pwait3(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4));
 		break;
 	case  285	:
-		retval = Fselect(m68k_read_memory_32(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
+		retval = Fselect(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8), m68k_read_memory_32(sp+12));
 		break;
 	case  286	:
 		Prusage(m68k_read_memory_32(sp+2));
@@ -441,14 +441,14 @@ void dispatch_gemdos_trap()
 	case  345	:
 		retval = Psetpriority(m68k_read_memory_16(sp+2), m68k_read_memory_16(sp+4), m68k_read_memory_16(sp+6));
 		break;
+	case  346	:
+		retval = Fpoll(m68k_read_memory_32(sp+2), m68k_read_memory_32(sp+6), m68k_read_memory_32(sp+10));
+		break;
 	case 349:
 		retval = Ffstat64(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4));
 		break;
 	case  1296	:
 		retval = Dxopendir(m68k_read_memory_32(sp+2), m68k_read_memory_16(sp+6));
-		break;
-	case  24000	:
-		retval = STEFcntrl(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
 		break;
 	default:
 		retval = TOS_ENOSYS;

@@ -77,16 +77,17 @@ int32_t Fmidipipe ( int16_t pid, int16_t in, int16_t out );
 int32_t Fopen ( emuptr32_t fname, int16_t mode );
 int32_t Foutstat ( int16_t fh );
 int16_t Fpipe ( emuptr32_t usrh );
+int32_t Fpoll ( /*POLLFD */ emuptr32_t fds, uint32_t nfds, uint32_t timeout );
 int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode );
 int32_t Fread ( int16_t handle, int32_t count, emuptr32_t buf );
 int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name );
 int32_t Frename ( emuptr32_t oldname, emuptr32_t newname );
 int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode );
-int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds);
+int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds, emuptr32_t efds );
 void Fsetdta ( emuptr32_t buf );
 int32_t Fsfirst ( emuptr32_t filename, int16_t attr );
 int16_t Fsnext ( void );
-int16_t Fstat64 (uint16_t flag, uint32_t name, /*struct stat */ uint32_t address);
+int16_t Fstat64 ( uint16_t flag, uint32_t name, /*struct stat */ uint32_t address );
 int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname );
 int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t buf );
 int32_t Fxattr ( int16_t flag, emuptr32_t name, emuptr32_t xattr );
@@ -158,7 +159,6 @@ int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusage );
 
 // System functions
 
-int32_t STEFcntrl ( int16_t func, int32_t special1, int32_t special2 );
 void Salert ( emuptr32_t msg );
 int32_t Sconfig ( int16_t mode, int32_t flags );
 void Shutdown ( int32_t mode );
@@ -277,6 +277,13 @@ struct mint_stat {
   uint32_t mst_flags;			/* User defined flags for file.  */
   uint32_t mst_gen;				/* File generation number.  */
   int32_t __res[7];
+} __attribute__((packed));
+
+struct mint_pollfd
+{
+	int32_t		fd;			/* File descriptor to poll */
+	uint16_t	events;		/* Types of events poller cares about */
+	uint16_t	revents;	/* Types of events that actually occurred */
 } __attribute__((packed));
 
 extern emuptr32_t current_process; // Current process

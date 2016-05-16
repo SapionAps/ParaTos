@@ -2,6 +2,10 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+
 #include "common.h"
 #include "tos_errors.h"
 #include "gemdos.h"
@@ -856,23 +860,12 @@ int32_t Pusrval ( int32_t val )
 /**
  * Pvfork - 275
  *
- * The function Pvfork creates a copy of the current process. Parent and
- * child process share the same address and data space, i.e. every change
- * that the child makes to variables will also affect the parent. The new
- * process starts its work when the function Pvfork returns.
- *
- * Note that if the parent is in supervisor-mode when the call is made, the
- * child is placed in user-mode anyway.
- *
- * As both processes share the same address space (and stack), problems would
- * arise if both ran at the same time. For this reason the parent is paused
- * until the child process is either terminated or uses Pexec (mode 200) to
- * write itself as a new process to a new address space.
+ * TODO: currently implemented as Pfork.
+ * If using vfork, cpu emulation state change need to be isolated from the parent process.
  */
 int16_t Pvfork ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pvfork, 275);
-	return TOS_ENOSYS;
+	return Pfork();
 }
 
 /**
@@ -880,17 +873,10 @@ int16_t Pvfork ( void )
  *
  * The function Pwait is equivalent to Pwait3 (2, NULL) and is offered for
  * reasons of backwards compatibility.
- *
- * According to POSIX, the library function 'wait' should be implemented as
- * Pwaitpid (-1, 0, NULL). Hence Pwait should not be used for a
- * POSIX-compatible library.
- *
- * Warning: In MagiC the function is implemented as Pwaitpid (-1, 2, NULL).
  */
 int32_t Pwait ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pwait, 265);
-	return TOS_ENOSYS;
+	return Pwaitpid(-1, 2, 0);
 }
 
 /**
@@ -900,15 +886,10 @@ int32_t Pwait ( void )
  * and determines with it the exit code as well as the CPU load of a
  * terminated or stopped child process.
  *
- * flag is a bit-mask showing the specifics of this call as follows: Value
- * Meaning
- *
- * int32_t Pwait3 ( int16_t flag, int32_t *rusage )
  */
 int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pwait3, 284);
-	return TOS_ENOSYS;
+	return Pwaitpid(-1, flag, rusage);
 }
 
 /**
@@ -932,8 +913,48 @@ int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
  *
  * int32_t Pwaitpid ( int16_t pid, int16_t flag, int32_t *rusage )
  */
-int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusage )
+int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusagep )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pwaitpid, 314);
-	return TOS_ENOSYS;
+	struct rusage usage;
+	int status;
+	int options = 0;
+	if (flag & 1)
+		options |= WNOHANG;
+	if (flag & 2)
+		options |= WUNTRACED;
+
+	pid_t childpid = wait4(pid, &status, options, rusagep?&usage:NULL);
+	if (childpid == -1)
+	{
+		return MapErrno();
+	}
+
+	if (rusagep)
+	{
+		m68k_write_memory_32(rusagep, (uint32_t)(usage.ru_utime.tv_sec*1000 + usage.ru_utime.tv_usec));
+		m68k_write_memory_32(rusagep+1, (uint32_t)(usage.ru_stime.tv_sec*1000 + usage.ru_stime.tv_usec));
+	}
+
+	uint32_t retval = (uint32_t)childpid << 16;
+	uint32_t signum = 0;
+	uint32_t code = 0;
+	if (WIFEXITED(status))
+	{
+		code = WEXITSTATUS(status);
+	}
+	else if (WIFSIGNALED(status))
+	{
+		signum = WTERMSIG(status);
+		if (WCOREDUMP(status))
+		{
+			retval |= 0x8000;
+		}
+	}
+	else if (WIFSTOPPED(status))
+	{
+		signum = WSTOPSIG(status);
+		code = 0x1f;
+	}
+
+	return (int32_t)(retval | ((signum << 8) & 0x7f00) | (code & 0xff));
 }

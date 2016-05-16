@@ -67,17 +67,17 @@ void m68k_read_to_8(uint32_t address, uint8_t* dest);
 );})
 
 #define m68k_write_field(address, type, field, value) ({ \
-	m68k_write(address + offsetof(type, field), (typeof(((type *)0)->field))(value)); \
+	m68k_write((address) + offsetof(type, field), (typeof(((type *)0)->field))(value)); \
 })
 
 #define m68k_write_struct_member(address, value, field) \
-	m68k_write(address + offsetof(typeof(value), field), (value).field)
+	m68k_write((address) + offsetof(typeof(value), field), (value).field)
 
 #define m68k_read_field(address, type, field) \
-	m68k_read(address + offsetof(type, field), (((type *)0)->field))
+	m68k_read((address) + offsetof(type, field), (((type *)0)->field))
 
 #define m68k_read_field_to(address, type, field, dest) \
-	m68k_read_to(address + offsetof(type, field), dest )
+	m68k_read_to((address) + offsetof(type, field), dest )
 
 #define m68k_read_struct_member(address, value, field) \
 	m68k_read_field_to((address), typeof(value), field, (value).field)

@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <time.h>
 #include <utime.h>
+#include <poll.h>
+
 #include "common.h"
 #include "tos_errors.h"
 #include "gemdos.h"
@@ -882,6 +884,54 @@ int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
 	return lseek(handle, offset, seekmode);
 }
 
+static inline int popcount(uint32_t n)
+{
+#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5))) \
+	|| (defined(__clang__) && (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 1)))
+	return __builtin_popcount(n);
+#else
+     n -= (n >> 1) & 0x55555555;
+     n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
+     return (((n + (n >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
+#endif
+}
+
+// From http://graphics.stanford.edu/~seander/bithacks.html
+static inline int lastbit(uint32_t v)
+{
+	uint32_t c;     // c will be the number of zero bits on the right,
+	                // so if v is 1101000 (base 2), then c will be 3
+					// NOTE: if 0 == v, then c = 31.
+	if (v & 0x1)
+	{
+		// special case for odd v (assumed to happen half of the time)
+		return 0;
+	}
+	c = 1;
+	if ((v & 0xffff) == 0)
+	{
+		v >>= 16;
+		c += 16;
+	}
+	if ((v & 0xff) == 0)
+	{
+		v >>= 8;
+		c += 8;
+	}
+	if ((v & 0xf) == 0)
+	{
+		v >>= 4;
+		c += 4;
+	}
+	if ((v & 0x3) == 0)
+	{
+		v >>= 2;
+		c += 2;
+	}
+	c -= v & 0x1;
+	return c;
+}
+
 /**
  * Fselect - 285
  *
@@ -911,10 +961,150 @@ int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
  *
  * int32_t Fselect ( uint16_t timeout, int32_t *rfds, int32_t *wfds, ((int32_t) 0) )
  */
-int32_t Fselect ( uint16_t timeout, emuptr32_t rfds, emuptr32_t wfds )
+int32_t Fselect ( uint16_t timeout, emuptr32_t rfdsp, emuptr32_t wfdsp, emuptr32_t efdsp )
 {
-	NOT_IMPLEMENTED(GEMDOS, Fselect, 285);
-	return TOS_ENOSYS;
+	int32_t mask = 0;
+	int32_t rfds = 0;
+	int32_t wfds = 0;
+	int32_t efds = 0;
+	if(rfdsp)
+	{
+		rfds = m68k_read_memory_32(rfdsp);
+		mask |= rfds;
+	}
+	if(wfdsp)
+	{
+		wfds = m68k_read_memory_32(wfdsp);
+		mask |= wfds;
+	}
+	if(efdsp)
+	{
+		efds = m68k_read_memory_32(efdsp);
+		mask |= efds;
+	}
+
+	int32_t nfds = popcount(mask);
+	struct pollfd *native_fds = alloca(nfds*sizeof(struct pollfd));
+	for(int i=0; i<nfds; i++)
+	{
+		native_fds[i].fd = lastbit(mask);
+		native_fds[i].events = 0;
+		native_fds[i].revents = 0;
+		uint32_t fdmask = (1 << native_fds[i].fd);
+
+		if(rfdsp && rfds & fdmask)
+		{
+			native_fds[i].events |= POLLIN;
+		}
+		if(wfdsp && wfds & fdmask)
+		{
+			native_fds[i].events |= POLLOUT;
+		}
+		if(efdsp && efds & fdmask)
+		{
+			native_fds[i].events |= POLLPRI;
+		}
+
+		mask &= mask-1; // Clear last significant bit in mask
+	}
+
+	int32_t status = poll(native_fds, nfds, timeout==0?-1:timeout);
+	if(status == -1)
+	{
+		return MapErrno();
+	}
+
+	rfds = wfds = efds = 0;
+	for(int i=0; i<nfds; i++)
+	{
+		uint32_t fdmask = (1 << native_fds[i].fd);
+		if(rfdsp && native_fds[i].revents & POLLIN)
+		{
+			rfds |= fdmask;
+		}
+		if(wfdsp && native_fds[i].revents & POLLOUT)
+		{
+			wfds |= fdmask;
+		}
+		if(efdsp && native_fds[i].revents & (POLLERR | POLLPRI | POLLHUP))
+		{
+			efds |= fdmask;
+		}
+	}
+	if(rfdsp)
+		m68k_write_memory_32(rfdsp, rfds);
+	if(wfdsp)
+		m68k_write_memory_32(wfdsp, wfds);
+	if(efdsp)
+		m68k_write_memory_32(efdsp, efds);
+
+	return popcount(rfds | wfds | efds);
+}
+
+#define MINT_POLLIN		0x001	/* There is data to read */
+#define MINT_POLLPRI	0x002	/* There is urgent data to read */
+#define MINT_POLLOUT	0x004	/* Writing now will not block */
+#define MINT_POLLRDNORM	0x040	/* Normal data may be read */
+#define MINT_POLLRDBAND	0x080	/* Priority data may be read */
+#define MINT_POLLWRNORM	0x100	/* Writing now will not block */
+#define MINT_POLLWRBAND	0x200	/* Priority data may be written */
+#define MINT_POLLMSG	0x400
+#define MINT_POLLERR	0x0008
+#define MINT_POLLHUP	0x0010
+#define MINT_POLLNVAL	0x0020
+
+#if MINT_POLLIN == POLLIN && \
+	MINT_POLLPRI == POLLPRI && \
+	MINT_POLLOUT == POLLOUT && \
+	MINT_POLLRDNORM == POLLRDNORM && \
+	MINT_POLLRDBAND == POLLRDBAND && \
+	MINT_POLLWRNORM == POLLWRNORM && \
+	MINT_POLLWRBAND == POLLWRBAND && \
+	MINT_POLLMSG == POLLMSG && \
+	MINT_POLLERR == POLLERR && \
+	MINT_POLLHUP == POLLHUP && \
+	MINT_POLLNVAL == POLLNVAL
+// Mint and plaform poll flags are identical
+#define mint_poll2native(x) (x)
+#define native_poll2mint(x) (x)
+#else
+#error "todo - Map mint poll flags to native platform"
+#endif
+
+/**
+ * Fpoll - 346
+ *
+ * int32_t Fpoll ( POLLFD *fds, uint32_t nfds, uint32_t timeout )
+ */
+int32_t Fpoll ( /*POLLFD */ emuptr32_t fds, uint32_t nfds, uint32_t timeout )
+{
+#	define READ(index, field) m68k_read_field(fds + (index)*sizeof(struct mint_pollfd), struct mint_pollfd, field)
+#	define WRITE(index, field, value) m68k_write_field(fds + (index)*sizeof(struct mint_pollfd), struct mint_pollfd, field, (value))
+	int32_t retval;
+	struct pollfd *native_fds = alloca(nfds*sizeof(struct pollfd));
+	for(int i=0; i<nfds; i++)
+	{
+		native_fds[i].fd = READ(i, fd);
+		native_fds[i].events = mint_poll2native(READ(i, events));
+		native_fds[i].revents = mint_poll2native(READ(i, revents)); // or 0?
+	}
+	retval = poll(native_fds, nfds, timeout);
+	if (retval < 0)
+	{
+		retval = MapErrno();
+	}
+	else
+	{
+		for(int i=0; i<nfds; i++)
+		{
+			//WRITE(i, fd, native_fds[i].fd);
+			//WRITE(i, events, native_poll2mint(native_fds[i].events));
+			WRITE(i, revents, native_poll2mint(native_fds[i].revents));
+		}
+	}
+	return retval;
+#	undef READ
+#	undef WRITE
 }
 
 /**

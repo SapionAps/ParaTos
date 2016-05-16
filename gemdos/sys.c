@@ -19,38 +19,6 @@
 #include "m68kcpu.h"
 
 /**
- * STEFcntrl - 24000
- *
- * SET_INFOTEXT (1)
- * special1 = (int8_t *) Pointer to new info-line
- * special2 = (int8_t *) Pointer to old info-line
- *
- * The string pointed to be special1 will be adopted as the new info-line in
- * the status-line of the STEmulator. A value of NULL switches back to the
- * standard display again.
- *
- * If a valid pointer to a buffer is passed in special2, this will contain
- * the old text of the info-line after the function call. With NULL, nothing
- * happens.
- *
- * SET_WINDOWTITLE (2)
- * special1 = (int8_t *) Pointer to new title-line
- * special2 = (int8_t *) Pointer to old title-line
- *
- * The string pointed to by special1 will be adopted as the new title-line of
- * the STEmulator window.
- *
- * If a valid pointer to a buffer is passed in special2, this will contain
- * the old text of the window title after the function call. With NULL,
- * nothing happens.
- */
-int32_t STEFcntrl ( int16_t func, int32_t special1, int32_t special2 )
-{
-	NOT_IMPLEMENTED(GEMDOS, STEFcntrl, 24000);
-	return TOS_ENOSYS;
-}
-
-/**
  * Salert - 316
  *
  * The function Salert outputs an alert or error-message that is written to
