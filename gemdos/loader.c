@@ -92,6 +92,7 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 	FILE* file = fopen(filename,"r");
 	if (!file)
 	{
+		perror(filename);
 		return 0;
 	}
 	fread(&header, sizeof(tos_header_t), 1, file);
