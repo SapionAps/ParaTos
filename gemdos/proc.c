@@ -22,7 +22,7 @@
  */
 void Pause ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pause, 289);
+	pause();
 }
 
 /**
@@ -47,20 +47,6 @@ int16_t Pdomain ( int16_t dom )
 	}
 
 	return m68k_read_field(current_process, basepage_t, mint_domain);
-}
-
-/**
- * Pexec - 75
- *
- * The function Pexec loads and launches a program. With the parameter mode
- * one can select from several variants: mode Meaning
- *
- * int32_t Pexec ( uint16_t mode, ... )
- */
-int32_t Pexec ( uint16_t mode, emureg_t sp )
-{
-	NOT_IMPLEMENTED(GEMDOS, Pexec, 75);
-	return TOS_ENOSYS;
 }
 
 /**

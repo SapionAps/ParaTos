@@ -163,7 +163,7 @@ void dispatch_gemdos_trap()
 		retval = Mshrink(m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
 		break;
 	case   75	:
-		retval = Pexec(m68k_read_memory_16(sp+2), sp+4);
+		retval = Pexec(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8), m68k_read_memory_32(sp+12));
 		break;
 	case   76	:
 		Pterm(m68k_read_memory_16(sp+2));

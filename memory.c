@@ -1,4 +1,7 @@
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
+
 uint32_t memory_sz;
 uint8_t* memory;
 
@@ -83,12 +86,11 @@ uint32_t m68k_read_string(uint32_t address, char* dest, uint32_t maxLen, int is_
 	{
 		dest[i] = m68k_read_memory_8(address+i);
 		if (dest[i] == 0)
-			break;
+			return i;
 		if (is_path && dest[i] == '\\')
 			dest[i] = '/';
 	}
-	if(dest[i] != 0)
-		dest[++i] = 0;
+	dest[i] = 0;
 	return i;
 }
 
