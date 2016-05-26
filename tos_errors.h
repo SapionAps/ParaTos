@@ -32,7 +32,8 @@
 #define TOS_EPTHNF -34
 #define TOS_ENHNDL -35
 #define TOS_EACCDN -36
-#define TOS_EIHNDL -37
+#define TOS_EBADF -37
+#define TOS_EIHNDL TOS_EBADF
 #define TOS_EPERM -38
 #define TOS_ENSMEM -39
 #define TOS_EIMBA -40
@@ -45,7 +46,8 @@
 #define TOS_ENSLOCK -59
 #define TOS_EBADARG -64
 #define TOS_EINTRN -65
-#define TOS_EPLFMT -66
+#define TOS_ENOEXEC -66
+#define TOS_EPLFMT TOS_ENOEXEC
 #define TOS_EGSBF -67
 #define TOS_EBREAK -68
 #define TOS_EXCPT -69

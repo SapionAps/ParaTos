@@ -1,5 +1,9 @@
 #include <stdlib.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdio.h>
+
 #include "tos_errors.h"
 #include <errno.h>
 
@@ -9,8 +13,12 @@ int32_t MapErrno()
 	{
 	case 0:
 		return TOS_E_OK;
+	case ENOENT:
+		return TOS_EFILNF;
 	case ESRCH:
 		return TOS_ESRCH;
+	case EBADF:
+		return TOS_EBADF;
 	case ECHILD:
 		return TOS_ECHILD;
 	case EDEADLK:
@@ -21,10 +29,14 @@ int32_t MapErrno()
 		return TOS_EISDIR;
 	case EINVAL:
 		return TOS_EINVAL;
+	case ENOEXEC:
+		return TOS_ENOEXEC;
 	case EILSEQ:
 		return TOS_EILSEQ;
 	case ENOSYS:
 		return TOS_ENOSYS;
+	case EACCES:
+		return TOS_EACCDN;
 	case EPERM:
 		return TOS_EPERM;
 	case ENFILE:
@@ -208,6 +220,8 @@ int32_t MapErrno()
 	case ETOOMANYREFS:
 		return TOS_ETOOMANYREFS;
 	default:
+		fprintf(stderr, "Unmapped errno %d ", errno);
+		perror(NULL);
 		return TOS_ERROR;
 	}
 }
