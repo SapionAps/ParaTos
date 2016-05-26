@@ -109,7 +109,7 @@ int32_t Nversion( void );
 
 void Pause ( void );
 int16_t Pdomain ( int16_t dom );
-int32_t Pexec ( uint16_t mode, emureg_t sp );
+int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t env );
 int16_t Pfork ( void );
 int16_t Pgetauid ( void );
 int32_t Pgetegid ( void );
@@ -285,5 +285,15 @@ struct mint_pollfd
 	uint16_t	events;		/* Types of events poller cares about */
 	uint16_t	revents;	/* Types of events that actually occurred */
 } __attribute__((packed));
+
+struct mint_sgttyb
+{
+    int8_t   sg_ispeed;
+    int8_t   sg_ospeed;
+    int8_t   sg_erase;
+    int8_t   sg_kill;
+    uint16_t sg_flags;
+} __attribute__((packed));
+
 
 extern emuptr32_t current_process; // Current process

@@ -11,6 +11,7 @@
 #include <sys/time.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <termios.h>
 #include <time.h>
 #include <utime.h>
 #include <poll.h>
@@ -259,6 +260,23 @@ int16_t Fclose ( int16_t handle )
  * passes a pointer in the parameter arg to a LONG value that describes the
  * desired type. The following apply: Value Meaning
  */
+
+/* some flags for TIOC[GS]FLAGS */
+#define TF_BRKINT	0x0080		/* allow breaks interrupt (like ^C) */
+#define TF_CAR		0x0800		/* nonlocal mode, require carrier */
+#define TF_NLOCAL	TF_CAR
+
+#define TF_STOPBITS	0x0003
+#define TF_1STOP	0x001
+#define TF_15STOP	0x002
+#define TF_2STOP	0x003
+
+#define TF_CHARBITS	0x000C
+#define TF_8BIT	 	0x000
+#define TF_7BIT	 	0x004
+#define TF_6BIT	 	0x008
+#define TF_5BIT	 	0x00C
+
 int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 {
 	int32_t retval;
@@ -268,18 +286,86 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 		pid_t nativePid;
 		switch (cmd)
 		{
-			case 0x4600: // FSTAT (actually _Ffxattr)
+			case 0x4600: // FSTAT
 			retval = _Ffxattr(fh, arg);
+			break;
+			case 0x5400: // TIOCGETP
+			{
+				struct termios termios;
+				if (tcgetattr(fh, &termios) == -1)
+					return MapErrno();
+				struct mint_sgttyb sg;
+				sg.sg_ispeed=cfgetispeed(&termios);
+				sg.sg_ospeed=cfgetospeed(&termios);
+				sg.sg_flags=0;
+				if((termios.c_iflag & (BRKINT|IGNBRK)) == BRKINT)
+				{
+					sg.sg_flags |= TF_BRKINT;
+				}
+				switch(termios.c_cflag & CSIZE)
+				{
+					case CS5:
+					sg.sg_flags |= TF_5BIT;
+					break;
+					case CS6:
+					sg.sg_flags |= TF_6BIT;
+					break;
+					case CS7:
+					sg.sg_flags |= TF_7BIT;
+					break;
+					case CS8:
+					sg.sg_flags |= TF_8BIT;
+					break;
+				}
+				if(termios.c_cflag & CSTOPB)
+				{
+					sg.sg_flags |= TF_2STOP;
+				}
+				else
+				{
+					sg.sg_flags |= TF_1STOP;
+				}
+				retval = TOS_E_OK;
+			}
 			break;
 			case 0x5406: //TIOCGPGRP
 			retval = ioctl(fh, TIOCGPGRP, &nativePid);
+			if( retval == -1)
+			   return MapErrno();
 			m68k_write_memory_32(arg, nativePid);
 			//printf(" pid=%d ", m68k_read_memory_32(arg));
 			break;
 			case 0x5407: //TIOCSPGRP
 			nativePid = m68k_read_memory_32(arg);
 			retval = ioctl(fh, TIOCSPGRP, &nativePid);
+			if( retval == -1)
+			   return MapErrno();
 			break;
+			case 0x540b: //TIOCGWINSZ
+			{
+				struct winsize w;
+				retval = ioctl(fh, TIOCGWINSZ, &w);
+				if( retval == -1)
+				   return MapErrno();
+				printf("%d,%d,%d,%d\n",w.ws_row,w.ws_col, w.ws_xpixel, w.ws_ypixel);
+				m68k_write_memory_16(arg, w.ws_row);
+				m68k_write_memory_16(arg+2, w.ws_col);
+				m68k_write_memory_16(arg+4, w.ws_xpixel);
+				m68k_write_memory_16(arg+6, w.ws_ypixel);
+				break;
+			}
+			case 0x540c: //TIOCSWINSZ
+			{
+				struct winsize w;
+				w.ws_row = m68k_read_memory_16(arg);
+				w.ws_col = m68k_read_memory_16(arg+2);
+				w.ws_xpixel = m68k_read_memory_16(arg+4);
+				w.ws_ypixel = m68k_read_memory_16(arg+6);
+				retval = ioctl(fh, TIOCSWINSZ, &w);
+				if( retval == -1)
+				   return MapErrno();
+				break;
+			}
 			default:
 			retval = TOS_ENOSYS;
 			NOT_IMPLEMENTED(GEMDOS, Fcntl_cmd, cmd);
