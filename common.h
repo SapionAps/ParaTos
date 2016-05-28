@@ -14,6 +14,8 @@ extern uint8_t* memory;
 typedef uint32_t emuptr32_t;
 typedef uint32_t emureg_t;
 
+void InitM68KMemory();
+
 #define NOT_IMPLEMENTED(Subsystem, Name, Op) fprintf(stderr, "Unimplemented " #Subsystem " call " #Name "(%d/%x)\n", Op, Op );
 uint64_t m68k_read_memory_64(unsigned int address);
 void m68k_write_memory_64(unsigned int address, uint64_t value);

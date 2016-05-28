@@ -17,9 +17,9 @@ extern char **environ;
 uint32_t BuildTosArglist(uint32_t args, char* argv[], int argc, uint32_t env)
 {
 	int n = 1;
-    for (int i = 1; i < argc; ++i)
-    {
-        if (i > 0)
+	for (int i = 1; i < argc; ++i)
+	{
+		if (i > 0)
 		{
 			m68k_write_memory_8(args+(n++), ' ');
 			if (n>MAX_TOS_ARG)
@@ -48,9 +48,12 @@ uint32_t BuildTosArglist(uint32_t args, char* argv[], int argc, uint32_t env)
 			}
 		}
     }
+	m68k_write_memory_8(args, n-1);
+	goto notrunc;
 trunc:
 	m68k_write_memory_8(args+n, '\0');
-    m68k_write_memory_8(args, 127);
+	m68k_write_memory_8(args, 127);
+notrunc:
 
 	// ARGV procedure - pass complete command line at the end of the env string
 	env+=m68k_write_string(env, "ARGV=", 5);
@@ -85,8 +88,10 @@ trunc:
 }
 
 
+#define WRITE_BASEPAGE(field,value) m68k_write_field(base_tpa, basepage_t, field, value)
+#define READ_BASEPAGE(field) m68k_read_field(base_tpa, basepage_t, field)
 
-basepage_t* LoadExe(const char* filename, char* argv[], int argc)
+emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 {
 	tos_header_t header;
 	FILE* file = fopen(filename,"r");
@@ -96,6 +101,7 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 		return 0;
 	}
 	fread(&header, sizeof(tos_header_t), 1, file);
+	header.PRG_magic = be16toh(header.PRG_magic);
 	header.PRG_tsize = be32toh(header.PRG_tsize);
 	header.PRG_dsize = be32toh(header.PRG_dsize);
 	header.PRG_bsize = be32toh(header.PRG_bsize);
@@ -107,13 +113,11 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 
 	uint32_t base_tpa = Malloc(Malloc(-1));
 
-	// Base page is long word aligned; all long entries are pre-byeswapped in memory
-	basepage_t* basepage = (basepage_t*)(memory + base_tpa);
-	basepage->p_lowtpa = base_tpa;
-	basepage->p_hitpa = memory_sz;
+	WRITE_BASEPAGE(p_lowtpa, base_tpa);
+	WRITE_BASEPAGE(p_hitpa, memory_sz);
 
 	uint32_t current = base_tpa + sizeof(basepage_t);
-	basepage->p_env = current;          /* Address of the environment string   */
+	WRITE_BASEPAGE(p_env, current);          /* Address of the environment string   */
 
 	// copy environment
 	for(char ** ep=environ; *ep; ep++)
@@ -134,30 +138,26 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 		current++;
 
 	// Set up rest of base page (offset is 32 bit aligned, so we can access the 32 bit values directly)
-	basepage->p_tbase = current;        /* Start address of the program code   */
-	basepage->p_tlen = header.PRG_tsize;        /* Length of the program code          */
+	WRITE_BASEPAGE(p_tbase, current);        /* Start address of the program code   */
+	WRITE_BASEPAGE(p_tlen, header.PRG_tsize);        /* Length of the program code          */
 	current += header.PRG_tsize;
-	basepage->p_dbase = current;        /* Start address of the DATA segment   */
-	basepage->p_dlen = header.PRG_dsize;         /* Length of the DATA section          */
+	WRITE_BASEPAGE(p_dbase, current);        /* Start address of the DATA segment   */
+	WRITE_BASEPAGE(p_dlen, header.PRG_dsize);         /* Length of the DATA section          */
 	current += header.PRG_dsize;
-	basepage->p_bbase = current;        /* Start address of the BSS segment    */
-	basepage->p_blen = header.PRG_bsize;         /* Length of the BSS section           */
+	WRITE_BASEPAGE(p_bbase, current);        /* Start address of the BSS segment    */
+	WRITE_BASEPAGE(p_blen, header.PRG_bsize);         /* Length of the BSS section           */
 	current += header.PRG_bsize;
-	basepage->p_dta = command_line;          /* Pointer to the default DTA          */
+	WRITE_BASEPAGE(p_dta, command_line);          /* Pointer to the default DTA          */
 							 /* Warning: Points first to the        */
 							 /* command line !                      */
-	basepage->p_parent = 0;       /* Pointer to the basepage of the      */
+	WRITE_BASEPAGE(p_parent, 0);       /* Pointer to the basepage of the      */
 							 /* calling processes                   */
 
-	printf("Reading in text and data from executable: %d+%d at address %d\n", basepage->p_tlen, basepage->p_dlen, basepage->p_tbase);
-	for(int i=basepage->p_tbase; i<basepage->p_bbase; i++)
+	printf("Reading in text and data from executable: %d+%d at address %d\n", READ_BASEPAGE(p_tlen), READ_BASEPAGE(p_dlen), READ_BASEPAGE(p_tbase));
+	char* dest = memory+READ_BASEPAGE(p_tbase);
+	if(!fread(dest, sizeof(char), READ_BASEPAGE(p_tlen)+READ_BASEPAGE(p_dlen), file))
 	{
-		uint8_t byte;
-		if(!fread(&byte,sizeof(char),1, file))
-		{
-			return 0;
-		}
-		m68k_write_memory_8(i, byte);
+		return 0;
 	}
 	printf("Skipping %d bytes of symbol data\n", header.PRG_ssize);
 	fseek(file, header.PRG_ssize, SEEK_CUR);
@@ -171,10 +171,10 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 		printf("Performing fixups starting at offset %08x\n", fixup);
 		if (fixup)
 		{
-			fixup += basepage->p_tbase;
+			fixup += READ_BASEPAGE(p_tbase);
 			do {
 				unfixed = m68k_read_memory_32(fixup);
-				fixed = unfixed + basepage->p_tbase;
+				fixed = unfixed + READ_BASEPAGE(p_tbase);
 
 				//printf("Fixing up %08x->%08x at address %08x\n",unfixed, fixed, fixup);
 				m68k_write_memory_32(fixup, fixed);
@@ -187,5 +187,5 @@ basepage_t* LoadExe(const char* filename, char* argv[], int argc)
 		}
 	}
 
-	return basepage;
+	return base_tpa;
 }

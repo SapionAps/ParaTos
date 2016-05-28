@@ -18,14 +18,14 @@ memblock_t* rover;
 
 void InitMemory()
 {
-	m68k_write_memory_32(_membot, 0x1000);
+	m68k_write_memory_32(_membot, 0x10000);
 	m68k_write_memory_32(_memtop, memory_sz-1);
 	m68k_write_memory_32(phystop, memory_sz);
 	usedMem.next = NULL;
 	usedMem.start = -1;
 	usedMem.size = -1;
 	memblock_t* firstBlock = malloc(sizeof(memblock_t));
-	firstBlock->start = 0x1000;
+	firstBlock->start = 0x10000;
 	firstBlock->size = memory_sz-firstBlock->start;
 	firstBlock->next = NULL;
 	freeMem.next = firstBlock;

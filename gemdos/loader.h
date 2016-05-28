@@ -11,4 +11,4 @@ typedef struct  {
 	uint16_t ABSFLAG;
 } __attribute__((packed)) tos_header_t;
 
-basepage_t* LoadExe(const char* filename, char* argv[], int argc);
+emuptr32_t LoadExe(const char* filename, char* argv[], int argc);

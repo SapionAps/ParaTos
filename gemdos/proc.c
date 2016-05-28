@@ -169,8 +169,7 @@ int32_t Pgetgroups( int16_t len, emuptr32_t gidset)
  */
 int16_t Pgetpgrp ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pgetpgrp, 269);
-	return TOS_ENOSYS;
+	return getpgrp();
 }
 
 /**
@@ -193,8 +192,7 @@ int16_t Pgetpgrp ( void )
  */
 int16_t Pgetpid ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pgetpid, 267);
-	return TOS_ENOSYS;
+	return getpid();
 }
 
 /**
@@ -219,8 +217,7 @@ int16_t Pgetpid ( void )
  */
 int16_t Pgetppid ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Pgetppid, 268);
-	return TOS_ENOSYS;
+	return getppid();
 }
 
 /**

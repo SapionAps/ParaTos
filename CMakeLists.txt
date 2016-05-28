@@ -12,3 +12,4 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")  # enable C11 standard
 
 add_executable (paratos ${SOURCE_FILES})
 target_link_libraries (paratos mushashi gemdos)
+add_definitions( -D_GNU_SOURCE )
