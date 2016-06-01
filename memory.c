@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -101,49 +102,29 @@ void m68k_write_memory_64(unsigned int address, uint64_t value)
 	MEM64(address) = htobe64((uint32_t)value);
 }
 
-uint32_t m68k_read_string(uint32_t address, char* dest, uint32_t maxLen, int is_path)
-{
-	uint32_t i = 0;
-	for(i=0; i<maxLen; i++)
-	{
-		dest[i] = m68k_read_memory_8(address+i);
-		if (dest[i] == 0)
-			return i;
-		if (is_path && dest[i] == '\\')
-			dest[i] = '/';
-	}
-	dest[i] = 0;
-	return i;
-}
-
 uint32_t m68k_write_string(uint32_t address, const char* value, uint32_t maxLen)
 {
 	uint32_t i = 0;
+	char *buffer = &memory[address];
 	for(i=0; i<maxLen; i++)
 	{
-		m68k_write_memory_8(address+i, value[i]);
+		buffer[i] = value[i];
 		if (value[i] == 0)
 			break;
 	}
-	if(m68k_read_memory_8(address+i) != 0)
-		m68k_write_memory_8(address+(++i), 0);
+	if(buffer[i] != 0)
+		buffer[++i] = 0;
 	return i;
 }
 
 void  m68k_read_array8(uint32_t address, char* dest, uint32_t size)
 {
-	for(uint32_t  i=0; i<size; i++)
-	{
-		dest[i] = m68k_read_memory_8(address+i);
-	}
+	memcpy(dest, &memory[address], size);
 }
 
 void m68k_write_array8(uint32_t address, const char* value, uint32_t size)
 {
-	for(uint32_t  i=0; i<size; i++)
-	{
-		m68k_write_memory_8(address+i, value[i]);
-	}
+	memcpy(&memory[address], value, size);
 }
 
 void m68k_read_to_64(uint32_t address, uint64_t* dest)

@@ -19,7 +19,6 @@ void InitM68KMemory();
 #define NOT_IMPLEMENTED(Subsystem, Name, Op) fprintf(stderr, "Unimplemented " #Subsystem " call " #Name "(%d/%x)\n", Op, Op );
 uint64_t m68k_read_memory_64(unsigned int address);
 void m68k_write_memory_64(unsigned int address, uint64_t value);
-uint32_t m68k_read_string(uint32_t address, char* dest, uint32_t maxLen, bool is_path);
 uint32_t m68k_write_string(uint32_t address, const char* value, uint32_t maxLen);
 void m68k_read_array8(uint32_t address, char* dest, uint32_t count);
 void m68k_write_array8(uint32_t address, const char* value, uint32_t count);
@@ -66,7 +65,6 @@ void m68k_read_to_8(uint32_t address, uint8_t* dest);
 	uint8_t: m68k_read_to_8((address),(uint8_t*)&(lval)), \
 	int8_t: m68k_read_to_8((address),(uint8_t*)&(lval)), \
 	int8_t[sizeof(lval)] : m68k_read_array8((address),(char*)(intptr_t)(lval),sizeof(lval)), \
-	int8_t* : m68k_read_string((address),(char*)(intptr_t)(lval),1024,0) \
 );})
 
 #define m68k_write_field(address, type, field, value) ({ \

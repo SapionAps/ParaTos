@@ -166,29 +166,14 @@ int32_t Cconrs ( emuptr32_t buf )
  */
 int32_t Cconws ( emuptr32_t address )
 {
-	uint8_t buffer[256];
-	int done = 0;
-	while(!done)
+	uint8_t* buffer = &memory[address];
+	int count=strlen(buffer);
+	int32_t bytes_written = write(1, buffer, count);
+	if (bytes_written < 0)
 	{
-		int count = 0;
-		for(;count < 256;count++)
-		{
-			buffer[count] = m68k_read_memory_8(address++);
-			if (buffer[count] == 0)
-			{
-				count--;
-				done=1;
-				break;
-			}
-		}
-
-		int32_t bytes_written = write(1, buffer, count);
-		if (bytes_written < 0)
-		{
-			return MapErrno();
-		}
+		return MapErrno();
 	}
-	return 0;
+	return TOS_E_OK;
 }
 
 /**

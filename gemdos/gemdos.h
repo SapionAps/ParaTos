@@ -173,7 +173,6 @@ uint16_t Sversion ( void );
 void Syield ( void );
 int32_t Sysconf ( int16_t n );
 
-const char* filename8_3(char* dest, const char* source);
 uint32_t unixtime2dos(const time_t* unixtime);
 time_t dostime2unix(uint32_t dostime);
 

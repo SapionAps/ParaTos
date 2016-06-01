@@ -17,23 +17,24 @@ extern char **environ;
 uint32_t BuildTosArglist(uint32_t args, char* argv[], int argc, uint32_t env)
 {
 	int n = 1;
+	char* arg_buffer = &memory[args];
 	for (int i = 1; i < argc; ++i)
 	{
 		if (i > 0)
 		{
-			m68k_write_memory_8(args+(n++), ' ');
+			arg_buffer[n++] = ' ';
 			if (n>MAX_TOS_ARG)
 				goto trunc;
 		}
 		if(argv[i][0]==0)
 		{
-			m68k_write_memory_8(args+(n++), '\'');
+			arg_buffer[n++] = '\'';
 			if (n>MAX_TOS_ARG)
 			{
 				n--;
 				goto trunc;
 			}
-			m68k_write_memory_8(args+(n++), '\'');
+			arg_buffer[n++] = '\'';
 			if (n>MAX_TOS_ARG)
 				goto trunc;
 
@@ -42,17 +43,17 @@ uint32_t BuildTosArglist(uint32_t args, char* argv[], int argc, uint32_t env)
 		{
 			for(char* c = argv[i]; *c; c++)
 			{
-				m68k_write_memory_8(args+(n++), *c);
+				arg_buffer[n++] = *c;
 				if (n>MAX_TOS_ARG)
 					goto trunc;
 			}
 		}
     }
-	m68k_write_memory_8(args, n-1);
+	arg_buffer[0] = n-1;
 	goto notrunc;
 trunc:
-	m68k_write_memory_8(args+n, '\0');
-	m68k_write_memory_8(args, 127);
+	arg_buffer[n] = '\0';
+	arg_buffer[0] = 127;
 notrunc:
 
 	// ARGV procedure - pass complete command line at the end of the env string

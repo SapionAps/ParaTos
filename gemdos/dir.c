@@ -8,6 +8,7 @@
 
 #include "common.h"
 #include "gemdos.h"
+#include "path.h"
 #include "tos_errors.h"
 
 /**
@@ -243,19 +244,22 @@ int32_t Dopendir ( emuptr32_t name, int16_t flag )
 {
 	if(flag == 1)
 		return TOS_ENOSYS;
-	char buffer[1024];
-	m68k_read_string(name, buffer, 1023, 1);
-	DIR* dirP = opendir(buffer);
+	int32_t retval;
+	char* path = read_path(name);
+	if(!path)
+		return TOS_EPTHNF;
+	DIR* dirP = opendir(path);
 	if(dirP)
 	{
-		int32_t dirH = Malloc(16); // Allocate memory to store the dir pointer
-		m68k_write_memory_64(dirH, (uint64_t)dirP);
-		return dirH;
+		retval = Malloc(16); // Allocate memory to store the dir pointer
+		m68k_write_memory_64(retval, (uint64_t)dirP);
 	}
 	else
 	{
-		return TOS_EPTHNF;
+		retval = TOS_EPTHNF;
 	}
+	free(path);
+	return retval;
 }
 
 /**

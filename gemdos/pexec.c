@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #include "common.h"
+#include "path.h"
 #include "tos_errors.h"
 #include "gemdos.h"
 
@@ -104,7 +105,6 @@ static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *ar
 					case '\r':
 						if(buffer)
 							*buffer++ = 0;
-						printf("BUFFER[%d]=0\n",byte_count);
 						byte_count++;
 						state = BL;
 						break;
@@ -117,7 +117,6 @@ static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *ar
 					default:
 						if(buffer)
 							*buffer++ = cmd[i];
-						printf("BUFFER[%d]=%c\n",byte_count, cmd[i]);
 						byte_count++;
 				}
 			}
@@ -135,7 +134,6 @@ static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *ar
 					{
 						if(buffer)
 							*buffer++ = state;
-						printf("BUFFER[%d]=%c\n",byte_count, state);
 						byte_count++;
 						i+=2;
 					}
@@ -200,10 +198,6 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
 		// First argument is the executable itself, as the TOS cmdline only contains argv[1] and forward
 		argv[0]=path;
 		parse_cmdline(cmdline, argv+1, buffer, NULL, NULL);
-		for(int i=0; argv[i]; i++)
-		{
-			printf("ARG[%d]: %s\n", i, argv[i]);
-		}
 	}
 
 	uint16_t magic;
@@ -212,7 +206,6 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
 	{
 		fread(&magic, sizeof(magic), 1, file);
 		magic = be16toh(magic);
-		printf("Magic: %x\n", magic);
 		if (magic == 0x601a) // this is another TOS executable - prepend paratos to the command line
 		{
 			// Shift argv one element to the right
@@ -247,10 +240,12 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
  */
 int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3 )
 {
-	char* buffer=alloca(1024);
+	int32_t retval = TOS_E_OK;
+	char* path = NULL;
+	char* orig_path = NULL;
 	if (arg1)
 	{
-		m68k_read_string(arg1, buffer, 1023, 1);
+		orig_path = path = read_path(arg1);
 	}
 
 	// mint uses the high bit to control tracing
@@ -294,13 +289,16 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		{
 			char** argv;
 			char** envp;
-			prepare_args(&argv, &envp, &buffer, arg2, arg3);
-			execve(buffer, argv, envp);
-			perror(buffer);
-			return MapErrno();
+			prepare_args(&argv, &envp, &path, arg2, arg3);
+			execve(path, argv, envp);
+			retval = MapErrno();
+			perror(path);
 		}
 		default:
 		NOT_IMPLEMENTED(GEMDOS, Pexec_mode, mode);
-		return TOS_ENOSYS;
+		retval = TOS_ENOSYS;
 	}
+	if(orig_path)
+		free(orig_path);
+	return retval;
 }

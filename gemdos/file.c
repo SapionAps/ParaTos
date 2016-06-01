@@ -17,6 +17,7 @@
 #include <poll.h>
 
 #include "common.h"
+#include "path.h"
 #include "tos_errors.h"
 #include "gemdos.h"
 
@@ -31,12 +32,13 @@
  */
 int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
 {
-	char buffer[1024];
-	m68k_read_string(filename, buffer, 1023, 1);
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
 	struct stat st;
-	if(stat(buffer, &st) < 0)
+	if(stat(path, &st) < 0)
 	{
-		return MapErrno();
+		attrib = MapErrno();
 	}
 	else
 	{
@@ -50,9 +52,10 @@ int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
 			{
 				st.st_mode |= 0200;
 			}
-			if (chmod(buffer, st.st_mode) != 0)
+			if (chmod(path, st.st_mode) != 0)
 			{
-				return MapErrno();
+				attrib = MapErrno();
+				goto cleanup;
 			}
 		}
 		attrib = 0;
@@ -61,6 +64,8 @@ int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
 		if((st.st_mode & 0200) == 0)
 			attrib |= 0x1;
 	}
+cleanup:
+	free(path);
 	return attrib;
 }
 
@@ -76,11 +81,14 @@ int16_t Fattrib ( emuptr32_t filename, int16_t wflag, int16_t attrib )
  */
 int32_t Fchmod ( emuptr32_t filename, int16_t mode )
 {
-	char buffer[1024];
-	m68k_read_string(filename, buffer, 1023, 1);
-	if(chmod(buffer, mode) != 0)
-		return MapErrno();
-	return TOS_E_OK;
+	int32_t retval = TOS_E_OK;
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
+	if(chmod(path, mode) != 0)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
@@ -99,11 +107,14 @@ int32_t Fchmod ( emuptr32_t filename, int16_t mode )
  */
 int32_t Fchown ( emuptr32_t filename, int16_t uid, int16_t gid )
 {
-	char buffer[1024];
-	m68k_read_string(filename, buffer, 1023, 1);
-	if(chown(buffer, uid, gid) != 0)
-		return MapErrno();
-	return TOS_E_OK;
+	int32_t retval = TOS_E_OK;
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
+	if(chown(path, uid, gid) != 0)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
@@ -506,19 +517,22 @@ int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
 
 int16_t Fstat64 (uint16_t lflag, uint32_t name, /*struct stat */ uint32_t address)
 {
-	char buffer[1024];
-	m68k_read_string(name, buffer, 1023, 1);
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(name);
+	if(!path)
+		return TOS_EPTHNF;
 	//printf("Fstat64(%d, %s, 0x%08x)\n", lflag, buffer, address);
 	struct stat st;
-	if((lflag?lstat(buffer,&st):stat(buffer, &st)) < 0)
+	if((lflag?lstat(path,&st):stat(path, &st)) < 0)
 	{
-		return MapErrno();
+		retval = MapErrno();
 	}
 	else
 	{
 		convert_stat(&st, address);
 	}
-	return 0;
+	free(path);
+	return retval;
 }
 
 /**
@@ -575,13 +589,16 @@ void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
  *
  * int16_t Fdelete ( const int8_t *fname )
  */
-int16_t Fdelete ( emuptr32_t fname )
+int16_t Fdelete ( emuptr32_t filename )
 {
-	char buffer[1024];
-	m68k_read_string(fname, buffer, 1023, 1);
-	if (unlink(buffer) < 0)
-		return -errno;
-	return 0;
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
+	if (unlink(path) < 0)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
@@ -708,13 +725,21 @@ int32_t Finstat ( int16_t fh )
  */
 int32_t Flink ( emuptr32_t oldname, emuptr32_t newname )
 {
-	char buffer1[1024];
-	char buffer2[1024];
-	m68k_read_string(oldname, buffer1, 1023, 1);
-	m68k_read_string(newname, buffer2, 1023, 1);
-	if (link(buffer1, buffer2) < 0)
-		return MapErrno();
-	return 0;
+	int32_t retval = TOS_E_OK;
+	char* oldpath = read_path(oldname);
+	if(!oldpath)
+		return TOS_EPTHNF;
+	char* newpath = read_path(newname);
+	if(!newpath)
+	{
+		free(oldpath);
+		return TOS_EPTHNF;
+	}
+	if (link(oldpath, newpath) < 0)
+		retval = MapErrno();
+	free(oldpath);
+	free(newpath);
+	return retval;
 }
 
 /**
@@ -755,10 +780,13 @@ int32_t Fmidipipe ( int16_t pid, int16_t in, int16_t out )
  *
  * int32_t Fopen ( const int8_t *fname, int16_t mode )
  */
-int32_t Fopen ( emuptr32_t fname, int16_t mode )
+int32_t Fopen ( emuptr32_t filename, int16_t mode )
 {
-	char buffer[1024];
-	m68k_read_string(fname, buffer, 1023, 1);
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
+
 	int flags = 0;
  	switch(mode & 3)
 	{
@@ -810,9 +838,11 @@ int32_t Fopen ( emuptr32_t fname, int16_t mode )
 		flags |= O_NONBLOCK;
 	}
 
-	int retval = open(buffer, flags, 0777);
+	retval = open(path, flags, 0777);
 	if (retval < 1)
 		retval = MapErrno();
+
+	free(path);
 	return retval;
 }
 
@@ -901,15 +931,11 @@ int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
  */
 int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
 {
-	uint8_t* buffer = alloca(count);
+	uint8_t* buffer = &memory[address];
 	int32_t bytes_read = read(handle, buffer, count);
 	if (bytes_read < 0)
 	{
-		return -errno;
-	}
-	for (int i=0; i<bytes_read; i++)
-	{
-		m68k_write_memory_8(address+i, buffer[i]);
+		return MapErrno();
 	}
 	return bytes_read;
 }
@@ -924,18 +950,17 @@ int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
  *
  * int32_t Freadlink ( int16_t bufsiz, int8_t *buf, int8_t *name )
  */
-int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
+int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t filename )
 {
-	char path[1024];
-	char* buffer = alloca(bufsiz);
-	m68k_read_string(name, path, 1023, 1);
-	int32_t retval = readlink(path, buffer, bufsiz);
+	int32_t retval = TOS_E_OK;
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
+	char* buffer = &memory[buf];
+	retval = readlink(path, buffer, bufsiz);
 	if(retval < 0)
-		return MapErrno();
-	for(int i=0; i<retval; i++)
-	{
-		m68k_write_memory_8(buf+i,buffer[i]);
-	}
+		retval = MapErrno();
+	free(path);
 	return retval;
 }
 
@@ -950,13 +975,21 @@ int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t name )
  */
 int32_t Frename ( emuptr32_t oldname, emuptr32_t newname )
 {
-	char buffer1[1024];
-	char buffer2[1024];
-	m68k_read_string(oldname, buffer1, 1023, 1);
-	m68k_read_string(newname, buffer2, 1023, 1);
-	if (rename(buffer1, buffer2) < 0)
-		return MapErrno();
-	return 0;
+	int32_t retval = TOS_E_OK;
+	char* oldpath = read_path(oldname);
+	if(!oldpath)
+		return TOS_EPTHNF;
+	char* newpath = read_path(newname);
+	if(!newpath)
+	{
+		free(oldpath);
+		return TOS_EPTHNF;
+	}
+	if (rename(oldpath, newpath) < 0)
+		retval = MapErrno();
+	free(oldpath);
+	free(newpath);
+	return retval;
 }
 
 /**
@@ -1230,8 +1263,11 @@ struct DTAPrivate
 
 int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 {
-	char path[1024];
-	int s=m68k_read_string(filename, path, 1023, 1);
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
+	int s=strlen(path);
+
 	char* dir = path;
 	char* pattern = path;
 	bool glob = false;
@@ -1266,6 +1302,7 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 
 	emuptr32_t current_dta = m68k_read_field(current_process, basepage_t, p_dta);
 
+	free(path);
 	if (!priv->dirh)
 	{
 		free(priv);
@@ -1387,13 +1424,21 @@ cleanup:
  */
 int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
 {
-	char buffer1[1024];
-	char buffer2[1024];
-	m68k_read_string(oldname, buffer1, 1023, 1);
-	m68k_read_string(newname, buffer2, 1023, 1);
-	if (symlink(buffer1, buffer2) < 0)
-		return MapErrno();
-	return 0;
+	int32_t retval = TOS_E_OK;
+	char* oldpath = read_path(oldname);
+	if(!oldpath)
+		return TOS_EPTHNF;
+	char* newpath = read_path(newname);
+	if(!newpath)
+	{
+		free(oldpath);
+		return TOS_EPTHNF;
+	}
+	if (symlink(oldpath, newpath) < 0)
+		retval = MapErrno();
+	free(oldpath);
+	free(newpath);
+	return retval;
 }
 
 /**
@@ -1406,11 +1451,7 @@ int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
  */
 int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
 {
-	uint8_t* buffer = alloca(count);
-	for (int i=0; i<count; i++)
-	{
-		buffer[i] = m68k_read_memory_8(address+i);
-	}
+	uint8_t* buffer = &memory[address];
 	int32_t bytes_written = write(handle, buffer, count);
 	if (bytes_written < 0)
 	{
@@ -1430,130 +1471,37 @@ int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
  *
  * int32_t Fxattr ( int16_t flag, int8_t *name, XATTR *xattr )
  */
-int32_t Fxattr ( int16_t lflag, emuptr32_t name, emuptr32_t xattr )
+int32_t Fxattr ( int16_t lflag, emuptr32_t filename, emuptr32_t xattr )
 {
-	char buffer[1024];
-	m68k_read_string(name, buffer, 1023, 1);
+	int32_t retval = TOS_E_OK;
+	char* path = read_path(filename);
+	if(!path)
+		return TOS_EPTHNF;
 	struct stat st;
-	if((lflag?lstat(buffer,&st):stat(buffer, &st)) < 0)
+	if((lflag?lstat(path,&st):stat(path, &st)) < 0)
 	{
-		return MapErrno();
+		retval = MapErrno();
 	}
 	else
 	{
 		convert_xattr(&st, xattr);
 	}
-	return TOS_E_OK;
+	free(path);
+	return retval;
 }
 
 /* _Ffxattr is called via Fcntl, setting cmd to FSTAT(0x4600) */
 int32_t _Ffxattr ( int16_t handle, emuptr32_t xattr )
 {
+	int32_t retval = TOS_E_OK;
 	struct stat st;
 	if(fstat(handle, &st) < 0)
 	{
-		return MapErrno();
+		retval = MapErrno();
 	}
 	else
 	{
 		convert_xattr(&st, xattr);
-	}
-	return TOS_E_OK;
-}
-
-#define END_OF_NAME(c) ((c)==0 || (c)=='/' || (c)=='\\')
-
-const char* filename8_3(char* dest, const char* source)
-{
-	bool needsHash = false;
-	bool uppercase = !m68k_read_field(current_process, basepage_t, mint_domain);
-	int slen = 0; const char* retval;
-	for(slen=0;!END_OF_NAME(source[slen]);slen++);
-	retval = source + slen;
-
-	char* d=dest;
-	if (source[0] == '.' && ( slen == 1 || slen == 2 && source[1] == '.'))
-	{
-		// special case for . and ..
-		for(int i = 0; i<slen;i++)
-		{
-			*d++='.';
-		}
-		*d++=0;
-		return retval;
-	}
-
-	// Find last dot in filename
-	const char* dot=0;
-	for (const char* c=source+slen-1; c>=source; c--)
-	{
-		if (*c == '.')
-		{
-			dot=c;
-			break;
-		}
-	}
-
-	// If last dot is at the front of the filename, treat as no extension
-	const char* s=source;
-	if (dot == source)
-	{
-		dot=0;
-	}
-
-	// If any parts of the file name don't fit withing the 8.3 limits, we'll need to mangle the filename
-	if(slen > 12 || dot && ((dot-source) > 8 || (slen - (dot-source)) > 4) ||!dot && slen > 8)
-	{
-		needsHash=true;
-	}
-
-	for(int i=0; i<8; i++)
-	{
-		if(END_OF_NAME(*s) || (dot && s==dot))
-		{
-			// make room for the hash
-			if(needsHash)
-			{
-				for(int j=i; j<8; j++)
-					*d++='~';
-			}
-			break;
-		}
-		if( *s == '.')
-		{
-			*d++='_'; s++;
-			needsHash=true;
-		}
-		else
-		{
-			*d++=uppercase?toupper(*s++):*s++;
-		}
-	}
-
-	if(dot)
-	{
-		*d++='.';
-		s=dot+1;
-		for(int i=0; i<3; i++)
-		{
-			if(END_OF_NAME(*s))
-				break;
-			*d++=uppercase?toupper(*s++):*s++;
-		}
-	}
-	*d=0;
-
-	if(needsHash)
-	{
-		static const char hash_alphabet[32] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
-		uint16_t hash=0xf00f;
-		for (s=source; !END_OF_NAME(s[1]); s++)
-			hash = (hash << 3) ^ (hash >> 5) ^ *s ^ (s[1] << 8);
-		hash = (hash << 3) ^ (hash >> 5) ^ *s;
-		dest[4]='~';
-		dest[5]=hash_alphabet[(hash>>10)&0x1f];
-		dest[6]=hash_alphabet[(hash>>5)&0x1f];
-		dest[7]=hash_alphabet[hash&0x1f];
 	}
 	return retval;
 }
