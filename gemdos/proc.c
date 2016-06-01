@@ -11,21 +11,6 @@
 #include "gemdos.h"
 
 /**
- * Pause - 289
- *
- * The function Pause suspends the calling process until a signal for this
- * arrives. If a signal-handler has been installed for this signal with
- * Psignal, the handler will be called before the function Pause returns.
- *
- * The function will not return if the signal-handler executes a non-local
- * jump (via longjump), or if the program is terminated.
- */
-void Pause ( void )
-{
-	pause();
-}
-
-/**
  * Pdomain - 281
  *
  * The function Pdomain serves for setting or obtaining the domain in which
@@ -260,18 +245,6 @@ int32_t Pgetpriority ( int16_t which, int16_t who)
 int16_t Pgetuid ( void )
 {
 	return getuid();
-}
-
-/**
- * Pkill - 273
- *
- * The function Pkill sends the signal sig to one or more processes. The
- * following apply for the parameter pid: pid Meaning
- */
-int16_t Pkill ( int16_t pid, int16_t sig )
-{
-	NOT_IMPLEMENTED(GEMDOS, Pkill, 273);
-	return TOS_ENOSYS;
 }
 
 /**
@@ -566,167 +539,6 @@ int32_t Psetreuid ( int16_t ruid, int16_t euid)
 int16_t Psetuid ( int16_t id )
 {
 	NOT_IMPLEMENTED(GEMDOS, Psetuid, 272);
-	return TOS_ENOSYS;
-}
-
-/**
- * Psigaction - 311
- *
- * The function Psigaction alters the response to the signal sig. The
- * parameter act for this is either NULL, or points to a sigaction structure
- * that describes the behaviour of the signal handling. The following applies
- * for the component sa_handler: sa_handler Meaning
- *
- * int32_t Psigaction ( int16_t sig, struct sigaction *act, struct sigaction *oact )
- */
-int32_t Psigaction ( int16_t sig, emuptr32_t act, emuptr32_t oact )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigaction, 311);
-	return TOS_ENOSYS;
-}
-
-/**
- * Psigblock - 278
- *
- * The function Psigblock blocks selected signals from delivery. It adds the
- * signals specified in mask to the set of currently blocking signals. For
- * this, each bit of the parameter mask represents one signal. If bit n in
- * mask is set, it means that the signal with the number n will be blocked.
- *
- * One should note that some signals (e.g. SIGKILL) can not be blocked. The
- * kernel will delete these signals from mask before any change of the signal
- * set is performed.
- *
- * Furthermore it should be pointed out that blocked signals also remain
- * blocked via Pfork/Pvfork calls. After a Pexec call the child always starts
- * with an empty set of signals to be blocked, irrespective of which signals
- * were blocked by its parent.
- *
- * Warning: This function is optional, hence a call may be answered with
- * EINVFN.
- */
-int32_t Psigblock ( int32_t mask )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigblock, 278);
-	return TOS_ENOSYS;
-}
-
-/**
- * Psigintr - 318
- *
- * The function Psigintr assigns a signal to a particular exception vector.
- * When the exception occurs, the kernel will send the signal to the process.
- *
- * vec specifies the exception vector. This is the same value as specified
- * for Setexc() call. sig specifies the signal number that is supposed to be
- * delivered when an exception assigned to the vector vec occurs. When both
- * sig and vec are zero, all handlers installed by your program are removed.
- *
- * You should install a signal-handler prior to making this call, otherwise
- * your process will most probably get killed by the first occurrence of the
- * interrupt assigned to vec vector.(!nl) Also notice that the function is
- * not available on machines equipped with 68000 and 68010 processors.
- *
- * This function has been totally rewritten as of MiNT version 1.15.1.
- * However, the only change visible to programs is that the old value of vec
- * is no longer returned (it had little use anyway). Also, since long stack
- * frames are needed, a 68020 or newer processor is required.
- *
- * The handler set up by Psigintr gets removed when your process terminates.
- */
-int32_t Psigintr ( int16_t vec, int16_t sig )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigintr, 318);
-	return TOS_ENOSYS;
-}
-
-/**
- * Psignal - 274
- *
- * The function Psignal alters the action to be taken when the signal sig
- * arrives. The parameter handler can assume 3 possible values: handler
- * Meaning
- */
-int32_t Psignal ( int16_t sig, int32_t handler )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psignal, 274);
-	return TOS_ENOSYS;
-}
-
-/**
- * Psigpause - 310
- *
- * The function Psigpause sets a new signal mask mask, and suspends the
- * called process until a signal arrives that is not masked or ignored.
- *
- * If a handler has been installed for this signal with Psignal, then this
- * will be called before the function returns. If the handler executes a
- * longjump to another part of the program, or the process terminates, then
- * the function will never return.
- *
- * Note: When the function returns, the signal mask will be reset to the
- * value that applied before the call of Psigpause. Thus the signal mask set
- * by the function is only valid temporarily. In MagiC, problems may arise if
- * several threads call this function at the same time, as the signal mask
- * here is process-global.
- */
-void Psigpause ( int32_t mask )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigpause, 310);
-}
-
-/**
- * Psigpending - 291
- *
- * The function Psigpending returns the signals that have been sent to the
- * calling process, but not yet handled (say because they are blocked with
- * Psigblock or because they are currently being processed).
- */
-int32_t Psigpending ( void )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigpending, 291);
-	return TOS_ENOSYS;
-}
-
-/**
- * Psigreturn - 282
- *
- * The function Psigreturn prepares for the exit from a signal-handler. As
- * this happens automatically when the handler returns, calling Psigreturn is
- * only necessary if the handler executes a non-local jump (perhaps with
- * longjump) rather than using RTS.
- *
- * The call has no effect when no signal is being processed at the time.
- *
- * In MagiC, the thread of the active signal-handler will become the main
- * thread of the process and then be removed. All other signal processes will
- * be removed as well (nesting). The locked semaphores of the main thread
- * will be released, and the supervisor stack will be reset to the value at
- * process start.
- */
-void Psigreturn ( void )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigreturn, 282);
-}
-
-/**
- * Psigsetmask - 279
- *
- * The function Psigsetmask replaces the set of signals that are currently to
- * be blocked completely by the signals specified in the parameter mask.
- *
- * One should note that some signals (e.g. SIGKILL) can not be blocked. The
- * kernel will delete these signals from mask before any change of the signal
- * set is performed.
- *
- * Furthermore it should be pointed out that blocked signals also remain
- * blocked via Pfork/Pvfork calls. After a Pexec call the child always starts
- * with an empty set of signals to be blocked, irrespective of which signals
- * were blocked by its parent.
- */
-int32_t Psigsetmask ( int32_t mask )
-{
-	NOT_IMPLEMENTED(GEMDOS, Psigsetmask, 279);
 	return TOS_ENOSYS;
 }
 
