@@ -16,6 +16,12 @@ typedef uint32_t emureg_t;
 
 void InitM68KMemory();
 
+#ifdef DEBUG
+#define TRACEF(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define TRACEF(...)
+#endif
+
 #define NOT_IMPLEMENTED(Subsystem, Name, Op) fprintf(stderr, "Unimplemented " #Subsystem " call " #Name "(%d/%x)\n", Op, Op );
 uint64_t m68k_read_memory_64(unsigned int address);
 void m68k_write_memory_64(unsigned int address, uint64_t value);

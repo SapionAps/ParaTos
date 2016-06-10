@@ -110,7 +110,7 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 	header.PRG_res1 = be32toh(header.PRG_res1);
 	header.PRGFLAGS = be32toh(header.PRGFLAGS);
 	header.ABSFLAG = be16toh(header.ABSFLAG);
-	printf("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
+	TRACEF("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 
 	uint32_t base_tpa = Malloc(Malloc(-1));
 
@@ -154,13 +154,13 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 	WRITE_BASEPAGE(p_parent, 0);       /* Pointer to the basepage of the      */
 							 /* calling processes                   */
 
-	printf("Reading in text and data from executable: %d+%d at address %d\n", READ_BASEPAGE(p_tlen), READ_BASEPAGE(p_dlen), READ_BASEPAGE(p_tbase));
+	TRACEF("Reading in text and data from executable: %d+%d at address %d\n", READ_BASEPAGE(p_tlen), READ_BASEPAGE(p_dlen), READ_BASEPAGE(p_tbase));
 	char* dest = memory+READ_BASEPAGE(p_tbase);
 	if(!fread(dest, sizeof(char), READ_BASEPAGE(p_tlen)+READ_BASEPAGE(p_dlen), file))
 	{
 		return 0;
 	}
-	printf("Skipping %d bytes of symbol data\n", header.PRG_ssize);
+	TRACEF("Skipping %d bytes of symbol data\n", header.PRG_ssize);
 	fseek(file, header.PRG_ssize, SEEK_CUR);
 	uint8_t delta=0;
 	uint32_t fixup=0;
@@ -169,7 +169,7 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 	if (fread(&fixup, sizeof(uint32_t), 1, file))
 	{
 		fixup = be32toh(fixup);
-		printf("Performing fixups starting at offset %08x\n", fixup);
+		TRACEF("Performing fixups starting at offset %08x\n", fixup);
 		if (fixup)
 		{
 			fixup += READ_BASEPAGE(p_tbase);
@@ -177,7 +177,7 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 				unfixed = m68k_read_memory_32(fixup);
 				fixed = unfixed + READ_BASEPAGE(p_tbase);
 
-				//printf("Fixing up %08x->%08x at address %08x\n",unfixed, fixed, fixup);
+				//TRACEF("Fixing up %08x->%08x at address %08x\n",unfixed, fixed, fixup);
 				m68k_write_memory_32(fixup, fixed);
 				delta=0;
 				do {

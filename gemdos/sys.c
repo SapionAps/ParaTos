@@ -211,7 +211,7 @@ enum ssystem_mode
  */
  int32_t Ssystem(uint16_t mode, int32_t arg1, int32_t arg2)
  {
- 	//printf("SSystem(0x%04x, %x, %x)\n", mode, arg1, arg2);
+ 	//TRACEF("SSystem(0x%04x, %x, %x)\n", mode, arg1, arg2);
  	switch(mode)
  	{
  		case 0xffff:
@@ -230,7 +230,6 @@ enum ssystem_mode
 			case 2:
 			return 0x0400;
 			default:
-			printf("Invalid S_OSHEADER value %x\n", arg1);
 			return TOS_EINVAL;
 		}
 		case S_OSCOMPILE:
@@ -241,7 +240,6 @@ enum ssystem_mode
  		{
  			uint32_t value;
  			int found = ReadCookie(arg1, &value);
- 			printf("ReadCookie %08x(%c%c%c%c), %d, %d\n", arg1, arg1>>24, arg1>>16, arg1>>8, arg1, value, found);
  			if (arg2)
  			{
  				m68k_write_memory_32(arg2, value);
@@ -256,11 +254,11 @@ enum ssystem_mode
 	 		{
 	 			case _hz_200:
 	 			{
-	 			    struct timeval tv;
-	 			    if(gettimeofday(&tv, NULL) != 0)
-	 			        return 0;
+	 				struct timeval tv;
+	 				if(gettimeofday(&tv, NULL) != 0)
+	 					return 0;
 
-	 			    return (tv.tv_sec * 200) + (tv.tv_usec / 5000);
+	 				return (tv.tv_sec * 200) + (tv.tv_usec / 5000);
 	 			}
 	 			default:
 	 			{

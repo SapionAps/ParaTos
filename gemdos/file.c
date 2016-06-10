@@ -344,7 +344,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 			if( retval == -1)
 			   return MapErrno();
 			m68k_write_memory_32(arg, nativePid);
-			//printf(" pid=%d ", m68k_read_memory_32(arg));
+			//TRACEF(" pid=%d ", m68k_read_memory_32(arg));
 			break;
 			case 0x5407: //TIOCSPGRP
 			nativePid = m68k_read_memory_32(arg);
@@ -358,7 +358,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 				retval = ioctl(fh, TIOCGWINSZ, &w);
 				if( retval == -1)
 				   return MapErrno();
-				printf("%d,%d,%d,%d\n",w.ws_row,w.ws_col, w.ws_xpixel, w.ws_ypixel);
+				TRACEF("%d,%d,%d,%d\n",w.ws_row,w.ws_col, w.ws_xpixel, w.ws_ypixel);
 				m68k_write_memory_16(arg, w.ws_row);
 				m68k_write_memory_16(arg+2, w.ws_col);
 				m68k_write_memory_16(arg+4, w.ws_xpixel);
@@ -502,7 +502,7 @@ static void convert_xattr(const struct stat* st, uint32_t address)
 int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
 {
 
-	//printf("Ffstat64(%d, 0x%08x)\n", fd, address);
+	//TRACEF("Ffstat64(%d, 0x%08x)\n", fd, address);
 	struct stat st;
 	if(fstat(fd, &st) < 0)
 	{
@@ -521,7 +521,7 @@ int16_t Fstat64 (uint16_t lflag, uint32_t name, /*struct stat */ uint32_t addres
 	char* path = read_path(name);
 	if(!path)
 		return TOS_EPTHNF;
-	//printf("Fstat64(%d, %s, 0x%08x)\n", lflag, buffer, address);
+	//TRACEF("Fstat64(%d, %s, 0x%08x)\n", lflag, buffer, address);
 	struct stat st;
 	if((lflag?lstat(path,&st):stat(path, &st)) < 0)
 	{
@@ -1273,7 +1273,7 @@ int32_t Fsfirst ( emuptr32_t filename, int16_t attr )
 	bool glob = false;
 	for(char* c = path+s-1;c>=path;c--)
 	{
-		//printf("%s\n", c);
+		//TRACEF("%s\n", c);
 		if(*c == '/')
 		{
 			*c = '\0';

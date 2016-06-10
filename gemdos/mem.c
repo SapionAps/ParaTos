@@ -148,10 +148,10 @@ static void freeBlock(memblock_t* freeme)
 	}
 
 #if 0
-	printf("Free blocks:\n");
+	TRACEF("Free blocks:\n");
 	for(memblock_t* c=freeMem.next; c; c =c->next)
 	{
-		printf("\t%06x - %06x (sz %x)\n", c->start, c->start+c->size-1,c->size);
+		TRACEF("\t%06x - %06x (sz %x)\n", c->start, c->start+c->size-1,c->size);
 	}
 #endif
 }

@@ -27,7 +27,7 @@ uint32_t ResizeCookieJar(int32_t currentSize, int32_t newSize)
 	}
 	m68k_write_memory_32(_p_cookies, newJar);
 	Mfree(oldJar);
-	// printf("RESIZE %d@%x->%d@%x\n", currentSize, oldJar, newSize, newJar);
+	// TRACEF("RESIZE %d@%x->%d@%x\n", currentSize, oldJar, newSize, newJar);
 	return newJar;
 }
 
@@ -62,10 +62,10 @@ void WriteCookie(uint32_t key, uint32_t value)
 		address += newBase - base;
 		base = newBase;
 	}
-	// printf("Write %0x @ %0x (%0x)\n",key, address, m68k_read_memory_32(address) );
+	// TRACEF("Write %0x @ %0x (%0x)\n",key, address, m68k_read_memory_32(address) );
 	m68k_write_memory_32(address, key);
 	address += 4;
-	// printf("Write %0x @ %0x\n",value, address);
+	// TRACEF("Write %0x @ %0x\n",value, address);
 	m68k_write_memory_32(address, value);
 	address += 4;
 	if(!found)
@@ -122,7 +122,7 @@ void InitCookieJar()
 {
 	int numCookies = 0x100;
 	uint32_t base = Malloc(numCookies * 8);
-	printf("InitCookieJar: %08x\n", base);
+	TRACEF("InitCookieJar: %08x\n", base);
 	m68k_write_memory_32(_p_cookies, base);
 	m68k_write_memory_32(base, 0);
 	m68k_write_memory_32(base+4, numCookies);

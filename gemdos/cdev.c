@@ -1,4 +1,5 @@
 #include <termios.h>
+#include <string.h>
 #include <unistd.h>
 #include "common.h"
 #include "tos_errors.h"
@@ -267,7 +268,7 @@ int32_t Crawcin ( void )
 	}
 	if (needRestore)
 		tcsetattr(STDIN_FILENO, TCSAFLUSH, &save);
-	//printf("Crawcin --> %08x %c\n", retval, retval);
+	//TRACEF("Crawcin --> %08x %c\n", retval, retval);
 
 	return retval;
 }
