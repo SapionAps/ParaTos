@@ -115,7 +115,7 @@ void mask_to_sigset(sigset_t* set, uint32_t mask)
 		sigaddset(set, SIGPWR);
 }
 
-uint32_t siget_to_mask(sigset_t* set)
+uint32_t sigset_to_mask(sigset_t* set)
 {
 	uint32_t mask = 0;
 	if (sigismember(set, SIGHUP))
@@ -253,7 +253,7 @@ int32_t Psigblock ( int32_t mask )
 	mask_to_sigset(&set, mask);
 	if(sigprocmask(SIG_BLOCK, &set, &old) == -1)
 		return MapErrno();
-	return siget_to_mask(&old);
+	return sigset_to_mask(&old);
 }
 
 /**
@@ -315,9 +315,12 @@ int32_t Psignal ( int16_t sig, int32_t handler )
  * several threads call this function at the same time, as the signal mask
  * here is process-global.
  */
-void Psigpause ( int32_t mask )
+int32_t Psigpause ( int32_t mask )
 {
-	NOT_IMPLEMENTED(GEMDOS, Psigpause, 310);
+	sigset_t set;
+	mask_to_sigset(&set, mask);
+	sigsuspend(&set);
+	return MapErrno();
 }
 
 /**
@@ -329,8 +332,10 @@ void Psigpause ( int32_t mask )
  */
 int32_t Psigpending ( void )
 {
-	NOT_IMPLEMENTED(GEMDOS, Psigpending, 291);
-	return TOS_ENOSYS;
+	sigset_t set;
+	if (sigpending(&set) == -1)
+		return MapErrno();
+	return sigset_to_mask(&set);
 }
 
 /**
@@ -375,5 +380,5 @@ int32_t Psigsetmask ( int32_t mask )
 	mask_to_sigset(&set, mask);
 	if(sigprocmask(SIG_SETMASK, &set, &old) == -1)
 		return MapErrno();
-	return siget_to_mask(&old);
+	return sigset_to_mask(&old);
 }

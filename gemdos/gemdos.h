@@ -142,7 +142,7 @@ int32_t Psigaction ( int16_t sig, emuptr32_t act, emuptr32_t oact );
 int32_t Psigblock ( int32_t mask );
 int32_t Psigintr ( int16_t vec, int16_t sig );
 int32_t Psignal ( int16_t sig, int32_t handler );
-void Psigpause ( int32_t mask );
+int32_t Psigpause ( int32_t mask );
 int32_t Psigpending ( void );
 void Psigreturn ( void );
 int32_t Psigsetmask ( int32_t mask );

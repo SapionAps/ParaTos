@@ -349,7 +349,8 @@ void dispatch_gemdos_trap()
 		retval = Dlock(m68k_read_memory_16(sp+2), m68k_read_memory_16(sp+4));
 		break;
 	case  310	:
-		Psigpause(m68k_read_memory_32(sp+2));
+		// note we return a value here (usually TOS_EINTR) even though tos.hyp specifies void
+		retval = Psigpause(m68k_read_memory_32(sp+2));
 		break;
 	case  311	:
 		retval = Psigaction(m68k_read_memory_16(sp+2), m68k_read_memory_32(sp+4), m68k_read_memory_32(sp+8));
