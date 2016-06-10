@@ -2,6 +2,7 @@
 #include <alloca.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
 #include <errno.h>
@@ -25,10 +26,16 @@
  *
  * int32_t Dchroot( int8_t *path )
  */
-int32_t Dchroot( emuptr32_t path )
+int32_t Dchroot( emuptr32_t name )
 {
-	NOT_IMPLEMENTED(GEMDOS, Dchroot, 330);
-	return TOS_ENOSYS;
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(name);
+	if (!path)
+		return TOS_EPTHNF;
+	if (chroot(path) == -1)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
@@ -84,10 +91,16 @@ int32_t Dcntl ( int16_t cmd, emuptr32_t name, int32_t arg )
  *
  * int32_t Dcreate ( CONST int8_t *path )
  */
-int32_t Dcreate ( emuptr32_t path )
+int32_t Dcreate ( emuptr32_t name )
 {
-	NOT_IMPLEMENTED(GEMDOS, Dcreate, 57);
-	return TOS_ENOSYS;
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(name);
+	if (!path)
+		return TOS_EPTHNF;
+	if (mkdir(path, 0777) == -1)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
@@ -108,10 +121,16 @@ int32_t Dcreate ( emuptr32_t path )
  *
  * int32_t Ddelete ( CONST int8_t *path )
  */
-int32_t Ddelete ( emuptr32_t path )
+int32_t Ddelete ( emuptr32_t name )
 {
-	NOT_IMPLEMENTED(GEMDOS, Ddelete, 58);
-	return TOS_ENOSYS;
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(name);
+	if (!path)
+		return TOS_EPTHNF;
+	if (rmdir(path) == -1)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
@@ -382,10 +401,16 @@ int32_t Dsetdrv ( int16_t drv )
  *
  * int16_t Dsetpath ( CONST int8_t *path )
  */
-int16_t Dsetpath ( emuptr32_t path )
+int16_t Dsetpath ( emuptr32_t name )
 {
-	NOT_IMPLEMENTED(GEMDOS, Dsetpath, 59);
-	return TOS_ENOSYS;
+	int16_t retval = TOS_E_OK;
+	char* path = read_path(name);
+	if (!path)
+		return TOS_EPTHNF;
+	if (chdir(path) == -1)
+		retval = MapErrno();
+	free(path);
+	return retval;
 }
 
 /**
