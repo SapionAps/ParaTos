@@ -1733,6 +1733,8 @@ void dispatch_gemdos_trap();
 void dispatch_gem_trap();
 void dispatch_bios_trap();
 void dispatch_xbios_trap();
+void dispatch_line_a();
+void dispatch_line_f();
 
 /* Trap#n stacks a 0 frame but behaves like group2 otherwise */
 INLINE void m68ki_exception_trapN(uint vector)
@@ -1812,6 +1814,8 @@ INLINE void m68ki_exception_privilege_violation(void)
 /* Exception for A-Line instructions */
 INLINE void m68ki_exception_1010(void)
 {
+	dispatch_line_a();
+#if 0
 	uint sr;
 #if M68K_LOG_1010_1111 == OPT_ON
 	M68K_DO_LOG_EMU((M68K_LOG_FILEHANDLE "%s at %08x: called 1010 instruction %04x (%s)\n",
@@ -1823,6 +1827,8 @@ INLINE void m68ki_exception_1010(void)
 	m68ki_stack_frame_0000(REG_PPC, sr, EXCEPTION_1010);
 	m68ki_jump_vector(EXCEPTION_1010);
 
+
+#endif
 	/* Use up some clock cycles and undo the instruction's cycles */
 	USE_CYCLES(CYC_EXCEPTION[EXCEPTION_1010] - CYC_INSTRUCTION[REG_IR]);
 }
@@ -1830,6 +1836,8 @@ INLINE void m68ki_exception_1010(void)
 /* Exception for F-Line instructions */
 INLINE void m68ki_exception_1111(void)
 {
+	dispatch_line_f();
+#if 0
 	uint sr;
 
 #if M68K_LOG_1010_1111 == OPT_ON
@@ -1841,7 +1849,7 @@ INLINE void m68ki_exception_1111(void)
 	sr = m68ki_init_exception();
 	m68ki_stack_frame_0000(REG_PPC, sr, EXCEPTION_1111);
 	m68ki_jump_vector(EXCEPTION_1111);
-
+#endif
 	/* Use up some clock cycles and undo the instruction's cycles */
 	USE_CYCLES(CYC_EXCEPTION[EXCEPTION_1111] - CYC_INSTRUCTION[REG_IR]);
 }

@@ -15,19 +15,72 @@
 #include "sysvars.h"
 #include "cookiejar.h"
 
-void dispatch_gem_trap()
+void dispatch_line_f()
+{
+	fprintf(stderr, "FPU is not emulated\n");
+}
+
+void dispatch_line_a()
 {
 	uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
-	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
-    uint16_t num = m68k_read_memory_16(sp);
-//	uint32_t ad0 = m68k_get_reg(NULL, M68K_REG_D0);
-//  uint32_t ad1 = m68k_get_reg(NULL, M68K_REG_D1);
+	uint16_t ins = m68k_get_reg(NULL, M68K_REG_IR);
+	printf("LINE-A %04x pc=0x%08x\n", ins, pc);
+	m68k_set_reg(M68K_REG_D0, 0);
+	m68k_set_reg(M68K_REG_A0, 0);
+	m68k_set_reg(M68K_REG_A1, 0);
+	m68k_set_reg(M68K_REG_A2, 0);
+}
 
-	//printf("GEM\n");
+void dispatch_gem_trap()
+{
+	uint32_t op = m68k_get_reg(NULL, M68K_REG_D0);
+	emuptr32_t pblock = m68k_get_reg(NULL, M68K_REG_D1);
 
-	printf("AES sp=0x%08x pc=0x%08x\n", sp, pc);
+	emuptr32_t ctrl = m68k_read_memory_32(pblock);
 
-	m68k_set_reg(M68K_REG_D0, -(int)num);
+	switch (op) {
+		case 0x73:
+		{
+			uint16_t vdiop = m68k_read_memory_16(ctrl);
+			uint16_t ptsinc = m68k_read_memory_16(ctrl+2);
+			uint16_t intinc = m68k_read_memory_16(ctrl+6);
+			uint16_t subop = m68k_read_memory_16(ctrl+10);
+			uint16_t handle = m68k_read_memory_16(ctrl+12);
+			m68k_write_memory_16(ctrl+4, 0);
+			m68k_write_memory_16(ctrl+8, 0);
+			m68k_write_memory_16(ctrl+12, 0);
+			printf("VDI pblock=%08x op=%d,%d handle=%d, #pt=%d, #int=%d\n", pblock, vdiop, subop, handle, ptsinc, intinc);
+			break;
+		}
+		case 0xc8:
+		{
+			uint16_t aesop = m68k_read_memory_16(ctrl);
+			emuptr32_t global = m68k_read_memory_32(pblock+4);
+			emuptr32_t intin = m68k_read_memory_32(pblock+8);
+			emuptr32_t intout = m68k_read_memory_32(pblock+12);
+			emuptr32_t adrin = m68k_read_memory_32(pblock+16);
+			emuptr32_t adrout = m68k_read_memory_32(pblock+20);
+			switch (aesop) {
+				case 120: // shel_read
+				m68k_write_memory_16(intout+0, 1);
+				emuptr32_t cmd = m68k_read_memory_32(adrin+0);
+				emuptr32_t cmdln = m68k_read_memory_32(adrin+4);
+				printf("AES pblock=%0x, op=shel_read/%d (%x,%x)\n", pblock, aesop, cmd, cmdln);
+				m68k_write_memory_32(cmd, m68k_read_field(current_process, basepage_t, p_env));
+				m68k_write_memory_32(cmdln, current_process + offsetof(basepage_t, p_cmdlin));
+				printf("%s %s\n", &memory[m68k_read_memory_32(cmd)], &memory[m68k_read_memory_32(cmdln)]);
+				break;
+				default:
+				printf("AES pblock=%0x, op=%d\n", pblock, aesop);
+				break;
+
+			}
+			break;
+		}
+		default:
+		printf("Unknown trap#2 pblock=%0x\n", pblock);
+		break;
+	}
 }
 
 void dispatch_bios_trap()
@@ -35,7 +88,14 @@ void dispatch_bios_trap()
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t num = m68k_read_memory_16(sp);
 
-	printf("BIOS(0x%02x)\n", num);
+	if (num == 3)
+	{
+		printf("BCONOUT(%d, %c)\n", m68k_read_memory_16(sp-2), 0x7f&m68k_read_memory_16(sp-4));
+	}
+	else {
+		printf("BIOS(0x%02x)\n", num);
+	}
+
 
 	m68k_set_reg(M68K_REG_D0, -(int)num);
 }
@@ -149,9 +209,10 @@ int main(int argc, char* argv[])
 	m68k_set_reg(M68K_REG_PC, tbase);
 
 	struct sigaction act_segv;
+	struct sigaction old_segv;
 	act_segv.sa_sigaction = handle_segv;
 	act_segv.sa_flags = SA_SIGINFO;
-	sigaction(SIGSEGV, &act_segv, NULL);
+	sigaction(SIGSEGV, &act_segv, &old_segv);
 	for (;;)
 	{
 		int ret = sigsetjmp(return_from_signal_handler, 1);
@@ -161,12 +222,61 @@ int main(int argc, char* argv[])
 		}
 		else
 		{
+			static const char* regs[] = {
+				"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7",
+				"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7",
+				"PC", "SR", "SP", "USP", "ISP", "MSP", "SFC", "DFC", "VBR", "CACR", "CAAR",
+				"PREF_ADDR", "PREF_DATA", "PPC", "IR"};
 			printf("longjmp from exception handler returned %d\n", ret);
 			// Handle return from signal handler
 			if (ret == SIGSEGV)
 			{
-				printf("Trying to handle SEGV...\n");
-				m68ki_exception_address_error();
+				sigaction(SIGSEGV, &old_segv, NULL);
+				for(int i=M68K_REG_D0; i<M68K_REG_CPU_TYPE; i++)
+				{
+					printf("%-4s= %08x  ", regs[i], m68k_get_reg(NULL, i));
+					if ((i%4)==3) printf("\n");
+				}
+				printf("\n");
+				emuptr32_t pc =	m68k_get_reg(NULL, M68K_REG_PPC);
+				char buf[128];
+				printf("Caught SEGV while executing instruction at %08x -> %08x\n", pc, m68k_get_reg(NULL, M68K_REG_PC));
+				emuptr32_t earlier = pc;
+				for(int i=0; i<20; i++)
+				{
+					bool found = false;
+					for (int j=24; j>0; j-=2)
+					{
+						if(j == m68k_disassemble(buf, earlier-j, M68K_CPU_TYPE_68020) )
+						{
+							found = true;
+							earlier -= j;
+							break;
+						}
+					}
+					if(!found)
+						break;
+				}
+				int width = 0;
+				for(emuptr32_t address = earlier ; address <= pc+32; address+=width)
+				{
+					width=m68k_disassemble(buf, address, M68K_CPU_TYPE_68020);
+					printf("%s%08x %-32s", address==pc?"-> ":"   ", address, buf);
+					for(int j=0; j<width; j+=2)
+						printf("%04x ", m68k_read_memory_16(address+j));
+					if (width == 2)
+						printf("          ");
+					if (width == 4)
+						printf("     ");
+					for(int j=0; j<width; j+=1)
+					{
+						char c=memory[address+j];
+						printf("%c", (c>' '&&c<='~')?c:'.');
+					}
+					printf("\n");
+				}
+				exit(-1);
+				// m68ki_exception_address_error();
 			}
 		}
 	}
