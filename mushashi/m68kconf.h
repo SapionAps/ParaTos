@@ -32,6 +32,9 @@
 #ifndef M68KCONF__HEADER
 #define M68KCONF__HEADER
 
+#define INLINE_MEMORY_ACC
+
+#include "../memory.i"
 
 /* Configuration switches.
  * Use OPT_SPECIFY_HANDLER for configuration options that allow callbacks.
@@ -165,7 +168,7 @@
 /* If ON, the enulation core will use 64-bit integers to speed up some
  * operations.
 */
-#define M68K_USE_64_BIT  OPT_OFF
+#define M68K_USE_64_BIT  OPT_ON
 
 
 /* Set to your compiler's static inline keyword to enable it, or

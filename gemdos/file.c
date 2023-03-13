@@ -821,10 +821,12 @@ int32_t Fopen ( emuptr32_t filename, int16_t mode )
 	{
 		flags |= O_NOCTTY;
 	}
+#ifdef O_NOATIME
 	if (mode & 0x04)
 	{
 		flags |= O_NOATIME;
 	}
+#endif
 	if (mode & 0x10000)
 	{
 		flags |= O_DIRECTORY;
@@ -956,7 +958,7 @@ int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t filename )
 	char* path = read_path(filename);
 	if(!path)
 		return TOS_EPTHNF;
-	char* buffer = &memory[buf];
+	char* buffer = (char*)&memory[buf];
 	retval = readlink(path, buffer, bufsiz);
 	if(retval < 0)
 		retval = MapErrno();
@@ -1187,7 +1189,42 @@ int32_t Fselect ( uint16_t timeout, emuptr32_t rfdsp, emuptr32_t wfdsp, emuptr32
 #define mint_poll2native(x) (x)
 #define native_poll2mint(x) (x)
 #else
-#error "todo - Map mint poll flags to native platform"
+#define TO_NATIVE(x, flagname) ((x & MINT_ ## flagname) ? flagname : 0)
+#define FROM_NATIVE(x, flagname) ((x & flagname) ? MINT_ ## flagname : 0)
+static int mint_poll2native(int x)
+{
+	return
+#ifdef POLLMSG
+		TO_NATIVE(x, POLLMSG) |
+#endif
+		TO_NATIVE(x, POLLNVAL) |
+		TO_NATIVE(x, POLLIN) |
+		TO_NATIVE(x, POLLPRI) |
+		TO_NATIVE(x, POLLOUT) |
+		TO_NATIVE(x, POLLRDNORM) |
+		TO_NATIVE(x, POLLRDBAND) |
+		TO_NATIVE(x, POLLWRNORM) |
+		TO_NATIVE(x, POLLWRBAND) |
+		TO_NATIVE(x, POLLERR) |
+		TO_NATIVE(x, POLLHUP);
+}
+static int native_poll2mint(int x)
+{
+	return
+#ifdef POLLMSG
+		FROM_NATIVE(x, POLLMSG) |
+#endif
+		FROM_NATIVE(x, POLLNVAL) |
+		FROM_NATIVE(x, POLLIN) |
+		FROM_NATIVE(x, POLLPRI) |
+		FROM_NATIVE(x, POLLOUT) |
+		FROM_NATIVE(x, POLLRDNORM) |
+		FROM_NATIVE(x, POLLRDBAND) |
+		FROM_NATIVE(x, POLLWRNORM) |
+		FROM_NATIVE(x, POLLWRBAND) |
+		FROM_NATIVE(x, POLLERR) |
+		FROM_NATIVE(x, POLLHUP);
+}
 #endif
 
 /**

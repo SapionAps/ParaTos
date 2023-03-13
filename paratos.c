@@ -144,7 +144,16 @@ void FindExecutable(void)
 			fprintf(stderr, "malloc: Out of memory.\n");
 			exit(1);
 		}
-
+#ifdef __APPLE__
+		if (_NSGetExecutablePath(paratos_exe, &pathSize) == 0)
+		{
+			break; // SUCCESS
+		}
+		else
+		{
+			free(paratos_exe); // _NSGetExecutablePath sets the path size to the size required
+		}
+#else
 		int r = readlink("/proc/self/exe", paratos_exe, pathSize);
 		if (r == -1)
 		{
@@ -153,13 +162,14 @@ void FindExecutable(void)
 		}
 		else if (r < pathSize)
 		{
-			return;
+			break;
 		}
 		else
 		{
 			free(paratos_exe);
 			pathSize *= 2;
 		}
+#endif
 	}
 }
 

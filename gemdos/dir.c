@@ -147,7 +147,8 @@ int16_t Dfree ( emuptr32_t buf, int16_t driveno )
 	return TOS_ENOSYS;
 }
 
-char* get_current_dir_name(void);
+
+#define get_current_dir_name() (getcwd(NULL,0))
 
 /**
  * Dgetcwd - 315

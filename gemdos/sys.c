@@ -5,14 +5,16 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <sys/sysinfo.h>
 #include "common.h"
 #include "tos_errors.h"
 #include "sysvars.h"
 #include "cookiejar.h"
+#include <signal.h>
+#ifdef LINUX
+#include <sys/sysinfo.h>
 #include <linux/unistd.h>
 #include <linux/kernel.h>
-#include <signal.h>
+#endif
 
 
 #include "m68k.h"
@@ -339,6 +341,7 @@ int32_t Super ( emuptr32_t stack )
  */
 int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
 {
+#ifdef LINUX
 	struct sysinfo info;
 	sysinfo(&info);
 	m68k_write_memory_32(uptime, info.uptime);
@@ -347,6 +350,10 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
 	m68k_write_memory_32(loadaverage+2, (int32_t)(info.loads[2]*2048));
 
 	return TOS_E_OK;
+#else
+ 	NOT_IMPLEMENTED(GEMDOS, Suptime, 319);
+ 	return TOS_ENOSYS;
+#endif
 }
 
 /**

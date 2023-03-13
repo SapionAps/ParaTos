@@ -25,7 +25,7 @@ static char** read_env(emuptr32_t address, size_t* out_size)
 	size_t current_strsz=0;
 	size_t src_chars = 0;
 
-	char* src = memory+address;
+	char* src = (char*)memory+address;
 
 	do {
 		char c = src[src_chars++];
@@ -75,7 +75,7 @@ static char** read_env(emuptr32_t address, size_t* out_size)
 static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *arg_countp, int *buffer_sizep)
 {
 	int cmd_length = m68k_read_memory_8(cmdline);
-	char * cmd = memory+cmdline+1;
+	char * cmd = (char*)memory+cmdline+1;
 	int byte_count=0;
 	enum { BL, CHAR, DQ='"', SQ='\'' } state = BL;
 	for(int i=0; i<cmd_length && cmd[i]; i++)

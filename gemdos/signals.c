@@ -111,8 +111,10 @@ void mask_to_sigset(sigset_t* set, uint32_t mask)
 		sigaddset(set, SIGUSR1);
 	if (mask & signal_to_mask(MINT_SIGUSR2))
 		sigaddset(set, SIGUSR2);
+#ifdef SIGPWR
 	if (mask & signal_to_mask(MINT_SIGPWR))
 		sigaddset(set, SIGPWR);
+#endif
 }
 
 uint32_t sigset_to_mask(sigset_t* set)
@@ -178,9 +180,10 @@ uint32_t sigset_to_mask(sigset_t* set)
 		mask |= signal_to_mask(MINT_SIGUSR1);
 	if (sigismember(set, SIGUSR2))
 		mask |= signal_to_mask(MINT_SIGUSR2);
+#ifdef SIGPWR
 	if (sigismember(set, SIGPWR))
 		mask |= signal_to_mask(MINT_SIGPWR);
-
+#endif
 	return mask;
 }
 
