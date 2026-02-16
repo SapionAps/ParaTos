@@ -188,7 +188,7 @@ struct DTA
     uint16_t  d_date;          /* Date                */
     int32_t   d_length;        /* File length         */
     int8_t    d_fname[14];     /* Filename            */
-} __attribute__((packed))__ ;
+} __attribute__((packed));
 
 typedef struct
 {

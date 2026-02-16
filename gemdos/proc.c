@@ -10,6 +10,63 @@
 #include "tos_errors.h"
 #include "gemdos.h"
 
+typedef struct pid_map {
+	int16_t tos_pid;
+	pid_t host_pid;
+	struct pid_map *next;
+} pid_map_t;
+
+static pid_map_t *pid_map_head;
+
+static void remember_pid(pid_t host_pid)
+{
+	pid_map_t *entry = malloc(sizeof(pid_map_t));
+	if (!entry) {
+		return;
+	}
+
+	entry->tos_pid = (int16_t)host_pid;
+	entry->host_pid = host_pid;
+	entry->next = pid_map_head;
+	pid_map_head = entry;
+}
+
+static pid_t map_tos_pid_to_host(int16_t tos_pid)
+{
+	for (pid_map_t *entry = pid_map_head; entry; entry = entry->next) {
+		if (entry->tos_pid == tos_pid) {
+			return entry->host_pid;
+		}
+	}
+
+	return (pid_t)tos_pid;
+}
+
+static int16_t map_host_pid_to_tos(pid_t host_pid)
+{
+	for (pid_map_t *entry = pid_map_head; entry; entry = entry->next) {
+		if (entry->host_pid == host_pid) {
+			return entry->tos_pid;
+		}
+	}
+
+	return (int16_t)host_pid;
+}
+
+static void forget_pid_by_host(pid_t host_pid)
+{
+	pid_map_t **current = &pid_map_head;
+	while (*current) {
+		if ((*current)->host_pid == host_pid) {
+			pid_map_t *victim = *current;
+			*current = victim->next;
+			free(victim);
+			return;
+		}
+		current = &(*current)->next;
+	}
+}
+
 /**
  * Pdomain - 281
  *
@@ -53,7 +110,11 @@ int16_t Pdomain ( int16_t dom )
  */
 int16_t Pfork ( void )
 {
-	return fork();
+	pid_t pid = fork();
+	if (pid > 0) {
+		remember_pid(pid);
+	}
+	return (int16_t)pid;
 }
 
 /**
@@ -713,12 +774,16 @@ int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusagep )
 	struct rusage usage;
 	int status;
 	int options = 0;
+	pid_t host_pid = -1;
 	if (flag & 1)
 		options |= WNOHANG;
 	if (flag & 2)
 		options |= WUNTRACED;
+	if (pid != -1) {
+		host_pid = map_tos_pid_to_host(pid);
+	}
 
-	pid_t childpid = wait4(pid, &status, options, rusagep?&usage:NULL);
+	pid_t childpid = wait4(host_pid, &status, options, rusagep?&usage:NULL);
 	if (childpid == -1)
 	{
 		return MapErrno();
@@ -730,7 +795,11 @@ int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusagep )
 		m68k_write_memory_32(rusagep+1, (uint32_t)(usage.ru_stime.tv_sec*1000 + usage.ru_stime.tv_usec));
 	}
 
-	uint32_t retval = (uint32_t)childpid << 16;
+	int16_t tos_childpid = map_host_pid_to_tos(childpid);
+	uint32_t retval = (uint32_t)(uint16_t)tos_childpid << 16;
+	if (WIFEXITED(status) || WIFSIGNALED(status)) {
+		forget_pid_by_host(childpid);
+	}
 	uint32_t signum = 0;
 	uint32_t code = 0;
 	if (WIFEXITED(status))

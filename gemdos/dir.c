@@ -50,8 +50,8 @@ int32_t Dclosedir ( int32_t dirhandle )
 	retval = Mfree(dirhandle);
 	if (retval < 0)
 		return retval;
-	if (!closedir(dirP))
-		return TOS_EIHNDL;
+	if (closedir(dirP) != 0)
+		return MapErrno();
 	return retval;
 }
 
