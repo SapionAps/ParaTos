@@ -53,5 +53,5 @@ INLINE void m68k_write_memory_32(unsigned int address, unsigned int value)
 
 INLINE void m68k_write_memory_64(unsigned int address, uint64_t value)
 {
-    MEM64(address) = htobe64((uint32_t)value);
+	MEM64(address) = htobe64(value);
 }
