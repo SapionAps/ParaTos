@@ -12,7 +12,7 @@ int page_size;
 #define MAX_MEM 0x20000000
 #endif
 
-void InitM68KMemory()
+void InitM68KMemory(void)
 {
 	page_size = getpagesize();
 

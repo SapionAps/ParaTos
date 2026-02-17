@@ -15,12 +15,12 @@
 #include "sysvars.h"
 #include "cookiejar.h"
 
-void dispatch_line_f()
+void dispatch_line_f(void)
 {
 	fprintf(stderr, "FPU is not emulated\n");
 }
 
-void dispatch_line_a()
+void dispatch_line_a(void)
 {
 	uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
 	uint16_t ins = m68k_get_reg(NULL, M68K_REG_IR);
@@ -31,7 +31,7 @@ void dispatch_line_a()
 	m68k_set_reg(M68K_REG_A2, 0);
 }
 
-void dispatch_gem_trap()
+void dispatch_gem_trap(void)
 {
 	uint32_t op = m68k_get_reg(NULL, M68K_REG_D0);
 	emuptr32_t pblock = m68k_get_reg(NULL, M68K_REG_D1);
@@ -60,6 +60,9 @@ void dispatch_gem_trap()
 			emuptr32_t intout = m68k_read_memory_32(pblock+12);
 			emuptr32_t adrin = m68k_read_memory_32(pblock+16);
 			emuptr32_t adrout = m68k_read_memory_32(pblock+20);
+			(void)global;
+			(void)intin;
+			(void)adrout;
 			switch (aesop) {
 				case 120: // shel_read
 				m68k_write_memory_16(intout+0, 1);
@@ -83,7 +86,7 @@ void dispatch_gem_trap()
 	}
 }
 
-void dispatch_bios_trap()
+void dispatch_bios_trap(void)
 {
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t num = m68k_read_memory_16(sp);
@@ -101,7 +104,7 @@ void dispatch_bios_trap()
 }
 
 
-void dispatch_xbios_trap()
+void dispatch_xbios_trap(void)
 {
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
     int16_t num = m68k_read_memory_16(sp);
@@ -176,7 +179,8 @@ void FindExecutable(void)
 static sigjmp_buf return_from_signal_handler;
 void handle_segv(int signum, siginfo_t * info, void * p)
 {
-	printf("SIGSEGV Addr: %p (ST mem: %lx)\n", info->si_addr, info->si_addr-(void*)memory);
+	uintptr_t offset = (uintptr_t)info->si_addr - (uintptr_t)memory;
+	printf("SIGSEGV Addr: %p (ST mem: %lx)\n", info->si_addr, (unsigned long)offset);
 	siglongjmp(return_from_signal_handler, signum);
 }
 

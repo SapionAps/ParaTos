@@ -16,7 +16,7 @@ memblock_t freeMem;
 memblock_t usedMem;
 memblock_t* rover;
 
-void InitMemory()
+void InitMemory(void)
 {
 	m68k_write_memory_32(_membot, 0x10000);
 	m68k_write_memory_32(_memtop, memory_sz-1);

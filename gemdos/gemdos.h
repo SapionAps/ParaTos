@@ -176,7 +176,7 @@ int32_t Sysconf ( int16_t n );
 uint32_t unixtime2dos(const time_t* unixtime);
 time_t dostime2unix(uint32_t dostime);
 
-void InitMemory();
+void InitMemory(void);
 
 
 // Data types

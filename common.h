@@ -37,7 +37,7 @@ extern uint8_t* memory;
 typedef uint32_t emuptr32_t;
 typedef uint32_t emureg_t;
 
-void InitM68KMemory();
+void InitM68KMemory(void);
 
 #ifdef DEBUG
 #define TRACEF(...) fprintf(stderr, __VA_ARGS__);
@@ -96,12 +96,12 @@ void m68k_read_to_8(uint32_t address, uint8_t* dest);
 	int8_t[sizeof(lval)] : m68k_read_array8((address),(char*)(intptr_t)(lval),sizeof(lval)), \
 );})
 
-#define m68k_write_field(address, type, field, value) ({ \
-	m68k_write((address) + offsetof(type, field), (typeof(((type *)0)->field))(value)); \
-})
+#define m68k_write_field(address, type, field, value) do { \
+	m68k_write((address) + offsetof(type, field), (__typeof__(((type *)0)->field))(value)); \
+} while (0)
 
 #define m68k_write_struct_member(address, value, field) \
-	m68k_write((address) + offsetof(typeof(value), field), (value).field)
+	m68k_write((address) + offsetof(__typeof__(value), field), (value).field)
 
 #define m68k_read_field(address, type, field) \
 	m68k_read((address) + offsetof(type, field), (((type *)0)->field))
@@ -110,4 +110,4 @@ void m68k_read_to_8(uint32_t address, uint8_t* dest);
 	m68k_read_to((address) + offsetof(type, field), dest )
 
 #define m68k_read_struct_member(address, value, field) \
-	m68k_read_field_to((address), typeof(value), field, (value).field)
+	m68k_read_field_to((address), __typeof__(value), field, (value).field)

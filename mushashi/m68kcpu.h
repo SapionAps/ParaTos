@@ -36,6 +36,13 @@
 #include "m68k.h"
 #include <limits.h>
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#pragma clang diagnostic ignored "-Wimplicit-int-conversion"
+#endif
+
 #if M68K_EMULATE_ADDRESS_ERROR
 #include <setjmp.h>
 #endif /* M68K_EMULATE_ADDRESS_ERROR */
@@ -1052,17 +1059,20 @@ INLINE uint m68ki_read_imm_32(void)
  */
 INLINE uint m68ki_read_8_fc(uint address, uint fc)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	return m68k_read_memory_8(ADDRESS_68K(address));
 }
 INLINE uint m68ki_read_16_fc(uint address, uint fc)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	m68ki_check_address_error(address, MODE_READ, fc); /* auto-disable (see m68kcpu.h) */
 	return m68k_read_memory_16(ADDRESS_68K(address));
 }
 INLINE uint m68ki_read_32_fc(uint address, uint fc)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	m68ki_check_address_error(address, MODE_READ, fc); /* auto-disable (see m68kcpu.h) */
 	return m68k_read_memory_32(ADDRESS_68K(address));
@@ -1070,17 +1080,20 @@ INLINE uint m68ki_read_32_fc(uint address, uint fc)
 
 INLINE void m68ki_write_8_fc(uint address, uint fc, uint value)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	m68k_write_memory_8(ADDRESS_68K(address), value);
 }
 INLINE void m68ki_write_16_fc(uint address, uint fc, uint value)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	m68ki_check_address_error(address, MODE_WRITE, fc); /* auto-disable (see m68kcpu.h) */
 	m68k_write_memory_16(ADDRESS_68K(address), value);
 }
 INLINE void m68ki_write_32_fc(uint address, uint fc, uint value)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	m68ki_check_address_error(address, MODE_WRITE, fc); /* auto-disable (see m68kcpu.h) */
 	m68k_write_memory_32(ADDRESS_68K(address), value);
@@ -1089,6 +1102,7 @@ INLINE void m68ki_write_32_fc(uint address, uint fc, uint value)
 #if M68K_SIMULATE_PD_WRITES
 INLINE void m68ki_write_32_pd_fc(uint address, uint fc, uint value)
 {
+	(void)fc;
 	m68ki_set_fc(fc); /* auto-disable (see m68kcpu.h) */
 	m68ki_check_address_error(address, MODE_WRITE, fc); /* auto-disable (see m68kcpu.h) */
 	m68k_write_memory_32_pd(ADDRESS_68K(address), value);
@@ -1729,12 +1743,12 @@ INLINE void m68ki_exception_trap(uint vector)
 	USE_CYCLES(CYC_EXCEPTION[vector]);
 }
 
-void dispatch_gemdos_trap();
-void dispatch_gem_trap();
-void dispatch_bios_trap();
-void dispatch_xbios_trap();
-void dispatch_line_a();
-void dispatch_line_f();
+void dispatch_gemdos_trap(void);
+void dispatch_gem_trap(void);
+void dispatch_bios_trap(void);
+void dispatch_xbios_trap(void);
+void dispatch_line_a(void);
+void dispatch_line_f(void);
 
 /* Trap#n stacks a 0 frame but behaves like group2 otherwise */
 INLINE void m68ki_exception_trapN(uint vector)
@@ -2002,5 +2016,9 @@ INLINE void m68ki_check_interrupts(void)
 /* ======================================================================== */
 /* ============================== END OF FILE ============================= */
 /* ======================================================================== */
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 #endif /* M68KCPU__HEADER */

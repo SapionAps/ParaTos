@@ -38,6 +38,7 @@
  */
 void Salert ( emuptr32_t msg )
 {
+	(void)msg;
 	NOT_IMPLEMENTED(GEMDOS, Salert, 316);
 }
 
@@ -49,6 +50,8 @@ void Salert ( emuptr32_t msg )
  */
 int32_t Sconfig ( int16_t mode, int32_t flags )
 {
+	(void)mode;
+	(void)flags;
 	NOT_IMPLEMENTED(GEMDOS, Sconfig, 51);
 	return TOS_ENOSYS;
 }
@@ -86,6 +89,7 @@ int32_t Sconfig ( int16_t mode, int32_t flags )
  */
 void Shutdown ( int32_t mode )
 {
+	(void)mode;
 	NOT_IMPLEMENTED(GEMDOS, Shutdown, 337);
 }
 
@@ -100,6 +104,7 @@ void Shutdown ( int32_t mode )
  */
 int32_t Slbclose( emuptr32_t sl )
 {
+	(void)sl;
 	NOT_IMPLEMENTED(GEMDOS, Slbclose, 23);
 	return TOS_ENOSYS;
 }
@@ -113,6 +118,11 @@ int32_t Slbclose( emuptr32_t sl )
  */
 int32_t Slbopen( emuptr32_t name, emuptr32_t path, int32_t min_ver, emuptr32_t sl, emuptr32_t fn )
 {
+	(void)name;
+	(void)path;
+	(void)min_ver;
+	(void)sl;
+	(void)fn;
 	NOT_IMPLEMENTED(GEMDOS, Slbopen, 22);
 	return TOS_ENOSYS;
 }
@@ -129,6 +139,7 @@ int32_t Slbopen( emuptr32_t name, emuptr32_t path, int32_t min_ver, emuptr32_t s
  */
 int32_t Srealloc ( int32_t len )
 {
+	(void)len;
 	NOT_IMPLEMENTED(GEMDOS, Srealloc, 21);
 	return TOS_ENOSYS;
 }
@@ -239,38 +250,40 @@ enum ssystem_mode
 		case S_OSFEATURES:
 			return 0x3; // memory protection + virtual memory
  		case S_GETCOOKIE:
- 		{
- 			uint32_t value;
- 			int found = ReadCookie(arg1, &value);
- 			if (arg2)
- 			{
- 				m68k_write_memory_32(arg2, value);
- 				return found;
- 			}
- 			return value;
- 		}
+		{
+			uint32_t value;
+			int found = ReadCookie((uint32_t)arg1, &value);
+			if (arg2)
+			{
+				m68k_write_memory_32((uint32_t)arg2, value);
+				return found;
+			}
+			return (int32_t)value;
+		}
 		case S_SETCOOKIE:
 			return TOS_EACCDN; // Changing cookies from client code does currently not make sense in paratos
 		case S_GETLVAL:
 	 		switch (arg1)
 	 		{
-	 			case _hz_200:
-	 			{
-	 				struct timeval tv;
-	 				if(gettimeofday(&tv, NULL) != 0)
-	 					return 0;
+			case _hz_200:
+			{
+				struct timeval tv;
+				int64_t ticks;
+				if(gettimeofday(&tv, NULL) != 0)
+					return 0;
 
-	 				return (tv.tv_sec * 200) + (tv.tv_usec / 5000);
-	 			}
-	 			default:
-	 			{
-	 				return m68k_read_memory_32((uint32_t)(arg1&0xffff));
-	 			}
-	 		}
-		case S_GETWVAL:
- 			return m68k_read_memory_16((uint32_t)(arg1&0xffff));
-		case S_GETBVAL:
- 			return m68k_read_memory_8((uint32_t)(arg1&0xffff));
+				ticks = (int64_t)tv.tv_sec * 200 + (int64_t)tv.tv_usec / 5000;
+				return (int32_t)ticks;
+			}
+			default:
+			{
+				return (int32_t)m68k_read_memory_32((uint32_t)(arg1&0xffff));
+			}
+		}
+	case S_GETWVAL:
+		return (int32_t)m68k_read_memory_16((uint32_t)(arg1&0xffff));
+	case S_GETBVAL:
+		return (int32_t)m68k_read_memory_8((uint32_t)(arg1&0xffff));
 		case S_SETLVAL:
 		case S_SETWVAL:
 		case S_SETBVAL:
@@ -309,6 +322,7 @@ enum ssystem_mode
  */
 int32_t Super ( emuptr32_t stack )
 {
+	(void)stack;
 	// Emulating Mint SECURELEVEL>1 behavior for a non-root process:
 	kill(getpid(), SIGSYS);
 	return TOS_EACCDN;
@@ -351,6 +365,8 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
 
 	return TOS_E_OK;
 #else
+	(void)uptime;
+	(void)loadaverage;
  	NOT_IMPLEMENTED(GEMDOS, Suptime, 319);
  	return TOS_ENOSYS;
 #endif
@@ -365,7 +381,7 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
 uint16_t Sversion ( void )
 {
 	NOT_IMPLEMENTED(GEMDOS, Sversion, 48);
-	return TOS_ENOSYS;
+	return (uint16_t)TOS_ENOSYS;
 }
 
 /**
@@ -391,6 +407,7 @@ void Syield ( void )
  */
 int32_t Sysconf ( int16_t n )
 {
+	(void)n;
 	NOT_IMPLEMENTED(GEMDOS, Sysconf, 290);
 	return TOS_ENOSYS;
 }

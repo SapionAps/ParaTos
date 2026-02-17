@@ -7,7 +7,7 @@
 #include "tos_errors.h"
 #include <errno.h>
 
-int32_t MapErrno()
+int32_t MapErrno(void)
 {
 	switch (errno)
 	{
