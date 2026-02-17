@@ -1,0 +1,2 @@
+/usr/bin/ar qc libmushashi.a CMakeFiles/mushashi.dir/m68kcpu.c.o CMakeFiles/mushashi.dir/m68kdasm.c.o CMakeFiles/mushashi.dir/m68kops.c.o CMakeFiles/mushashi.dir/m68kopnz.c.o CMakeFiles/mushashi.dir/m68kopdm.c.o CMakeFiles/mushashi.dir/m68kopac.c.o
+/usr/bin/ranlib libmushashi.a

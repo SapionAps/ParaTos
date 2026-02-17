@@ -1,0 +1,10 @@
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/CMakeFiles/paratos.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/CMakeFiles/edit_cache.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/CMakeFiles/rebuild_cache.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/mushashi/CMakeFiles/m68kmake.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/mushashi/CMakeFiles/mushashi.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/mushashi/CMakeFiles/edit_cache.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/mushashi/CMakeFiles/rebuild_cache.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/gemdos/CMakeFiles/gemdos.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/gemdos/CMakeFiles/edit_cache.dir
+/home/runner/work/ParaTos/ParaTos/_codeql_build_dir/gemdos/CMakeFiles/rebuild_cache.dir
