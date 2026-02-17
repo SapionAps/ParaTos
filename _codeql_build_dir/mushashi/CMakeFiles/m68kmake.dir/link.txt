@@ -1,1 +1,0 @@
-/home/runner/work/ParaTos/.codeql-scratch/dbs/cpp/working/autobuild/bin/cc -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/m68kmake.dir/link.d CMakeFiles/m68kmake.dir/m68kmake.c.o -o m68kmake

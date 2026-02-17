@@ -1,2 +1,0 @@
-/usr/bin/ar qc libgemdos.a CMakeFiles/gemdos.dir/cdev.c.o CMakeFiles/gemdos.dir/date.c.o CMakeFiles/gemdos.dir/dir.c.o CMakeFiles/gemdos.dir/file.c.o CMakeFiles/gemdos.dir/mem.c.o CMakeFiles/gemdos.dir/net.c.o CMakeFiles/gemdos.dir/path.c.o CMakeFiles/gemdos.dir/pexec.c.o CMakeFiles/gemdos.dir/proc.c.o CMakeFiles/gemdos.dir/signals.c.o CMakeFiles/gemdos.dir/sys.c.o CMakeFiles/gemdos.dir/loader.c.o CMakeFiles/gemdos.dir/gemdos_dispatch.c.o CMakeFiles/gemdos.dir/cookiejar.c.o
-/usr/bin/ranlib libgemdos.a

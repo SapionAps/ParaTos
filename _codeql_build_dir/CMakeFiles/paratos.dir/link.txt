@@ -1,1 +1,0 @@
-/home/runner/work/ParaTos/.codeql-scratch/dbs/cpp/working/autobuild/bin/cc  -std=c11 -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/paratos.dir/link.d CMakeFiles/paratos.dir/paratos.c.o CMakeFiles/paratos.dir/memory.c.o CMakeFiles/paratos.dir/tos_errors.c.o -o paratos  mushashi/libmushashi.a gemdos/libgemdos.a

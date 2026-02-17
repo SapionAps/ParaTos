@@ -34,3 +34,4 @@
 
 # Build dir
 build/
+_codeql_build_dir/
