@@ -502,7 +502,7 @@ int check_strsncpy(char* dst, char* src, int maxlength)
 			error_exit("Field too long");
 	}
 	*p = 0;
-	return p - dst;
+	return (int)(p - dst);
 }
 
 /* copy until 0 or specified character and exit with error if we read too far */
@@ -516,7 +516,7 @@ int check_strcncpy(char* dst, char* src, char delim, int maxlength)
 			error_exit("Field too long");
 	}
 	*p = 0;
-	return p - dst;
+	return (int)(p - dst);
 }
 
 /* convert ascii to integer and exit with error if we find invalid data */
@@ -532,7 +532,7 @@ int check_atoi(char* str, int *result)
 	if(*p != ' ' && *p != 0)
 		error_exit("Malformed integer value (%c)", *p);
 	*result = accum;
-	return p - str;
+	return (int)(p - str);
 }
 
 /* Skip past spaces in a string */
@@ -543,7 +543,7 @@ int skip_spaces(char* str)
 	while(*p == ' ')
 		p++;
 
-	return p - str;
+	return (int)(p - str);
 }
 
 /* Count the number of set bits in a value */
@@ -581,7 +581,7 @@ int atoh(char* buff)
 /* Get a line of text from a file, discarding any end-of-line characters */
 int fgetline(char* buff, int nchars, FILE* file)
 {
-	int length;
+	size_t length;
 
 	if(fgets(buff, nchars, file) == NULL)
 		return -1;
@@ -594,7 +594,7 @@ int fgetline(char* buff, int nchars, FILE* file)
 	buff[length] = 0;
 	g_line_number++;
 
-	return length;
+	return (int)length;
 }
 
 
@@ -649,7 +649,7 @@ opcode_struct* find_opcode(char* name, int size, char* spec_proc, char* spec_ea)
 	opcode_struct* op;
 
 
-	for(op = g_opcode_input_table;op->name != NULL;op++)
+	for(op = g_opcode_input_table;op->name[0] != '\0';op++)
 	{
 		if(	strcmp(name, op->name) == 0 &&
 			(size == op->size) &&
@@ -665,7 +665,7 @@ opcode_struct* find_illegal_opcode(void)
 {
 	opcode_struct* op;
 
-	for(op = g_opcode_input_table;op->name != NULL;op++)
+	for(op = g_opcode_input_table;op->name[0] != '\0';op++)
 	{
 		if(strcmp(op->name, "illegal") == 0)
 			return op;
@@ -791,7 +791,7 @@ void add_opcode_output_table_entry(opcode_struct* op, char* name)
 
 	*ptr = *op;
 	strcpy(ptr->name, name);
-	ptr->bits = num_bits(ptr->op_mask);
+	ptr->bits = (unsigned char)num_bits(ptr->op_mask);
 }
 
 /*
@@ -812,7 +812,8 @@ static int DECL_SPEC compare_nof_true_bits(const void* aptr, const void* bptr)
 void print_opcode_output_table(FILE* filep)
 {
 	int i;
-	qsort((void *)g_opcode_output_table, g_opcode_output_table_length, sizeof(g_opcode_output_table[0]), compare_nof_true_bits);
+	qsort((void *)g_opcode_output_table, (size_t)g_opcode_output_table_length,
+		sizeof(g_opcode_output_table[0]), compare_nof_true_bits);
 
 	for(i=0;i<g_opcode_output_table_length;i++)
 		write_table_entry(filep, g_opcode_output_table+i);
@@ -844,7 +845,7 @@ void set_opcode_struct(opcode_struct* src, opcode_struct* dst, int ea_mode)
 	*dst = *src;
 
 	for(i=0;i<NUM_CPUS;i++)
-		dst->cycles[i] = get_oper_cycles(dst, ea_mode, i);
+		dst->cycles[i] = (unsigned char)get_oper_cycles(dst, ea_mode, i);
 	if(strcmp(dst->spec_ea, UNSPECIFIED) == 0 && ea_mode != EA_MODE_NONE)
 		sprintf(dst->spec_ea, "%s", g_ea_info_table[ea_mode].fname_add);
 	dst->op_mask |= g_ea_info_table[ea_mode].mask_add;
@@ -969,7 +970,7 @@ void generate_opcode_cc_variants(FILE* filep, body_struct* body, replace_struct*
 		/* Set the new opcode info */
 		strcpy(op->name+offset, g_cc_table[i][0]);
 
-		op->op_match = (op->op_match & 0xf0ff) | (i<<8);
+		op->op_match = (unsigned short)((op->op_match & 0xf0ff) | ((unsigned short)i << 8));
 
 		/* Generate all opcode variants for this modified opcode */
 		generate_opcode_ea_variants(filep, body, replace, op);
@@ -1138,7 +1139,7 @@ void populate_table(void)
 			}
 			else
 			{
-				op->cpus[i] = '0' + i;
+				op->cpus[i] = (char)('0' + i);
 				ptr += check_atoi(ptr, &temp);
 				op->cycles[i] = (unsigned char)temp;
 			}

@@ -3,15 +3,20 @@
 #include "common.h"
 #include "tos_errors.h"
 
-uint32_t unixtime2dos(time_t* unixtime)
+uint32_t unixtime2dos(const time_t* unixtime)
 {
 	struct tm t;
+	uint32_t date_part;
+	uint32_t time_part;
 	if(localtime_r(unixtime, &t) == NULL)
 	{
 		return 0;
 	}
-	return	(t.tm_mday) | ((t.tm_mon+1)<<5) | (((t.tm_year-80)&0x7f)<<9) |
-			((((t.tm_sec/2)&0xF) | (t.tm_min << 5) | (t.tm_hour << 11)) << 16);
+	date_part = (uint32_t)t.tm_mday | ((uint32_t)(t.tm_mon + 1) << 5) |
+		((uint32_t)((t.tm_year - 80) & 0x7f) << 9);
+	time_part = (uint32_t)((t.tm_sec / 2) & 0xf) | ((uint32_t)t.tm_min << 5) |
+		((uint32_t)t.tm_hour << 11);
+	return date_part | (time_part << 16);
 }
 
 time_t dostime2unix(uint32_t dostime)
@@ -45,6 +50,7 @@ time_t dostime2unix(uint32_t dostime)
  */
 int32_t Talarm ( int32_t time )
 {
+	(void)time;
 	NOT_IMPLEMENTED(GEMDOS, Talarm, 288);
 	return TOS_ENOSYS;
 }
@@ -102,19 +108,19 @@ uint32_t Tgettime ( void )
  */
 int32_t Tgettimeofday ( emuptr32_t tv, emuptr32_t tzp )
 {
-	struct timeval timeval;
-	struct timezone timezone;
-	if( 0 == gettimeofday(&timeval, &timezone))
+	struct timeval time_value;
+	struct timezone tzinfo;
+	if( 0 == gettimeofday(&time_value, &tzinfo))
 	{
 		if( tv )
 		{
-			m68k_write_memory_32(tv, timeval.tv_sec);
-			m68k_write_memory_32(tv+4, timeval.tv_usec);
+			m68k_write_memory_32(tv, (uint32_t)time_value.tv_sec);
+			m68k_write_memory_32(tv+4, (uint32_t)time_value.tv_usec);
 		}
 		if ( tzp )
 		{
-			m68k_write_memory_32(tzp, timezone.tz_minuteswest);
-			m68k_write_memory_32(tzp+4, timezone.tz_dsttime);
+			m68k_write_memory_32(tzp, (uint32_t)tzinfo.tz_minuteswest);
+			m68k_write_memory_32(tzp+4, (uint32_t)tzinfo.tz_dsttime);
 		}
 	}
 	return TOS_E_OK;
@@ -135,6 +141,7 @@ int32_t Tgettimeofday ( emuptr32_t tv, emuptr32_t tzp )
  */
 int32_t Tmalarm( int32_t time )
 {
+	(void)time;
 	NOT_IMPLEMENTED(GEMDOS, Tmalarm, 317);
 	return TOS_ENOSYS;
 }
@@ -147,6 +154,7 @@ int32_t Tmalarm( int32_t time )
  */
 int16_t Tsetdate ( uint16_t date )
 {
+	(void)date;
 	NOT_IMPLEMENTED(GEMDOS, Tsetdate, 43);
 	return TOS_ENOSYS;
 }
@@ -161,6 +169,11 @@ int16_t Tsetdate ( uint16_t date )
  */
 int32_t Tsetitimer ( int16_t which, emuptr32_t interval, emuptr32_t value, emuptr32_t ointerval, emuptr32_t ovalue )
 {
+	(void)which;
+	(void)interval;
+	(void)value;
+	(void)ointerval;
+	(void)ovalue;
 	NOT_IMPLEMENTED(GEMDOS, Tsetitimer, 329);
 	return TOS_ENOSYS;
 }
@@ -173,6 +186,7 @@ int32_t Tsetitimer ( int16_t which, emuptr32_t interval, emuptr32_t value, emupt
  */
 int16_t Tsettime ( uint16_t time )
 {
+	(void)time;
 	NOT_IMPLEMENTED(GEMDOS, Tsettime, 45);
 	return TOS_ENOSYS;
 }
@@ -212,6 +226,8 @@ int16_t Tsettime ( uint16_t time )
  */
 int32_t Tsettimeofday ( emuptr32_t tv, emuptr32_t tzp )
 {
+	(void)tv;
+	(void)tzp;
 	NOT_IMPLEMENTED(GEMDOS, Tsettimeofday, 342);
 	return TOS_ENOSYS;
 }

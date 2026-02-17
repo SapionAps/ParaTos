@@ -7,10 +7,10 @@
 #include "m68k.h"
 #include "m68kcpu.h"
 
-uint32_t ResizeCookieJar(int32_t currentSize, int32_t newSize)
+uint32_t ResizeCookieJar(uint32_t currentSize, uint32_t newSize)
 {
 	uint32_t oldJar = m68k_read_memory_32(_p_cookies);
-	uint32_t newJar = Malloc(newSize * 8);
+	uint32_t newJar = Malloc((int32_t)(newSize * 8));
 	for(uint32_t slot = 0; slot < currentSize; slot++)
 	{
 		uint32_t key = m68k_read_memory_32(oldJar+slot*8);
@@ -36,8 +36,8 @@ void WriteCookie(uint32_t key, uint32_t value)
 	uint32_t base = m68k_read_memory_32(_p_cookies);
 	uint32_t address = base;
 	int found = 0;
-	int currentCount = 0;
-	int maxCount = 0;
+	uint32_t currentCount = 0;
+	uint32_t maxCount = 0;
 	uint32_t current=0;
 	for(;;address += 8)
 	{
@@ -83,7 +83,7 @@ int ReadCookie(uint32_t key, uint32_t* value)
 	int found = 0;
 	if (key > 1 && key <= 0xffff)
 	{
-		for(int32_t i=1; i <= key; address += 8, i++)
+		for(uint32_t i = 1; i <= key; address += 8, i++)
 		{
 			if (m68k_read_memory_32(address) == 0)
 			{
@@ -118,10 +118,10 @@ int ReadCookie(uint32_t key, uint32_t* value)
 }
 
 
-void InitCookieJar()
+void InitCookieJar(void)
 {
-	int numCookies = 0x100;
-	uint32_t base = Malloc(numCookies * 8);
+	uint32_t numCookies = 0x100;
+	uint32_t base = Malloc((int32_t)(numCookies * 8));
 	TRACEF("InitCookieJar: %08x\n", base);
 	m68k_write_memory_32(_p_cookies, base);
 	m68k_write_memory_32(base, 0);
