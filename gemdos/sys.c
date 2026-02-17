@@ -360,8 +360,8 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage )
 	sysinfo(&info);
 	m68k_write_memory_32(uptime, info.uptime);
 	m68k_write_memory_32(loadaverage, (int32_t)(info.loads[0]*2048));
-	m68k_write_memory_32(loadaverage + sizeof(uint32_t) * 1, (int32_t)(info.loads[1]*2048));
-	m68k_write_memory_32(loadaverage + sizeof(uint32_t) * 2, (int32_t)(info.loads[2]*2048));
+	m68k_write_memory_32(loadaverage + 4, (int32_t)(info.loads[1]*2048));
+	m68k_write_memory_32(loadaverage + 8, (int32_t)(info.loads[2]*2048));
 
 	return TOS_E_OK;
 #else
