@@ -96,9 +96,9 @@ void m68k_read_to_8(uint32_t address, uint8_t* dest);
 	int8_t[sizeof(lval)] : m68k_read_array8((address),(char*)(intptr_t)(lval),sizeof(lval)), \
 );})
 
-#define m68k_write_field(address, type, field, value) do { \
+#define m68k_write_field(address, type, field, value) ({ \
 	m68k_write((address) + offsetof(type, field), (__typeof__(((type *)0)->field))(value)); \
-} while (0)
+})
 
 #define m68k_write_struct_member(address, value, field) \
 	m68k_write((address) + offsetof(__typeof__(value), field), (value).field)
