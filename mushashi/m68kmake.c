@@ -1139,7 +1139,7 @@ void populate_table(void)
 			}
 			else
 			{
-			op->cpus[i] = (char)('0' + i);
+				op->cpus[i] = (char)('0' + i);
 				ptr += check_atoi(ptr, &temp);
 				op->cycles[i] = (unsigned char)temp;
 			}
