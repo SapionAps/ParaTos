@@ -1,3 +1,6 @@
+#ifdef PARATOS_PTOS
+#include "host/ptos/memory.h"
+#else
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -55,3 +58,4 @@ INLINE void m68k_write_memory_64(unsigned int address, uint64_t value)
 {
 	MEM64(address) = htobe64(value);
 }
+#endif
