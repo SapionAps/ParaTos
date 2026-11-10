@@ -9,19 +9,28 @@ elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
 else()
 	message(FATAL_ERROR "Unsupported pTOS architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
+function(ptos_executable target image_base)
+	target_compile_features(${target} PRIVATE c_std_11)
+	target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+	target_link_libraries(${target} PRIVATE ${PTOS_LIBCMINI_ARCHIVE})
+	target_link_options(${target} PRIVATE -nostdlib -static -no-pie
+		-Wl,--build-id=none,--emit-relocs,-z,noexecstack
+		-Wl,-z,max-page-size=0x1000,-z,noseparate-code,-Ttext-segment=${image_base}
+		${PTOS_CRT0})
+	if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+		target_link_options(${target} PRIVATE -Wl,-m,elf32_x86_64)
+	else()
+		target_link_libraries(${target} PRIVATE gcc)
+	endif()
+	set_target_properties(${target} PROPERTIES SUFFIX ".prg")
+endfunction()
+
 add_executable(paratos main.c native.c ${PTOS_ARCH_SOURCE} memory.c loader.c process.c dispatch.c runtime.c)
-target_compile_features(paratos PRIVATE c_std_11)
-target_compile_options(paratos PRIVATE -Wall -Wextra -Werror)
 target_include_directories(paratos PRIVATE ${PROJECT_SOURCE_DIR}/mushashi)
-target_link_libraries(paratos PRIVATE mushashi ${PTOS_LIBCMINI_ARCHIVE})
-target_link_options(paratos PRIVATE -nostdlib -static -no-pie
-	-Wl,--build-id=none,--emit-relocs,-z,noexecstack
-	-Wl,-z,max-page-size=0x1000,-z,noseparate-code,-Ttext-segment=0x41000000
-	${PTOS_CRT0})
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-	target_link_options(paratos PRIVATE -Wl,-m,elf32_x86_64)
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
-	target_link_libraries(paratos PRIVATE gcc)
+target_link_libraries(paratos PRIVATE mushashi)
+ptos_executable(paratos 0x41000000)
+
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
 	if(BUILD_TESTING)
 		enable_language(ASM)
 		add_executable(ptos_arm_abi native.c ${PTOS_ARCH_SOURCE}
@@ -47,4 +56,8 @@ elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
 		endif()
 	endif()
 endif()
-set_target_properties(paratos PROPERTIES SUFFIX ".prg")
+
+set(PTOS_KERNEL_DIR "" CACHE PATH "Built pTOS checkout for optional real-kernel tests")
+if(BUILD_TESTING AND PTOS_KERNEL_DIR)
+	include(${PROJECT_SOURCE_DIR}/tests/ptos/kernel.cmake)
+endif()

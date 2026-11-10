@@ -27,8 +27,8 @@ Currently, only a handful of trap #1 functions have been implemented, so you sho
 
 # pTOS port
 
-An initial native pTOS CLI backend for ARM and x32 is under development. Build commands,
-tested behavior and the outstanding kernel prerequisites are documented in
+The native pTOS CLI backend runs on ARM and x32. Build commands,
+real-kernel integration tests and current limitations are documented in
 [host/ptos/README.txt](host/ptos/README.txt). It is separate from the POSIX
 backend described above; GEM/AES and VDI are not part of its first milestone.
 

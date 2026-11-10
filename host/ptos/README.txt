@@ -1,5 +1,5 @@
-pTOS backend (issue #7, initial draft)
-====================================
+pTOS backend (issue #7)
+======================
 
 Status
 ------
@@ -8,9 +8,9 @@ renamed to .prg. GEM/AES/VDI remain follow-ups. The POSIX backend is unchanged.
 Architecture-specific syscall implementations live in host/ptos/arm/ and
 host/ptos/x32/; loading, guest memory and process emulation are shared.
 
-The executable builds, but the current pTOS kernel cannot run it with the
-required layout. The loader and memory prerequisites are tracked in:
-https://github.com/kelihlodversson/pTOS/issues/946
+Requires a kernel with pTOS #946, merged as e83242935290bcf4a934bb9c2b4ddcf956a43957:
+https://github.com/kelihlodversson/pTOS/pull/947
+The native backend has been boot-tested on both ARM and x32 with that kernel.
 
 In particular, linking high is insufficient: the native basepage,
 environment and startup mappings must also leave guest RAM available.
@@ -32,7 +32,7 @@ in separate directories below build/.
   make -C "$LIBCMINI" BUILDDIR="$PWD/build/ptos/libcmini" \
       CROSSPREFIX= ptos_x86_64_defconfig
   make -C "$LIBCMINI" BUILDDIR="$PWD/build/ptos/libcmini" \
-      CROSSPREFIX= -j4 dirs libs startups
+      CROSSPREFIX= ARCH_CFLAGS=-march=x86-64 -j4 dirs libs startups
   cmake -S . -B build/ptos/native \
       -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/ptos-x32.cmake" \
       -DPTOS_LIBCMINI_ROOT="$LIBCMINI" \
@@ -43,6 +43,9 @@ in separate directories below build/.
   readelf -h -l build/ptos/native/host/ptos/paratos.prg
 
 This builds an ELFCLASS32 / EM_X86_64 executable using the x32 ABI.
+The explicit x86-64 instruction baseline is required even when the build
+host compiler defaults to x86-64-v3: pTOS preserves x87/SSE, not AVX state.
+Use fresh build directories when changing compiler or ABI flags.
 
 For ARM, use a separate libcmini build and the ARM toolchain file:
 
@@ -69,7 +72,7 @@ Both executables have PT_LOAD segments starting at 0x41000000, above 1 GiB.
 Relocations are retained for the native pTOS ELF loader; this does not
 authorize relocating the native program into guest RAM.
 
-After kernel prerequisites are available:
+Invoke it on pTOS as:
 
   paratos.prg program.prg [arguments...]
 
@@ -92,6 +95,9 @@ Guest memory limits, vectors and the cookie jar are guest-local. Native
 kernel pointers and native CPU cookies are not exposed. Exact-width writes
 to live fields use Ssystem and honor its access checks; partial live writes
 are refused. The guest S_GET*VAL/S_SET*VAL calls use the same memory layer.
+S_OSFEATURES describes the flat guest, without advertising native MMU/ELF
+services. Sysconf physical-page totals describe guest RAM; guest free-page
+accounting is unavailable (ENOSYS), rather than reporting host free pages.
 
 Super(), Supexec() and the Setexc() cookie/vector convention operate only
 on guest CPU/memory state. Supexec uses a guest return gate to restore the
@@ -102,7 +108,7 @@ Implemented initial call surface
 Console GEMDOS/BIOS operations; ordinary file open/create/read/write/seek,
 close/delete/rename, attributes and date/time (with endian conversion);
 directory get/set/create/delete; guest Malloc/Mfree/Mshrink and ST-RAM
-Mxalloc; guest basepages, PRG loading/relocation and selected Ssystem calls.
+Mxalloc; guest basepages, PRG loading/relocation, Sysconf and selected Ssystem calls.
 Calls with unimplemented structure ABIs return ENOSYS instead of passing
 big-endian guest structures blindly to native code. This includes directory
 search/extended stat interfaces and much of MiNT; full MiNT libc startup
@@ -123,6 +129,75 @@ basepages must not be confused. Native executable dispatch outside modes
 
 Validation
 ----------
+The real-kernel tests build native Paratos and a native test launcher, plus
+ordinary 68k PRGs compiled against libcmini. They boot pTOS under QEMU,
+using a real FAT disk image, and run 24 native launches per architecture:
+
+- Direct execution and split Pexec 3->4/6, repeated with image/basepage/
+  environment cleanup and high native load addresses checked.
+- Quoted/empty arguments, environment, console and file I/O, status 37.
+- Guest Super/Supexec, live Ssystem-backed low memory, guest CPU cookies,
+  denied writes and unsupported calls. All native execution stays in userspace.
+- Repeated 68k overlays, including a child Supexec inside a parent's
+  active supervisor callback; retained/transferred image ownership.
+- Native Pexec with inherited handles, working directory and environment;
+  mode 200's native ENOSYS without an extra child launch.
+- Invalid guest access to the native image and a partial live low-memory
+  write terminate emulation with status 255; later launches still succeed.
+
+Install the native/CMake/Python tools, kconfiglib, a m68k-atari-mintelf
+toolchain, mtools, dosfstools and QEMU. ARM also needs arm-none-eabi-gcc;
+x32 needs an x32-capable GCC and OVMF. Use a pTOS checkout with its submodules.
+From the Paratos checkout:
+
+  sh tests/ptos/build_kernel_test.sh arm /absolute/path/to/pTOS
+  sh tests/ptos/build_kernel_test.sh x32 /absolute/path/to/pTOS
+
+These commands select and build the kernel configuration, build guest and
+native libcmini archives in separate output directories, and run CTest.
+They change the kernel/libcmini ignored configurations: run architectures
+sequentially and finish testing one before selecting the next kernel.
+OVMF_DIR and QEMU_DATA_DIR override firmware locations when needed.
+
+They also build pTOS's actual m68k test-hd.img with a CLI selection of its
+unmodified regression sources: cookie_values, fseek_rewind, open_unlink and
+sysconf. Full crt0.o produces a TOS PRG instead of a native m68k ELF. The
+additional ptos_m68k_disk test boots a copy of that image: the original
+RUNTESTS.TOS is preserved byte for byte as GUESTEST.TOS, and a native wrapper
+replaces RUNTESTS.TOS/EMUCON.TOS. It launches PARATOS.PRG GUESTEST.TOS through
+native Pexec, so this needs no binfmt handler. The other disk files remain
+in place. CTest requires both a successful upstream test summary and exit
+status 0 from the guest; failures are not filtered into a passing result.
+GUI/VDI, hardware, native-MMU and unimplemented MiNT ABI suites are outside
+this initial CLI selection. To try another m68k PRG test disk, configure
+PTOS_M68K_TEST_DISK with its path and run:
+
+  ctest --test-dir build/ptos/arm-native -R '^ptos_m68k_disk$' --output-on-failure
+
+The input image is never modified. serial.log, disk.log, kernel.json and the
+adapted disk.img remain in host/ptos/m68k-disk-test for inspection.
+
+To use an already built kernel instead, configure the native Paratos build
+with PTOS_KERNEL_DIR and PTOS_GUEST_LIBCMINI_DIR (a m68k libcmini directory
+containing libcmini.a and objs/crt0.o). Then build and run just the boot test:
+
+  cmake --build build/ptos/arm-native -j4
+  ctest --test-dir build/ptos/arm-native -R '^ptos_kernel$' --output-on-failure
+
+The prepared kernel needs Mmap, the ELF loader and an external CLI. ARM uses
+virt-arm-aspace; x32 uses pc-x86_64 with Mmap enabled. The build script
+disables the x32 kernel's own boot self-test to keep this test independent
+of its fixtures. An already built default x32 kernel additionally needs
+`make CROSS_COMPILE= x32test x32-vdi-import-test` and its test files.
+Logs, the tested kernel revision and the disk image remain in the native
+build's host/ptos/kernel-test directory. For separate kernel artifact
+directories, preserve the image, obj/autoconf.h, tools/mkhdisk.sh and an
+optional SOURCE_REVISION file, so changing the source checkout's active
+configuration does not invalidate an earlier architecture's test setup.
+
+GitHub Actions runs Linux/macOS POSIX builds and ARM/x32 real-kernel tests
+against the pinned merged kernel. The pTOS job also runs the ARM bridge test.
+
 On Linux, the regular CMake build adds a separate Musashi instance using
 the pTOS memory callbacks and an injected native-call backend. This maps
 real private RAM at the guest virtual addresses but never issues pTOS
@@ -151,7 +226,7 @@ This links the actual ARM syscall bridge and runs it in USR mode on QEMU's
 virt/Cortex-A7. A minimal SVC monitor checks argument registers (including
 Mmap's fifth/sixth arguments), negative returns and register clobber handling.
 It does not simulate the pTOS loader, memory services or a complete kernel
-boot, and does not remove the kernel prerequisite above.
+boot; the separate ptos_kernel test covers the real kernel boundary.
 
 Optional compiled 68k CLI integration (m68k-atari-mintelf toolchain required):
 

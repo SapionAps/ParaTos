@@ -7,7 +7,9 @@ if(NOT PTOS_LIBCMINI_ROOT)
 endif()
 execute_process(COMMAND ${CMAKE_C_COMPILER} -print-file-name=include
 	OUTPUT_VARIABLE GCC_BUILTIN_INCLUDE OUTPUT_STRIP_TRAILING_WHITESPACE)
-set(CMAKE_C_FLAGS_INIT "-mx32 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -nostdinc -isystem ${PTOS_LIBCMINI_ROOT}/include -isystem ${GCC_BUILTIN_INCLUDE}")
+# pTOS preserves x87/SSE state, not AVX state. Do not inherit a host
+# compiler's x86-64-v3 default.
+set(CMAKE_C_FLAGS_INIT "-mx32 -march=x86-64 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -nostdinc -isystem ${PTOS_LIBCMINI_ROOT}/include -isystem ${GCC_BUILTIN_INCLUDE}")
 set(PARATOS_PTOS ON CACHE BOOL "Build pTOS backend")
 # Propagate the sysroot selector to CMake's compiler-check subproject.
 list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES PTOS_LIBCMINI_ROOT)

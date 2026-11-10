@@ -1,0 +1,82 @@
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  posix:
+    name: POSIX (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build --output-on-failure
+
+  ptos:
+    name: pTOS kernel (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm
+            packages: gcc-arm-none-eabi qemu-system-arm
+          - arch: x32
+            packages: gcc-multilib qemu-system-x86 ovmf
+    runs-on: ubuntu-latest
+    steps:
+      # Keep pTOS at the workspace root so its local setup actions resolve
+      # there. The tested Paratos revision is a separate nested checkout.
+      - name: Check out the kernel with high-image/low-RAM support
+        uses: actions/checkout@v4
+        with:
+          repository: kelihlodversson/pTOS
+          ref: e83242935290bcf4a934bb9c2b4ddcf956a43957
+          submodules: recursive
+      - name: Check out Paratos
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: paratos
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          arch: m68k
+      - uses: ./.github/actions/apt-install
+        with:
+          packages: cmake dosfstools mtools ${{ matrix.packages }}
+      - name: Build and boot the kernel and emulator
+        run: sh paratos/tests/ptos/build_kernel_test.sh '${{ matrix.arch }}' "$GITHUB_WORKSPACE"
+      - name: Check the existing POSIX syscall suite
+        if: matrix.arch == 'x32'
+        run: |
+          cmake -S paratos -B paratos/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build paratos/build -j4
+          make -C paratos/test_programs -j4
+          paratos/test_programs/run_syscalls.sh --no-build
+      - name: Keep runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptos-${{ matrix.arch }}
+          path: |
+            paratos/build/ptos/kernel-*/native/host/ptos/kernel-test/*.log
+            paratos/build/ptos/kernel-*/native/host/ptos/kernel-test/kernel.json
+            paratos/build/ptos/kernel-*/native/host/ptos/m68k-disk-test/*.log
+            paratos/build/ptos/kernel-*/native/host/ptos/m68k-disk-test/kernel.json
+            paratos/build/ptos/kernel-*/native/Testing/Temporary/LastTest.log
+            paratos/build/ptos/kernel-*/native/host/ptos/paratos.prg
+          if-no-files-found: ignore

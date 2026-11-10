@@ -44,6 +44,9 @@ void ptos_start_cpu(uint32_t bp)
 	m68k_set_reg(M68K_REG_SR, 0x0300);
 	m68k_set_reg(M68K_REG_ISP, supervisor);
 	m68k_set_reg(M68K_REG_SP, stack);
+	/* TOS startup uses A0 != 0 to identify an accessory. An ordinary
+	 * overlay must not inherit that register from its parent. */
+	m68k_set_reg(M68K_REG_A0, 0);
 	m68k_set_reg(M68K_REG_PC, m68k_read_memory_32(bp + BP_TEXT));
 }
 

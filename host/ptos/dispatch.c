@@ -51,9 +51,12 @@ static int32_t guest_ssystem(uint16_t mode, uint32_t a, uint32_t b)
 			(query >= SSYSTEM_OP_GETLVAL && query <= SSYSTEM_OP_SETBVAL) ||
 			query == SSYSTEM_OP_INQUIRE ? 0 : PTOS_ENOSYS;
 	}
+	/* The guest has a flat TOS address space. The native kernel's MMU,
+	 * demand-paging and native-ELF features are not guest capabilities. */
+	if (mode == SSYSTEM_OP_OSFEATURES) return 0;
 	/* Only pointer-free queries with guest-compatible scalar answers. */
 	if (mode == SSYSTEM_OP_OSNAME || mode == SSYSTEM_OP_OSXNAME ||
-		mode == SSYSTEM_OP_OSVERSION || mode == SSYSTEM_OP_OSBUILDDATE || mode == SSYSTEM_OP_OSFEATURES)
+		mode == SSYSTEM_OP_OSVERSION || mode == SSYSTEM_OP_OSBUILDDATE)
 		return ptos_call(GEMDOS_OP_SSYSTEM, mode, a, b, 0);
 	return PTOS_ENOSYS;
 }
@@ -152,6 +155,14 @@ void dispatch_gemdos_trap(void)
 		break;
 	}
 	case GEMDOS_OP_SSYSTEM: r = guest_ssystem(word(sp, 2), lng(sp, 4), lng(sp, 8)); break;
+	case GEMDOS_OP_SYSCONF: {
+		int16_t query = word(sp, 2);
+		/* Report guest RAM, not the host machine's physical page counts. */
+		if (query == SYSCONF_QUERY_PHYS_PAGES) r = (PTOS_RAM_END - PTOS_RAM_START) / PTOS_PAGE_BYTES;
+		else if (query == SYSCONF_QUERY_AVPHYS_PAGES) r = PTOS_ENOSYS;
+		else r = ptos_call(fn, query, 0, 0, 0);
+		break;
+	}
 	default: break; /* unimplemented ABIs must not forward guest structures blindly */
 	}
 	m68k_set_reg(M68K_REG_D0, (uint32_t)r);

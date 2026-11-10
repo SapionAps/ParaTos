@@ -12,6 +12,7 @@ int32_t ptos_unmap(uint32_t address, uint32_t length);
 #define PTOS_NATIVE_BASE 0x41000000u
 #define PTOS_RAM_START   0x00010000u
 #define PTOS_RAM_END     0x01000000u
+#define PTOS_PAGE_BYTES  4096u
 
 #define PTOS_ENOSYS (-32)
 #define PTOS_EINVAL (-25)
