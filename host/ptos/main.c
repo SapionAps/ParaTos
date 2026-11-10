@@ -54,7 +54,7 @@ int main(int argc, char **argv)
 	int32_t result = ptos_memory_init();
 	if (result < 0)
 	{
-		fprintf(stderr, "Paratos: cannot identity-map guest RAM (GEMDOS error %ld); low fixed-mapping kernel support is required.\n", (long)result);
+		fprintf(stderr, "Paratos: cannot initialize guest RAM (GEMDOS error %ld); Ssystem reads and low fixed-mapping kernel support are required.\n", (long)result);
 		return 1;
 	}
 	ptos_allocator_init();

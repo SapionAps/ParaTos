@@ -17,6 +17,9 @@
 static char output[8192];
 static size_t output_size;
 static uint32_t ticks = 0x11223344;
+static uint32_t vbclock = 0x12345678, frclock;
+static uint16_t unavailable_read;
+static int32_t narrow_read_error;
 static unsigned int system_calls, exec_calls;
 static int32_t last_mode;
 static uint32_t retained_image;
@@ -69,9 +72,12 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	{
 	case 0x154:
 		system_calls++;
+		if (a == SSYSTEM_OP_INQUIRE) return b == unavailable_read ? PTOS_ENOSYS : 0;
 		if (a >= 0xd && a <= 0xf) return -36;
+		if ((a == SSYSTEM_OP_GETWVAL || a == SSYSTEM_OP_GETBVAL) && narrow_read_error) return narrow_read_error;
 		if (b == 0x4ba) return ticks;
-		if (b == 0x462) return 0x12345678;
+		if (b == 0x462) return vbclock;
+		if (b == 0x466) return frclock;
 		return 0;
 	case 9: capture((const char *)a, strlen((const char *)a)); return 0;
 	case 2: {
@@ -146,6 +152,17 @@ static void reset(void)
 	ptos_memory_reset_low();
 }
 
+static void test_memory_requirements(void)
+{
+	const uint16_t modes[] = {SSYSTEM_OP_GETLVAL, SSYSTEM_OP_GETWVAL, SSYSTEM_OP_GETBVAL};
+	for (unsigned int i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
+	{
+		unavailable_read = modes[i];
+		assert(ptos_memory_init() == PTOS_ENOSYS);
+	}
+	unavailable_read = 0;
+}
+
 static void test_memory(void)
 {
 	assert(ptos_guest_buffer(0x12345, 4) == (void *)(uintptr_t)0x12345);
@@ -167,6 +184,42 @@ static void test_memory(void)
 	assert(m68k_read_memory_32(0x1004) == 20);
 	uint32_t v;
 	assert(ptos_low_read(UINT32_MAX, 4, &v) == PTOS_EINVAL);
+	const int32_t errors[] = {PTOS_ENOSYS, -36};
+	for (unsigned int i = 0; i < sizeof(errors) / sizeof(errors[0]); i++)
+	{
+		narrow_read_error = errors[i];
+		assert(ptos_low_read(0x43e, 2, &v) == errors[i]);
+		assert(ptos_low_read(0x484, 1, &v) == errors[i]);
+	}
+	narrow_read_error = 0;
+}
+
+static void test_counter_wrap(void)
+{
+	const struct { uint32_t address; uint32_t *counter; } counters[] = {
+		{0x462, &vbclock}, {0x466, &frclock}, {0x4ba, &ticks}
+	};
+	for (unsigned int i = 0; i < sizeof(counters) / sizeof(counters[0]); i++)
+	{
+		uint32_t address = counters[i].address, saved = *counters[i].counter;
+		/* Include the sign boundary, every value in the last 256 ticks,
+		 * and rollover to zero. Error-code bit patterns are ordinary data. */
+		for (unsigned int j = 0; j < 259; j++)
+		{
+			uint32_t value = j < 2 ? UINT32_C(0x7fffffff) + j : UINT32_C(0xffffff00) + j - 2;
+			*counters[i].counter = value;
+			uint32_t result;
+			assert(ptos_low_read(address, 4, &result) == 0 && result == value);
+			assert(m68k_read_memory_32(address) == value);
+			for (unsigned int offset = 0; offset < 4; offset++)
+				assert(m68k_read_memory_8(address + offset) == ((value >> ((3 - offset) * 8)) & 255));
+			for (unsigned int offset = 0; offset < 3; offset++)
+				assert(m68k_read_memory_16(address + offset) == ((value >> ((2 - offset) * 8)) & 65535));
+			uint32_t next = m68k_read_memory_8(address + 4);
+			assert(m68k_read_memory_16(address + 3) == ((value & 255) << 8 | next));
+		}
+		*counters[i].counter = saved;
+	}
 }
 
 static void test_arguments(void)
@@ -401,6 +454,7 @@ static void test_cli(void)
 
 int main(int argc, char **argv)
 {
+	test_memory_requirements();
 	assert(ptos_memory_init() == 0);
 	if (argc == 2)
 	{
@@ -418,6 +472,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	test_memory();
+	test_counter_wrap();
 	test_arguments();
 	test_file_lifetimes();
 	test_bios_devices();

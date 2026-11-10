@@ -31,6 +31,14 @@ int32_t ptos_memory_init(void)
 {
 	if (mapped)
 		return PTOS_EINVAL;
+	/* These read modes and the scalar addresses in live[] are part of the
+	 * required pTOS ABI. Check mode availability before interpreting raw
+	 * long results, whose bits cannot distinguish counters from errors. */
+	for (int mode = SSYSTEM_OP_GETLVAL; mode <= SSYSTEM_OP_GETBVAL; mode++)
+	{
+		int32_t result = ptos_call(GEMDOS_OP_SSYSTEM, SSYSTEM_OP_INQUIRE, mode, 0, 0);
+		if (result < 0) return result;
+	}
 	int32_t result = ptos_map(PTOS_RAM_START, PTOS_RAM_END - PTOS_RAM_START);
 	if (result < 0)
 		return result;
@@ -91,7 +99,10 @@ int32_t ptos_low_read(uint32_t address, unsigned int width, uint32_t *value)
 		if (address >= base + n || base >= address + width)
 			continue;
 		int32_t r = ptos_call(GEMDOS_OP_SSYSTEM, width_mode(n, 0), base, 0, 0);
-		if (r == PTOS_ENOSYS || r == -36)
+		/* Every bit pattern is valid for the known 32-bit counters, including
+		 * 0xffffffe0/-32 and 0xffffffdc/-36 just before wraparound. Narrow
+		 * reads are zero-extended by pTOS, so negative results remain errors. */
+		if (n < 4 && r < 0)
 			return r;
 		for (uint32_t j = 0; j < n; j++)
 			low[base + j] = (uint32_t)r >> ((n - j - 1) * 8);

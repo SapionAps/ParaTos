@@ -98,6 +98,9 @@ memory. A fatal guest fault ends the emulation run with status 255.
 
 Live scalar low-memory fields use native Ssystem() on every read, including
 byte/word reads within a wider field and reads crossing field boundaries.
+Native Ssystem read-mode support is checked during initialization. The known
+32-bit counters preserve every bit pattern, including values that coincide
+with negative error codes at wraparound; narrow read errors remain errors.
 Guest memory limits, vectors and the cookie jar are guest-local. Native
 kernel pointers and native CPU cookies are not exposed. Exact-width writes
 to live fields use Ssystem and honor its access checks; partial live writes
