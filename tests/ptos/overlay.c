@@ -12,5 +12,7 @@ static long supervisor(void)
 int main(void)
 {
 	if (Super(1L) != 0 || Supexec(supervisor) != 23 || Super(1L) != 0) return 1;
+	if (Dsetpath("C:/OVLTEST")) return 2;
+	Dsetdrv(0);
 	return 23;
 }

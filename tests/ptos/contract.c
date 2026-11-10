@@ -20,6 +20,8 @@ static unsigned int system_calls, exec_calls;
 static int32_t last_mode;
 static uint32_t retained_image;
 static int expect_retained;
+static int current_drive = 2;
+static char directories[2][128] = {"PARENT", "OTHER"};
 
 static void capture(const void *data, size_t n)
 {
@@ -76,7 +78,17 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 		assert(!strcmp((const char *)d, "X=1"));
 		return a == 200 ? PTOS_ENOSYS : 37;
 	case 0x30: return 0x2000;
-	case 0x19: return 2;
+	case GEMDOS_OP_DGETDRV: return current_drive;
+	case GEMDOS_OP_DSETDRV: current_drive = a; return 12;
+	case GEMDOS_OP_DGETPATH: {
+		int drive = b ? b - 1 : current_drive;
+		if (drive < 2 || drive > 3) return -46;
+		strcpy((char *)a, directories[drive - 2]); return 0;
+	}
+	case GEMDOS_OP_DSETPATH:
+		assert(current_drive == 2 || current_drive == 3);
+		strcpy(directories[current_drive - 2], (const char *)a + (*(char *)a == '\\'));
+		return 0;
 	case 0x2a: return (46 << 9) | (11 << 5) | 10;
 	case 0x2c: return 0;
 	default: return PTOS_ENOSYS;
@@ -131,6 +143,26 @@ static void test_memory(void)
 	assert(m68k_read_memory_32(0x1004) == 20);
 	uint32_t v;
 	assert(ptos_low_read(UINT32_MAX, 4, &v) == PTOS_EINVAL);
+}
+
+static void test_arguments(void)
+{
+	char tail[128];
+	char *simple[] = {"one", "two"};
+	ptos_command_tail(tail, 2, simple);
+	assert(tail[0] == 7 && !strcmp(tail + 1, "one two"));
+	char *quoted[] = {"two words", "it's"};
+	ptos_command_tail(tail, 2, quoted);
+	assert(tail[0] == 19 && !strcmp(tail + 1, "'two words' 'it''s'"));
+	char *empty[] = {"two words", ""};
+	ptos_command_tail(tail, 2, empty);
+	assert(tail[0] == 127 && !strcmp(tail + 1, "'two words' ''"));
+	char long_arg[200]; memset(long_arg, 'a', sizeof(long_arg) - 1); long_arg[199] = 0;
+	char *long_args[] = {long_arg};
+	ptos_command_tail(tail, 1, long_args);
+	assert(tail[0] == 127 && strlen(tail + 1) == 126 && tail[127] == 0);
+	ptos_command_tail(tail, 0, NULL);
+	assert(tail[0] == 0 && tail[1] == 0);
 }
 
 static void test_delegation(void)
@@ -245,8 +277,11 @@ static void test_nested_supervisor_stack(void)
 	m68k_set_reg(M68K_REG_SP, 0xff00);
 	m68k_write_memory_32(0xff00, 0x12345678);
 	assert(ptos_go(child, 0) == 0);
+	current_drive = 3;
+	strcpy(directories[0], "CHANGED"); strcpy(directories[1], "CHILD");
 	assert(m68k_get_reg(NULL, M68K_REG_ISP) == 0xff00);
 	ptos_terminate(37);
+	assert(current_drive == 2 && !strcmp(directories[0], "PARENT") && !strcmp(directories[1], "OTHER"));
 	assert(ptos_process == bp && m68k_get_reg(NULL, M68K_REG_SP) == 0xff00);
 	assert(m68k_get_reg(NULL, M68K_REG_SR) & 0x2000);
 	assert(m68k_read_memory_32(0xff00) == 0x12345678);
@@ -281,7 +316,9 @@ int main(int argc, char **argv)
 	assert(ptos_memory_init() == 0);
 	if (argc == 2)
 	{
-		char tail[128] = {127, 0};
+		char tail[128];
+		char *args[] = {"two words", ""};
+		ptos_command_tail(tail, 2, args);
 		const char env[] = "DEMO=present\0ARGV=NULL:2\0cli.tos\0two words\0 \0\0";
 		ptos_allocator_init();
 		int32_t bp = ptos_load(argv[1], tail, env);
@@ -293,6 +330,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	test_memory();
+	test_arguments();
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);

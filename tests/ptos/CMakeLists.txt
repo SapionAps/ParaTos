@@ -8,6 +8,7 @@ target_compile_definitions(mushashi_ptos PRIVATE PARATOS_PTOS=1)
 add_dependencies(mushashi_ptos mushashi)
 
 add_executable(ptos_contract contract.c
+	${PROJECT_SOURCE_DIR}/host/ptos/arguments.c
 	${PROJECT_SOURCE_DIR}/host/ptos/memory.c
 	${PROJECT_SOURCE_DIR}/host/ptos/loader.c
 	${PROJECT_SOURCE_DIR}/host/ptos/process.c

@@ -60,7 +60,8 @@ int main(int argc, char **argv)
 	ptos_allocator_init();
 	char *env = guest_environment(argc, argv);
 	if (!env) { result = PTOS_ERANGE; goto done; }
-	char tail[128] = {127, 0};
+	char tail[128];
+	ptos_command_tail(tail, argc - 2, argv + 2);
 	char filename[1024];
 	if (strlen(argv[1]) >= sizeof(filename)) { result = PTOS_ERANGE; free(env); goto done; }
 	for (size_t i = 0; i <= strlen(argv[1]); i++) filename[i] = argv[1][i] == '/' ? '\\' : argv[1][i];

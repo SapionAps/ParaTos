@@ -8,6 +8,7 @@
 int32_t ptos_call(uint16_t function, intptr_t a, intptr_t b, intptr_t c, intptr_t d);
 int32_t ptos_map(uint32_t address, uint32_t length);
 int32_t ptos_unmap(uint32_t address, uint32_t length);
+void ptos_command_tail(char tail[128], int argc, char **argv);
 
 #define PTOS_NATIVE_BASE 0x41000000u
 #define PTOS_RAM_START   0x00010000u

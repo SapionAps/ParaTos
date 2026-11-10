@@ -13,6 +13,9 @@ typedef struct parent {
 	void *cpu;
 	uint32_t bp;
 	unsigned int super_depth, super_floor;
+	int32_t drive;
+	uint32_t directories;
+	char cwd[32][129];
 } parent;
 static parent *parents;
 static unsigned int parent_depth;
@@ -21,12 +24,43 @@ static unsigned int parent_depth;
 static struct { uint32_t pc, sr, sp; } super_frames[16];
 static unsigned int super_depth, super_floor;
 
+static int32_t save_directories(parent *p)
+{
+	p->drive = ptos_call(GEMDOS_OP_DGETDRV, 0, 0, 0, 0);
+	if (p->drive < 0) return p->drive;
+	for (unsigned int i = 0; i < 32; i++)
+	{
+		/* Dgetpath returns a drive-relative path; restore it from root. */
+		p->cwd[i][0] = '\\';
+		int32_t r = ptos_call(GEMDOS_OP_DGETPATH, (intptr_t)(p->cwd[i] + 1), i + 1, 0, 0);
+		if (r == -46 || r == -34) continue; /* absent drive or unmounted medium */
+		if (r < 0) return r;
+		p->directories |= UINT32_C(1) << i;
+	}
+	return 0;
+}
+
+static int32_t restore_directories(const parent *p)
+{
+	int32_t result = 0;
+	for (unsigned int i = 0; i < 32; i++)
+	{
+		if (!(p->directories & (UINT32_C(1) << i))) continue;
+		ptos_call(GEMDOS_OP_DSETDRV, i, 0, 0, 0);
+		int32_t r = ptos_call(GEMDOS_OP_DSETPATH, (intptr_t)p->cwd[i], 0, 0, 0);
+		if (r < 0) result = r;
+	}
+	ptos_call(GEMDOS_OP_DSETDRV, p->drive, 0, 0, 0);
+	return result;
+}
+
 void ptos_process_cleanup(void)
 {
 	while (parents)
 	{
 		parent *p = parents;
 		parents = p->next;
+		restore_directories(p);
 		free(p->cpu); free(p);
 	}
 	parent_depth = super_depth = super_floor = 0;
@@ -56,10 +90,12 @@ int32_t ptos_go(uint32_t bp, int take_ownership)
 	if (parent_depth == 16) return PTOS_ENSMEM;
 	uint32_t text = m68k_read_memory_32(bp + BP_TEXT);
 	ptos_guest_buffer(text, 2);
-	parent *p = malloc(sizeof(*p));
+	parent *p = calloc(1, sizeof(*p));
 	if (!p) return PTOS_ENSMEM;
 	p->cpu = malloc(m68k_context_size());
 	if (!p->cpu) { free(p); return PTOS_ENSMEM; }
+	int32_t result = save_directories(p);
+	if (result < 0) { free(p->cpu); free(p); return result; }
 	m68k_get_context(p->cpu);
 	p->bp = ptos_process; p->super_depth = super_depth;
 	p->super_floor = super_floor;
@@ -83,7 +119,9 @@ void ptos_terminate(uint16_t status)
 		m68k_set_context(p->cpu);
 		m68k_set_reg(M68K_REG_D0, status);
 		parents = p->next; parent_depth--;
+		int32_t restored = restore_directories(p);
 		free(p->cpu); free(p);
+		if (restored < 0) ptos_fault(ptos_process, "cannot restore overlay parent directory");
 		return;
 	}
 	ptos_status = status;

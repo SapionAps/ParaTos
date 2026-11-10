@@ -30,13 +30,18 @@ static int32_t guest_ssystem(uint16_t mode, uint32_t a, uint32_t b)
 		return ptos_low_write(a, mode == SSYSTEM_OP_SETLVAL ? 4 : mode == SSYSTEM_OP_SETWVAL ? 2 : 1, b);
 	if (mode == SSYSTEM_OP_GETCOOKIE) /* guest cookie jar, never native pointers or CPU identity */
 	{
-		uint32_t at = m68k_read_memory_32(0x5a0);
+		uint32_t jar = m68k_read_memory_32(0x5a0), at = jar;
 		for (unsigned int i = 0; i < 4096 && at <= UINT32_MAX - 8; i++, at += 8)
 		{
 			uint32_t tag = m68k_read_memory_32(at);
-			if (!tag) break;
-			if (tag != a) continue;
-			value = m68k_read_memory_32(at + 4);
+			if (!tag)
+			{
+				uint32_t capacity = m68k_read_memory_32(at + 4);
+				if (a > 0xffff || a > capacity || a > 4096) return -1;
+				value = a ? m68k_read_memory_32(jar + (a - 1) * 8) : capacity;
+			}
+			else if (a > 0xffff && tag == a) value = m68k_read_memory_32(at + 4);
+			else continue;
 			if (b) { m68k_write_memory_32(b, value); return 0; }
 			return value;
 		}

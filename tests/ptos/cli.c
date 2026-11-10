@@ -3,10 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <mint/basepage.h>
 
 int main(int argc, char **argv)
 {
 	if (argc != 3 || strcmp(argv[1], "two words") || strcmp(argv[2], "")) return 1;
+	if ((unsigned char)_base->p_cmdlin[0] != 127 || strcmp(_base->p_cmdlin + 1, "'two words' ''")) return 8;
 	const char *env = getenv("DEMO");
 	if (!env || strcmp(env, "present")) return 2;
 	FILE *file = fopen("cli-data.tmp", "wb");
