@@ -16,12 +16,19 @@ static int overlay(int mode)
 	long parent = Fcreate("C:/OVLTEST/PARENT.TMP", 0);
 	if (parent < 6 || parent > 255 || Fwrite((short)parent, 6, "parent") != 6) return 8;
 	long available = (long)Malloc(-1L);
+	long console = Fdup(1), redirected = Fcreate("C:/OVLTEST/LOAD.TMP", 0);
+	if (console < 0 || redirected < 0 || Fforce(1, (short)redirected) || Dsetpath("C:/OVLTEST")) return 12;
 	BASEPAGE *bp = (BASEPAGE *)Pexec(3, "C:/OVERLAY.TOS", empty_tail, 0);
 	if ((long)bp <= 0) return 1;
+	/* PE_LOAD inherited the redirected stream and directory. Restore the
+	 * parent's state before PE_GO; the child must retain its loaded state. */
+	char restored[132];
+	sprintf(restored, "C:\\%s", directory);
+	if (Fforce(1, (short)console) || Fclose((short)console) || Fclose((short)redirected) || Dsetpath(restored)) return 13;
 	void *environment = bp->p_env;
 	bp->p_cmdlin[1] = parent;
 	long result = Pexec(mode, "", bp, 0);
-	if (result != 23) return 2;
+	if (result != 23) { fprintf(stderr, "overlay mode %d returned %ld\n", mode, result); return 2; }
 	if (Dgetdrv() != drive || Dgetpath(after, 3) || strcmp(directory, after)) return 7;
 	if (Fseek(0, (short)parent, 1) != 6 || Fclose((short)parent) || Fdelete("C:/OVLTEST/PARENT.TMP")) return 9;
 	(void)Cconws("parent console restored\r\n");
@@ -33,6 +40,8 @@ static int overlay(int mode)
 	else if (Mfree(bp) != -40L) return 4;
 	long fd = Fopen("C:/OVLTEST/LEAK.TMP", 0);
 	if (fd < 0 || Fseek(0, (short)fd, 2) != 7 || Fclose((short)fd) || Fdelete("C:/OVLTEST/LEAK.TMP")) return 11;
+	fd = Fopen("C:/OVLTEST/LOAD.TMP", 0);
+	if (fd < 0 || Fseek(0, (short)fd, 2) != 6 || Fclose((short)fd) || Fdelete("C:/OVLTEST/LOAD.TMP")) return 14;
 	return (long)Malloc(-1L) == available ? 0 : 5;
 }
 
@@ -44,7 +53,8 @@ static long supervisor(void)
 	if (!(sr & 0x2000) || Super(1L) != -1L) return 1;
 	char message[] = "guest supervisor I/O\n";
 	if (Fwrite(1, sizeof(message) - 1, message) != sizeof(message) - 1) return 4;
-	if (overlay(6)) return 2;
+	int result = overlay(6);
+	if (result) { fprintf(stderr, "supervisor overlay check: %d\n", result); return 2; }
 	if (preserved != 0x12345678L || Super(1L) != -1L) return 3;
 	return 23;
 }

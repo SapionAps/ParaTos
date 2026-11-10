@@ -14,6 +14,74 @@ typedef struct files {
 } files;
 static files root;
 static files *current = &root;
+typedef struct loaded_streams {
+	struct loaded_streams *next;
+	uint32_t bp;
+	int32_t handles[STANDARD_FILES];
+} loaded_streams;
+static loaded_streams *loaded;
+
+static void close_streams(const int32_t handles[STANDARD_FILES])
+{
+	for (int i = 0; i < STANDARD_FILES; i++)
+		if (handles[i] >= 0) ptos_call(GEMDOS_OP_FCLOSE, handles[i], 0, 0, 0);
+}
+
+static int32_t save_streams(int32_t handles[STANDARD_FILES])
+{
+	for (int i = 0; i < STANDARD_FILES; i++) handles[i] = PTOS_EIHNDL;
+	for (int i = 0; i < STANDARD_FILES; i++)
+	{
+		int32_t r = ptos_call(GEMDOS_OP_FDUP, i, 0, 0, 0);
+		if (r < 0 && r != PTOS_EIHNDL) { close_streams(handles); return r; }
+		handles[i] = r;
+	}
+	return 0;
+}
+
+static int32_t restore_streams(const int32_t handles[STANDARD_FILES])
+{
+	int32_t result = 0;
+	for (int i = 0; i < STANDARD_FILES; i++)
+	{
+		/* Fforce in pTOS does not release the old mapping. */
+		ptos_call(GEMDOS_OP_FCLOSE, i, 0, 0, 0);
+		if (handles[i] < 0) continue;
+		int32_t r = ptos_call(GEMDOS_OP_FFORCE, i, handles[i], 0, 0);
+		if (r < 0) result = r;
+	}
+	return result;
+}
+
+int32_t ptos_files_capture(uint32_t bp)
+{
+	loaded_streams *s = malloc(sizeof(*s));
+	if (!s) return PTOS_ENSMEM;
+	int32_t r = save_streams(s->handles);
+	if (r < 0) { free(s); return r; }
+	s->bp = bp; s->next = loaded; loaded = s;
+	return 0;
+}
+
+void ptos_files_drop(uint32_t bp)
+{
+	for (loaded_streams **at = &loaded; *at; at = &(*at)->next)
+	{
+		loaded_streams *s = *at;
+		if (s->bp != bp) continue;
+		*at = s->next;
+		close_streams(s->handles); free(s);
+		return;
+	}
+}
+
+static int private_stream(int32_t handle)
+{
+	for (loaded_streams *s = loaded; s; s = s->next)
+		for (int i = 0; i < STANDARD_FILES; i++)
+			if (s->handles[i] == handle) return 1;
+	return 0;
+}
 
 static int32_t remember(int32_t handle, int owned)
 {
@@ -49,6 +117,7 @@ int32_t ptos_files_init(void)
 	char scratch;
 	for (int i = STANDARD_FILES; i < FILE_LIMIT; i++)
 	{
+		if (private_stream(i)) continue;
 		int32_t r = ptos_call(GEMDOS_OP_FREAD, i, 0, (intptr_t)&scratch, 0);
 		if (r == PTOS_EIHNDL) continue;
 		if (r < 0 && r != -36) return r;
@@ -104,21 +173,23 @@ int32_t ptos_file_force(int16_t standard, int16_t handle)
 	return ptos_call(GEMDOS_OP_FFORCE, standard, handle, 0, 0);
 }
 
-int32_t ptos_files_push(void)
+int32_t ptos_files_push(uint32_t bp)
 {
 	files *child = calloc(1, sizeof(*child));
 	if (!child) return PTOS_ENSMEM;
-	for (int i = 0; i < STANDARD_FILES; i++) child->saved[i] = PTOS_EIHNDL;
-	for (int i = 0; i < STANDARD_FILES; i++)
+	int32_t r = save_streams(child->saved);
+	if (r < 0) { free(child); return r; }
+	for (loaded_streams *s = loaded; s; s = s->next)
 	{
-		int32_t r = ptos_call(GEMDOS_OP_FDUP, i, 0, 0, 0);
-		if (r < 0 && r != PTOS_EIHNDL)
+		if (s->bp != bp) continue;
+		r = restore_streams(s->handles);
+		if (r < 0)
 		{
-			for (int j = 0; j < i; j++)
-				if (child->saved[j] >= 0) ptos_call(GEMDOS_OP_FCLOSE, child->saved[j], 0, 0, 0);
+			restore_streams(child->saved); close_streams(child->saved);
 			free(child); return r;
 		}
-		child->saved[i] = r;
+		ptos_files_drop(bp);
+		break;
 	}
 	for (int i = STANDARD_FILES; i < FILE_LIMIT; i++)
 		if ((child->handles[i] = current->handles[i])) child->handles[i]->count++;
@@ -130,16 +201,8 @@ int32_t ptos_files_pop(void)
 {
 	files *child = current;
 	if (child == &root) return PTOS_EINVAL;
-	int32_t result = 0;
-	for (int i = 0; i < STANDARD_FILES; i++)
-	{
-		/* Fforce in pTOS does not release the old mapping. */
-		ptos_call(GEMDOS_OP_FCLOSE, i, 0, 0, 0);
-		if (child->saved[i] < 0) continue;
-		int32_t r = ptos_call(GEMDOS_OP_FFORCE, i, child->saved[i], 0, 0);
-		if (r < 0) result = r;
-		ptos_call(GEMDOS_OP_FCLOSE, child->saved[i], 0, 0, 0);
-	}
+	int32_t result = restore_streams(child->saved);
+	close_streams(child->saved);
 	release(child);
 	current = child->parent; free(child);
 	return result;

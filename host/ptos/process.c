@@ -8,23 +8,33 @@
 int ptos_finished;
 uint16_t ptos_status;
 
+typedef struct directories {
+	int32_t drive;
+	uint32_t directories;
+	char cwd[32][129];
+} directories;
+
 typedef struct parent {
 	struct parent *next;
 	void *cpu;
 	uint32_t bp;
 	unsigned int super_depth, super_floor;
-	int32_t drive;
-	uint32_t directories;
-	char cwd[32][129];
+	directories directory;
 } parent;
 static parent *parents;
 static unsigned int parent_depth;
+typedef struct loaded_context {
+	struct loaded_context *next;
+	uint32_t bp;
+	directories directory;
+} loaded_context;
+static loaded_context *loaded;
 
 #define SUPER_RETURN 0x8000u
 static struct { uint32_t pc, sr, sp; } super_frames[16];
 static unsigned int super_depth, super_floor;
 
-static int32_t save_directories(parent *p)
+static int32_t save_directories(directories *p)
 {
 	p->drive = ptos_call(GEMDOS_OP_DGETDRV, 0, 0, 0, 0);
 	if (p->drive < 0) return p->drive;
@@ -35,12 +45,15 @@ static int32_t save_directories(parent *p)
 		int32_t r = ptos_call(GEMDOS_OP_DGETPATH, (intptr_t)(p->cwd[i] + 1), i + 1, 0, 0);
 		if (r == -46 || r == -34) continue; /* absent drive or unmounted medium */
 		if (r < 0) return r;
+		char *relative = p->cwd[i] + 1;
+		while (*relative == '\\' || *relative == '/') relative++;
+		memmove(p->cwd[i] + 1, relative, strlen(relative) + 1);
 		p->directories |= UINT32_C(1) << i;
 	}
 	return 0;
 }
 
-static int32_t restore_directories(const parent *p)
+static int32_t restore_directories(const directories *p)
 {
 	int32_t result = 0;
 	for (unsigned int i = 0; i < 32; i++)
@@ -54,6 +67,32 @@ static int32_t restore_directories(const parent *p)
 	return result;
 }
 
+int32_t ptos_capture_process(uint32_t bp)
+{
+	/* The initial native launch already has its inherited host context.
+	 * Internal PE_LOAD/PE_BASEPAGE children inherit at creation time. */
+	if (!ptos_process) return 0;
+	loaded_context *p = calloc(1, sizeof(*p));
+	if (!p) return PTOS_ENSMEM;
+	int32_t r = save_directories(&p->directory);
+	if (r >= 0) r = ptos_files_capture(bp);
+	if (r < 0) { free(p); return r; }
+	p->bp = bp; p->next = loaded; loaded = p;
+	return 0;
+}
+
+void ptos_drop_process(uint32_t bp)
+{
+	ptos_files_drop(bp);
+	for (loaded_context **at = &loaded; *at; at = &(*at)->next)
+	{
+		loaded_context *p = *at;
+		if (p->bp != bp) continue;
+		*at = p->next; free(p);
+		return;
+	}
+}
+
 void ptos_process_cleanup(void)
 {
 	ptos_files_cleanup();
@@ -61,7 +100,7 @@ void ptos_process_cleanup(void)
 	{
 		parent *p = parents;
 		parents = p->next;
-		restore_directories(p);
+		restore_directories(&p->directory);
 		free(p->cpu); free(p);
 	}
 	parent_depth = super_depth = super_floor = 0;
@@ -95,9 +134,19 @@ int32_t ptos_go(uint32_t bp, int take_ownership)
 	if (!p) return PTOS_ENSMEM;
 	p->cpu = malloc(m68k_context_size());
 	if (!p->cpu) { free(p); return PTOS_ENSMEM; }
-	int32_t result = save_directories(p);
-	if (result >= 0) result = ptos_files_push();
+	int32_t result = save_directories(&p->directory);
 	if (result < 0) { free(p->cpu); free(p); return result; }
+	for (loaded_context *child = loaded; child; child = child->next)
+		if (child->bp == bp) { result = restore_directories(&child->directory); break; }
+	if (result >= 0) result = ptos_files_push(bp);
+	if (result < 0)
+	{
+		int32_t restored = restore_directories(&p->directory);
+		free(p->cpu); free(p);
+		if (restored < 0) ptos_fault(ptos_process, "cannot restore overlay parent directory");
+		return result;
+	}
+	ptos_drop_process(bp);
 	m68k_get_context(p->cpu);
 	p->bp = ptos_process; p->super_depth = super_depth;
 	p->super_floor = super_floor;
@@ -121,7 +170,7 @@ void ptos_terminate(uint16_t status)
 		m68k_set_context(p->cpu);
 		m68k_set_reg(M68K_REG_D0, status);
 		parents = p->next; parent_depth--;
-		int32_t restored = restore_directories(p);
+		int32_t restored = restore_directories(&p->directory);
 		int32_t files = ptos_files_pop();
 		free(p->cpu); free(p);
 		if (restored < 0) ptos_fault(ptos_process, "cannot restore overlay parent directory");

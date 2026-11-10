@@ -257,21 +257,21 @@ static void test_file_lifetimes(void)
 	int before = 0;
 	for (int i = 6; i < 1024; i++) before += fcntl(i, F_GETFD) >= 0;
 	fail_dup = 1;
-	assert(ptos_files_push() == PTOS_ENHNDL);
+	assert(ptos_files_push(0) == PTOS_ENHNDL);
 	fail_dup = 0;
 	int after = 0;
 	for (int i = 6; i < 1024; i++) after += fcntl(i, F_GETFD) >= 0;
 	assert(after == before && ptos_file_handle(parent) == parent);
 	for (int i = 0; i < 100; i++)
 	{
-		assert(ptos_files_push() == 0);
+		assert(ptos_files_push(0) == 0);
 		assert(ptos_file_close(parent) == 0 && fcntl(parent, F_GETFD) >= 0);
 		assert(ptos_file_close(inherited) == 0 && fcntl(inherited, F_GETFD) >= 0);
 		assert(ptos_file_handle(parent) == PTOS_EIHNDL);
 		int32_t child = ptos_file_open(GEMDOS_OP_FOPEN, "contract-files.tmp", 2);
 		int32_t copy = ptos_file_dup(1);
 		assert(child >= 6 && copy >= 6);
-		assert(ptos_files_push() == 0);
+		assert(ptos_files_push(0) == 0);
 		assert(ptos_file_close(child) == 0 && fcntl(child, F_GETFD) >= 0);
 		assert(ptos_files_pop() == 0 && fcntl(child, F_GETFD) >= 0);
 		assert(ptos_files_pop() == 0);
@@ -304,6 +304,68 @@ static void test_bios_devices(void)
 			assert(bios_value == (functions[i] == BIOS_OP_BCONOUT ? 'B' : 0));
 			assert(m68k_get_reg(NULL, M68K_REG_D0) == 0x12345678);
 		}
+}
+
+static int descriptor_count(void)
+{
+	int count = 0;
+	for (int i = 6; i < 1024; i++) count += fcntl(i, F_GETFD) >= 0;
+	return count;
+}
+
+static void test_loaded_context_cleanup(void)
+{
+	reset();
+	unsigned char code[] = {0x4e, 0x75};
+	uint32_t parent = load_fixture(code, sizeof(code));
+	assert(ptos_shrink(parent, 4096) == 0);
+	ptos_process = parent;
+	int before = descriptor_count();
+	int32_t available = ptos_alloc(-1);
+	for (int i = 0; i < 100; i++)
+	{
+		uint32_t bp = load_fixture(code, sizeof(code));
+		assert(descriptor_count() > before);
+		assert(ptos_free(m68k_read_memory_32(bp + BP_ENV)) == 0);
+		assert((i & 1 ? ptos_shrink(bp, 0) : ptos_free(bp)) == 0);
+		assert(descriptor_count() == before && ptos_alloc(-1) == available);
+	}
+	char tail[128] = {0};
+	fail_dup = 1;
+	assert(ptos_load("contract.prg", tail, "\0") == PTOS_ENHNDL);
+	fail_dup = 0;
+	assert(descriptor_count() == before && ptos_alloc(-1) == available);
+	/* Failure after the snapshot was acquired also releases its handles. */
+	assert(truncate("contract.prg", 28) == 0);
+	assert(ptos_load("contract.prg", tail, "\0") == PTOS_EPLFMT);
+	assert(descriptor_count() == before && ptos_alloc(-1) == available);
+	int inherited[256] = {0};
+	for (int i = 6; i < 256; i++) inherited[i] = fcntl(i, F_GETFD) >= 0;
+	uint32_t bp = load_fixture(code, sizeof(code));
+	int staged = descriptor_count();
+	/* A root census must not expose private snapshot duplicates as guest
+	 * handles, even when an image was staged before the CPU starts. */
+	assert(ptos_files_init() == 0);
+	for (int i = 6; i < 256; i++)
+		if (!inherited[i] && fcntl(i, F_GETFD) >= 0) assert(ptos_file_handle(i) == PTOS_EIHNDL);
+	ptos_files_cleanup();
+	assert(descriptor_count() == staged);
+	fail_dup = 1;
+	assert(ptos_go(bp, 0) == PTOS_ENHNDL);
+	fail_dup = 0;
+	assert(descriptor_count() == staged); /* failed start retains loaded state */
+	assert(ptos_go(bp, 0) == 0);
+	ptos_terminate(23);
+	assert(descriptor_count() == before);
+	assert(ptos_free(m68k_read_memory_32(bp + BP_ENV)) == 0 && ptos_free(bp) == 0);
+	bp = load_fixture(code, sizeof(code));
+	assert(descriptor_count() > before);
+	ptos_free_owned(parent);
+	assert(descriptor_count() == before && ptos_image_valid(parent));
+	bp = load_fixture(code, sizeof(code));
+	assert(descriptor_count() > before);
+	ptos_allocator_destroy();
+	assert(descriptor_count() == before);
 }
 
 static void test_delegation(void)
@@ -481,6 +543,7 @@ int main(int argc, char **argv)
 	test_overlay(4); test_overlay(6);
 	test_bad_images();
 	test_nested_supervisor_stack();
+	test_loaded_context_cleanup();
 	test_fault();
 	test_cli();
 	ptos_allocator_destroy();

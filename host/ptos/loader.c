@@ -18,6 +18,7 @@ void ptos_allocator_destroy(void)
 	while (blocks)
 	{
 		block *next = blocks->next;
+		ptos_drop_process(blocks->start);
 		free(blocks);
 		blocks = next;
 	}
@@ -67,6 +68,7 @@ int32_t ptos_free(uint32_t address)
 		if ((*at)->start != address) continue;
 		block *old = *at;
 		*at = old->next;
+		ptos_drop_process(old->start);
 		free(old);
 		return 0;
 	}
@@ -80,6 +82,7 @@ void ptos_free_owned(uint32_t owner)
 		if ((*at)->owner != owner) { at = &(*at)->next; continue; }
 		block *old = *at;
 		*at = old->next;
+		ptos_drop_process(old->start);
 		free(old);
 	}
 }
@@ -141,6 +144,8 @@ int32_t ptos_basepage(const char *tail, const char *environment)
 	memcpy(ptos_guest_buffer(bp + BP_TAIL + 1, len), tail + 1, len);
 	/* A 127-byte ARGV marker has no room for an extra basepage terminator. */
 	if (len < 127) m68k_write_memory_8(bp + BP_TAIL + 1 + len, 0);
+	int32_t captured = ptos_capture_process(bp);
+	if (captured < 0) { ptos_free(bp); ptos_free(env); return captured; }
 	return bp;
 }
 

@@ -145,6 +145,10 @@ duplicates, preserves inherited parent handles, and restores the parent's
 standard streams, current drive and per-drive directories. Arguments are
 supplied in both the classic basepage command tail and the ARGV extension;
 empty or long arguments use ARGV for lossless delivery.
+PE_LOAD/PE_BASEPAGE capture the child's standard streams and directories at
+creation time. Starting the child activates that saved context, even if the
+parent changed it in the meantime. Freeing an unstarted image, abandoning it
+at parent termination, or failing a load releases its saved stream references.
 
 Validation
 ----------
@@ -234,6 +238,8 @@ checks low-memory byte order/live updates, identity pointers, host launch
 delegation, guest/native address separation, ownership and malformed PRG
 cleanup. It also checks 100 nested overlay file-lifetime cycles against real
 host descriptors. Fixtures are generated at runtime; no cross compiler is required.
+Unstarted-image tests also verify descriptor counts through 100 load/free
+cycles, snapshot/load failures, failed-start retry and allocator cleanup.
 Assertions stay enabled in Release builds too. This test currently uses
 Linux MAP_FIXED_NOREPLACE and is not enabled on macOS.
 
