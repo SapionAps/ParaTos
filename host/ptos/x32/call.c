@@ -18,3 +18,13 @@ int32_t ptos_native_call6(uint16_t fn, intptr_t a, intptr_t b, intptr_t c,
 		"+r"(r10), "+r"(r8), "+r"(r9) : : "rcx", "r11", "cc", "memory");
 	return (int32_t)ax;
 }
+
+int32_t ptos_native_bios_call(uint16_t fn, int16_t device, int16_t value)
+{
+	register uint64_t ax __asm__("rax") = ((uint64_t)13 << 32) | fn;
+	register int64_t di __asm__("rdi") = device;
+	register int64_t si __asm__("rsi") = value;
+	__asm__ volatile("syscall" : "+a"(ax), "+r"(di), "+r"(si) :
+		: "rdx", "r10", "r8", "r9", "rcx", "r11", "cc", "memory");
+	return (int32_t)ax;
+}

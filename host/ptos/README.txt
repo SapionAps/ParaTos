@@ -105,6 +105,7 @@ are refused. The guest S_GET*VAL/S_SET*VAL calls use the same memory layer.
 S_OSFEATURES describes the flat guest, without advertising native MMU/ELF
 services. Sysconf physical-page totals describe guest RAM; guest free-page
 accounting is unavailable (ENOSYS), rather than reporting host free pages.
+S_GETCOOKIE supports tag lookup, jar capacity and one-based tag enumeration.
 
 Super(), Supexec() and the Setexc() cookie/vector convention operate only
 on guest CPU/memory state. Supexec uses a guest return gate to restore the
@@ -116,6 +117,7 @@ Console GEMDOS/BIOS operations; ordinary file open/create/read/write/seek,
 close/delete/rename, attributes and date/time (with endian conversion);
 directory get/set/create/delete; guest Malloc/Mfree/Mshrink and ST-RAM
 Mxalloc; guest basepages, PRG loading/relocation, Sysconf and selected Ssystem calls.
+BIOS device calls use native BIOS traps and bypass GEMDOS stream redirection.
 Calls with unimplemented structure ABIs return ENOSYS instead of passing
 big-endian guest structures blindly to native code. This includes directory
 search/extended stat interfaces and much of MiNT; full MiNT libc startup
@@ -132,7 +134,14 @@ caller-retained images from images whose ownership is transferred. Guest
 Pexec(5/7) creates an emulated basepage. Native load-only images from guest
 code and additional modes/flags remain follow-ups; native and guest
 basepages must not be confused. Native executable dispatch outside modes
-0/200 is not claimed by this draft.
+0/200 is not implemented.
+
+Internal children inherit handle references while retaining native handle
+numbers for delegated native Pexec. Pterm closes child-owned files and
+duplicates, preserves inherited parent handles, and restores the parent's
+standard streams, current drive and per-drive directories. Arguments are
+supplied in both the classic basepage command tail and the ARGV extension;
+empty or long arguments use ARGV for lossless delivery.
 
 Validation
 ----------
@@ -146,7 +155,9 @@ using a real FAT disk image, and run 24 native launches per architecture:
 - Guest Super/Supexec, live Ssystem-backed low memory, guest CPU cookies,
   denied writes and unsupported calls. All native execution stays in userspace.
 - Repeated 68k overlays, including a child Supexec inside a parent's
-  active supervisor callback; retained/transferred image ownership.
+  active supervisor callback; retained/transferred image ownership,
+  file cleanup, inherited handles, stream and directory restoration.
+- BIOS output remains on the console while GEMDOS stdout is redirected.
 - Native Pexec with inherited handles, working directory and environment;
   mode 200's native ENOSYS without an extra child launch.
 - Invalid guest access to the native image and a partial live low-memory
@@ -218,7 +229,8 @@ syscalls on Linux. It is not an end-to-end pTOS boot test.
 The contract test executes real 68k instructions for Supexec and overlays,
 checks low-memory byte order/live updates, identity pointers, host launch
 delegation, guest/native address separation, ownership and malformed PRG
-cleanup. Fixtures are generated at runtime; no cross compiler is required.
+cleanup. It also checks 100 nested overlay file-lifetime cycles against real
+host descriptors. Fixtures are generated at runtime; no cross compiler is required.
 Assertions stay enabled in Release builds too. This test currently uses
 Linux MAP_FIXED_NOREPLACE and is not enabled on macOS.
 

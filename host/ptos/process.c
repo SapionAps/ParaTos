@@ -56,6 +56,7 @@ static int32_t restore_directories(const parent *p)
 
 void ptos_process_cleanup(void)
 {
+	ptos_files_cleanup();
 	while (parents)
 	{
 		parent *p = parents;
@@ -95,6 +96,7 @@ int32_t ptos_go(uint32_t bp, int take_ownership)
 	p->cpu = malloc(m68k_context_size());
 	if (!p->cpu) { free(p); return PTOS_ENSMEM; }
 	int32_t result = save_directories(p);
+	if (result >= 0) result = ptos_files_push();
 	if (result < 0) { free(p->cpu); free(p); return result; }
 	m68k_get_context(p->cpu);
 	p->bp = ptos_process; p->super_depth = super_depth;
@@ -120,8 +122,10 @@ void ptos_terminate(uint16_t status)
 		m68k_set_reg(M68K_REG_D0, status);
 		parents = p->next; parent_depth--;
 		int32_t restored = restore_directories(p);
+		int32_t files = ptos_files_pop();
 		free(p->cpu); free(p);
 		if (restored < 0) ptos_fault(ptos_process, "cannot restore overlay parent directory");
+		if (files < 0) ptos_fault(ptos_process, "cannot restore overlay parent streams");
 		return;
 	}
 	ptos_status = status;

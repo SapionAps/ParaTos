@@ -105,9 +105,9 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_DSETDRV:
 	case GEMDOS_OP_TSETDATE:
 	case GEMDOS_OP_TSETTIME:
-	case GEMDOS_OP_FCLOSE:
-	case GEMDOS_OP_FDUP:
 		r = ptos_call(fn, (int16_t)word(sp, 2), 0, 0, 0); break;
+	case GEMDOS_OP_FCLOSE: r = ptos_file_close(word(sp, 2)); break;
+	case GEMDOS_OP_FDUP: r = ptos_file_dup(word(sp, 2)); break;
 	case GEMDOS_OP_CCONWS: r = ptos_call(fn, (intptr_t)ptos_guest_string(lng(sp, 2), 32766), 0, 0, 0); break;
 	case GEMDOS_OP_CCONRS: {
 		uint32_t buf = lng(sp, 2);
@@ -125,15 +125,21 @@ void dispatch_gemdos_trap(void)
 		r = ptos_call(fn, path(lng(sp, 2), p1), 0, 0, 0); break;
 	case GEMDOS_OP_FCREATE:
 	case GEMDOS_OP_FOPEN:
-		r = ptos_call(fn, path(lng(sp, 2), p1), word(sp, 6), 0, 0); break;
+		path(lng(sp, 2), p1);
+		r = ptos_file_open(fn, p1, word(sp, 6)); break;
 	case GEMDOS_OP_FREAD:
 	case GEMDOS_OP_FWRITE: {
 		int32_t count = (int32_t)lng(sp, 4);
 		if (count < 0) { r = PTOS_EINVAL; break; }
-		r = ptos_call(fn, (int16_t)word(sp, 2), count,
+		int32_t handle = ptos_file_handle(word(sp, 2));
+		if (handle == PTOS_EIHNDL) { r = handle; break; }
+		r = ptos_call(fn, handle, count,
 			(intptr_t)ptos_guest_buffer(lng(sp, 8), (uint32_t)count), 0); break;
 	}
-	case GEMDOS_OP_FSEEK: r = ptos_call(fn, (int32_t)lng(sp, 2), (int16_t)word(sp, 6), word(sp, 8), 0); break;
+	case GEMDOS_OP_FSEEK: {
+		int32_t handle = ptos_file_handle(word(sp, 6));
+		r = handle == PTOS_EIHNDL ? handle : ptos_call(fn, (int32_t)lng(sp, 2), handle, word(sp, 8), 0); break;
+	}
 	case GEMDOS_OP_FATTRIB: r = ptos_call(fn, path(lng(sp, 2), p1), word(sp, 6), word(sp, 8), 0); break;
 	case GEMDOS_OP_MXALLOC: { /* No TT-RAM in this initial guest layout. */
 		uint16_t mode = word(sp, 6);
@@ -141,7 +147,9 @@ void dispatch_gemdos_trap(void)
 		break;
 	}
 	case GEMDOS_OP_MALLOC: r = ptos_alloc((int32_t)lng(sp, 2)); break;
-	case GEMDOS_OP_FFORCE: r = ptos_call(fn, (int16_t)word(sp, 2), (int16_t)word(sp, 4), 0, 0); break;
+	case GEMDOS_OP_FFORCE: {
+		r = ptos_file_force(word(sp, 2), word(sp, 4)); break;
+	}
 	case GEMDOS_OP_DGETPATH: r = ptos_call(fn, (intptr_t)ptos_guest_buffer(lng(sp, 2), 128), word(sp, 6), 0, 0); break;
 	case GEMDOS_OP_MFREE: r = ptos_free(lng(sp, 2)); break;
 	case GEMDOS_OP_MSHRINK: r = ptos_shrink(lng(sp, 4), (int32_t)lng(sp, 8)); break;
@@ -153,9 +161,11 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_FRENAME: r = ptos_call(fn, 0, path(lng(sp, 4), p1), path(lng(sp, 8), p2), 0); break;
 	case GEMDOS_OP_FDATIME: {
 		uint32_t at = lng(sp, 2); int writing = word(sp, 8);
+		int32_t handle = ptos_file_handle(word(sp, 6));
+		if (handle == PTOS_EIHNDL) { r = handle; break; }
 		uint16_t date[2];
 		if (writing) { date[0] = m68k_read_memory_16(at); date[1] = m68k_read_memory_16(at + 2); }
-		r = ptos_call(fn, (intptr_t)date, (int16_t)word(sp, 6), writing, 0);
+		r = ptos_call(fn, (intptr_t)date, handle, writing, 0);
 		if (r >= 0 && !writing) { m68k_write_memory_16(at, date[0]); m68k_write_memory_16(at + 2, date[1]); }
 		break;
 	}
@@ -203,17 +213,9 @@ void dispatch_bios_trap(void)
 	}
 	else if (device <= BIOS_DEVICE_CONSOLE)
 	{
-		if (fn == BIOS_OP_BCONSTAT)
-			r = ptos_call(device == BIOS_DEVICE_CONSOLE ? GEMDOS_OP_CCONIS :
-				device == BIOS_DEVICE_AUX ? GEMDOS_OP_CAUXIS : GEMDOS_OP_CPRNOS, 0, 0, 0, 0);
-		if (fn == BIOS_OP_BCONIN && device != BIOS_DEVICE_PRINTER)
-			r = ptos_call(device == BIOS_DEVICE_CONSOLE ? GEMDOS_OP_CRAWCIN : GEMDOS_OP_CAUXIN, 0, 0, 0, 0);
-		if (fn == BIOS_OP_BCONOUT)
-			r = ptos_call(device == BIOS_DEVICE_CONSOLE ? GEMDOS_OP_CCONOUT :
-				device == BIOS_DEVICE_AUX ? GEMDOS_OP_CAUXOUT : GEMDOS_OP_CPRNOUT, word(sp, 4), 0, 0, 0);
-		if (fn == BIOS_OP_BCOSTAT)
-			r = ptos_call(device == BIOS_DEVICE_CONSOLE ? GEMDOS_OP_CCONOS :
-				device == BIOS_DEVICE_AUX ? GEMDOS_OP_CAUXOS : GEMDOS_OP_CPRNOS, 0, 0, 0, 0);
+		if (fn == BIOS_OP_BCONSTAT || fn == BIOS_OP_BCONIN || fn == BIOS_OP_BCOSTAT)
+			r = ptos_bios_call(fn, device, 0);
+		if (fn == BIOS_OP_BCONOUT) r = ptos_bios_call(fn, device, word(sp, 4));
 	}
 	m68k_set_reg(M68K_REG_D0, r);
 }

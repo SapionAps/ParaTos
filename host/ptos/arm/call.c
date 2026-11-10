@@ -18,3 +18,13 @@ int32_t ptos_native_call6(uint16_t fn, intptr_t a, intptr_t b, intptr_t c,
 		"+r"(r4), "+r"(r5), "+r"(r6) : : "ip", "lr", "cc", "memory");
 	return r0;
 }
+
+int32_t ptos_native_bios_call(uint16_t fn, int16_t device, int16_t value)
+{
+	register int32_t r0 __asm__("r0") = fn;
+	register int32_t r1 __asm__("r1") = device;
+	register int32_t r2 __asm__("r2") = value;
+	__asm__ volatile("svc #13" : "+r"(r0), "+r"(r1), "+r"(r2) :
+		: "r3", "r4", "r5", "r6", "ip", "lr", "cc", "memory");
+	return r0;
+}

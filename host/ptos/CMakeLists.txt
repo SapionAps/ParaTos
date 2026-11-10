@@ -25,7 +25,7 @@ function(ptos_executable target image_base)
 	set_target_properties(${target} PROPERTIES SUFFIX ".prg")
 endfunction()
 
-add_executable(paratos main.c arguments.c native.c ${PTOS_ARCH_SOURCE} memory.c loader.c process.c dispatch.c runtime.c)
+add_executable(paratos main.c arguments.c native.c ${PTOS_ARCH_SOURCE} memory.c loader.c process.c files.c dispatch.c runtime.c)
 target_include_directories(paratos PRIVATE ${PROJECT_SOURCE_DIR}/mushashi)
 target_link_libraries(paratos PRIVATE mushashi)
 ptos_executable(paratos 0x41000000)

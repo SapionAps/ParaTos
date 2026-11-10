@@ -26,6 +26,15 @@ int ptos_super_return(void);
 void ptos_start_cpu(uint32_t basepage);
 int32_t ptos_run_program(uint32_t basepage);
 void ptos_process_cleanup(void);
+int32_t ptos_files_init(void);
+int32_t ptos_files_push(void);
+int32_t ptos_files_pop(void);
+void ptos_files_cleanup(void);
+int32_t ptos_file_handle(int16_t handle);
+int32_t ptos_file_open(uint16_t fn, const char *path, uint16_t mode);
+int32_t ptos_file_dup(int16_t handle);
+int32_t ptos_file_close(int16_t handle);
+int32_t ptos_file_force(int16_t standard, int16_t handle);
 
 extern int ptos_finished;
 extern uint16_t ptos_status;

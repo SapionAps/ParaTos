@@ -8,6 +8,11 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	return ptos_native_call6(fn, a, b, c, d, 0, 0);
 }
 
+int32_t ptos_bios_call(uint16_t fn, int16_t device, int16_t value)
+{
+	return ptos_native_bios_call(fn, device, value);
+}
+
 int32_t ptos_map(uint32_t address, uint32_t length)
 {
 	/* PRIVATE | ANONYMOUS | FIXED_NOREPLACE, RW (guest code is CPU data). */

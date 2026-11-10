@@ -8,6 +8,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include "m68k.h"
 #include "host.h"
 #include "memory.h"
@@ -20,8 +21,27 @@ static unsigned int system_calls, exec_calls;
 static int32_t last_mode;
 static uint32_t retained_image;
 static int expect_retained;
+static int fail_dup;
 static int current_drive = 2;
 static char directories[2][128] = {"PARENT", "OTHER"};
+static uint16_t bios_function;
+static int16_t bios_device, bios_value;
+void dispatch_bios_trap(void);
+
+int32_t ptos_bios_call(uint16_t function, int16_t device, int16_t value)
+{
+	bios_function = function; bios_device = device; bios_value = value;
+	return 0x12345678;
+}
+
+static int32_t native_file(int fd)
+{
+	if (fd < 0) return errno == EBADF ? PTOS_EIHNDL : -36;
+	if (fd >= 6) return fd;
+	int copy = fcntl(fd, F_DUPFD, 6);
+	close(fd);
+	return copy;
+}
 
 static void capture(const void *data, size_t n)
 {
@@ -60,11 +80,15 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 		if (retained_image) assert(ptos_image_valid(retained_image) == expect_retained);
 		return a;
 	}
-	case 0x3c: return open((const char *)a, O_CREAT | O_TRUNC | O_RDWR, 0600);
+	case 0x3c: return native_file(open((const char *)a, O_CREAT | O_TRUNC | O_RDWR, 0600));
 	case 0x3a: return -34;
-	case 0x3d: return open((const char *)a, b == 0 ? O_RDONLY : b == 1 ? O_WRONLY : O_RDWR);
-	case 0x3e: return a > 2 ? close(a) : 0;
-	case 0x3f: return read(a, (void *)c, b);
+	case 0x3d: return native_file(open((const char *)a, b == 0 ? O_RDONLY : b == 1 ? O_WRONLY : O_RDWR));
+	case 0x3e: return a >= 6 ? (close(a) < 0 ? PTOS_EIHNDL : 0) : 0;
+	case 0x3f: { ssize_t r = read(a, (void *)c, b); return r < 0 ? (errno == EBADF ? PTOS_EIHNDL : -36) : r; }
+	case GEMDOS_OP_FDUP:
+		if (fail_dup && a == 2) return PTOS_ENHNDL;
+		return a >= 0 && a < 3 ? native_file(fcntl(a, F_DUPFD, 6)) : PTOS_EIHNDL;
+	case GEMDOS_OP_FFORCE: return 0;
 	case 0x40:
 		if (a == 1 || a == 2) { capture((const void *)c, b); return b; }
 		return write(a, (const void *)c, b);
@@ -163,6 +187,70 @@ static void test_arguments(void)
 	assert(tail[0] == 127 && strlen(tail + 1) == 126 && tail[127] == 0);
 	ptos_command_tail(tail, 0, NULL);
 	assert(tail[0] == 0 && tail[1] == 0);
+}
+
+static void test_file_lifetimes(void)
+{
+	ptos_files_cleanup();
+	assert(ptos_files_init() == 0);
+	int32_t inherited = native_file(open("contract-files.tmp", O_CREAT | O_TRUNC | O_RDWR, 0600));
+	assert(inherited >= 6);
+	/* An inherited native handle is borrowed at startup, then shared by
+	 * overlays even if the parent has not used it yet. */
+	ptos_files_cleanup();
+	assert(ptos_files_init() == 0);
+	int32_t parent = ptos_file_open(GEMDOS_OP_FOPEN, "contract-files.tmp", 2);
+	assert(parent >= 6);
+	int before = 0;
+	for (int i = 6; i < 1024; i++) before += fcntl(i, F_GETFD) >= 0;
+	fail_dup = 1;
+	assert(ptos_files_push() == PTOS_ENHNDL);
+	fail_dup = 0;
+	int after = 0;
+	for (int i = 6; i < 1024; i++) after += fcntl(i, F_GETFD) >= 0;
+	assert(after == before && ptos_file_handle(parent) == parent);
+	for (int i = 0; i < 100; i++)
+	{
+		assert(ptos_files_push() == 0);
+		assert(ptos_file_close(parent) == 0 && fcntl(parent, F_GETFD) >= 0);
+		assert(ptos_file_close(inherited) == 0 && fcntl(inherited, F_GETFD) >= 0);
+		assert(ptos_file_handle(parent) == PTOS_EIHNDL);
+		int32_t child = ptos_file_open(GEMDOS_OP_FOPEN, "contract-files.tmp", 2);
+		int32_t copy = ptos_file_dup(1);
+		assert(child >= 6 && copy >= 6);
+		assert(ptos_files_push() == 0);
+		assert(ptos_file_close(child) == 0 && fcntl(child, F_GETFD) >= 0);
+		assert(ptos_files_pop() == 0 && fcntl(child, F_GETFD) >= 0);
+		assert(ptos_files_pop() == 0);
+		assert(fcntl(child, F_GETFD) == -1 && errno == EBADF);
+		assert(fcntl(copy, F_GETFD) == -1 && errno == EBADF);
+		assert(ptos_file_handle(parent) == parent && fcntl(parent, F_GETFD) >= 0);
+	}
+	after = 0;
+	for (int i = 6; i < 1024; i++) after += fcntl(i, F_GETFD) >= 0;
+	assert(after == before);
+	assert(ptos_file_close(parent) == 0 && fcntl(parent, F_GETFD) == -1);
+	ptos_files_cleanup();
+	assert(fcntl(inherited, F_GETFD) >= 0);
+	close(inherited);
+	remove("contract-files.tmp");
+}
+
+static void test_bios_devices(void)
+{
+	uint32_t sp = PTOS_ALLOC_START;
+	m68k_set_reg(M68K_REG_SP, sp);
+	const uint16_t functions[] = {BIOS_OP_BCONSTAT, BIOS_OP_BCONIN, BIOS_OP_BCONOUT, BIOS_OP_BCOSTAT};
+	for (unsigned int i = 0; i < sizeof(functions) / sizeof(functions[0]); i++)
+		for (int16_t device = 0; device <= 2; device++)
+		{
+			m68k_write_memory_16(sp, functions[i]); m68k_write_memory_16(sp + 2, device);
+			m68k_write_memory_16(sp + 4, 'B');
+			dispatch_bios_trap();
+			assert(bios_function == functions[i] && bios_device == device);
+			assert(bios_value == (functions[i] == BIOS_OP_BCONOUT ? 'B' : 0));
+			assert(m68k_get_reg(NULL, M68K_REG_D0) == 0x12345678);
+		}
 }
 
 static void test_delegation(void)
@@ -331,6 +419,8 @@ int main(int argc, char **argv)
 	}
 	test_memory();
 	test_arguments();
+	test_file_lifetimes();
+	test_bios_devices();
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);

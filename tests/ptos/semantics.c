@@ -13,18 +13,26 @@ static int overlay(int mode)
 	short drive = Dgetdrv();
 	char directory[128], after[128];
 	if (Dgetpath(directory, 3)) return 6;
+	long parent = Fcreate("C:/OVLTEST/PARENT.TMP", 0);
+	if (parent < 6 || parent > 255 || Fwrite((short)parent, 6, "parent") != 6) return 8;
 	long available = (long)Malloc(-1L);
 	BASEPAGE *bp = (BASEPAGE *)Pexec(3, "C:/OVERLAY.TOS", empty_tail, 0);
 	if ((long)bp <= 0) return 1;
 	void *environment = bp->p_env;
+	bp->p_cmdlin[1] = parent;
 	long result = Pexec(mode, "", bp, 0);
 	if (result != 23) return 2;
 	if (Dgetdrv() != drive || Dgetpath(after, 3) || strcmp(directory, after)) return 7;
+	if (Fseek(0, (short)parent, 1) != 6 || Fclose((short)parent) || Fdelete("C:/OVLTEST/PARENT.TMP")) return 9;
+	(void)Cconws("parent console restored\r\n");
 	if (mode == 4)
 	{
+		if (Fclose((unsigned char)bp->p_cmdlin[1]) != -37L || Fclose((unsigned char)bp->p_cmdlin[2]) != -37L) return 10;
 		if (Mfree(environment) || Mfree(bp)) return 3;
 	}
 	else if (Mfree(bp) != -40L) return 4;
+	long fd = Fopen("C:/OVLTEST/LEAK.TMP", 0);
+	if (fd < 0 || Fseek(0, (short)fd, 2) != 7 || Fclose((short)fd) || Fdelete("C:/OVLTEST/LEAK.TMP")) return 11;
 	return (long)Malloc(-1L) == available ? 0 : 5;
 }
 

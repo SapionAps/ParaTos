@@ -25,6 +25,8 @@ _Noreturn void ptos_fault(uint32_t address, const char *reason)
 int32_t ptos_run_program(uint32_t bp)
 {
 	ptos_process_cleanup();
+	int32_t files = ptos_files_init();
+	if (files < 0) { ptos_process_cleanup(); return files; }
 	ptos_finished = 0; ptos_status = 0;
 	m68k_init();
 	m68k_set_cpu_type(M68K_CPU_TYPE_68020);

@@ -30,8 +30,15 @@ int32_t arm_abi_dispatch(uint32_t *registers, uint32_t saved_status)
 		{0x17f, PTOS_RAM_START, PTOS_RAM_END - PTOS_RAM_START, 0, 0, 0, 0}
 	};
 	if ((saved_status & 0x1f) != 0x10) finish(1); /* must originate in USR */
-	if ((*(const uint32_t *)(uintptr_t)(registers[13] - 4) & 0xffffff) != 1) finish(1);
-	if (registers[0] == 0xfffe) finish(stage != 3 || registers[1] != 0);
+	unsigned int trap = *(const uint32_t *)(uintptr_t)(registers[13] - 4) & 0xffffff;
+	if (registers[0] == 0xfffe) finish(trap != 1 || stage != 4 || registers[1] != 0);
+	if (stage == 3)
+	{
+		if (trap != 13 || registers[0] != BIOS_OP_BCONOUT || registers[1] != 2 || registers[2] != 'B') finish(1);
+		for (unsigned int i = 1; i < 7; i++) registers[i] = 0xdead0000 + i;
+		stage++; return -36;
+	}
+	if (trap != 1) finish(1);
 	if (stage >= 3) finish(1);
 	for (unsigned int i = 0; i < 7; i++)
 		if (registers[i] != expected[stage][i]) finish(1);
@@ -47,6 +54,7 @@ void arm_abi_user(void)
 	int failed = ptos_call(GEMDOS_OP_SSYSTEM, -2, 0x41001234, (intptr_t)0x89abcdef, 0x76543210) != -36;
 	failed |= ptos_map(PTOS_RAM_START, PTOS_RAM_END - PTOS_RAM_START) != PTOS_RAM_START;
 	failed |= ptos_unmap(PTOS_RAM_START, PTOS_RAM_END - PTOS_RAM_START) != 0;
+	failed |= ptos_bios_call(BIOS_OP_BCONOUT, 2, 'B') != -36;
 	ptos_call(0xfffe, failed, 0, 0, 0);
 	for (;;) { }
 }
