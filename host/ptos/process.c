@@ -36,7 +36,7 @@ void ptos_start_cpu(uint32_t bp)
 {
 	/* A nested guest inherits the unused top of the emulated supervisor
 	 * stack. Resetting it would overwrite a parent's active Supexec frame. */
-	uint32_t supervisor = parent_depth ? m68k_get_reg(NULL, M68K_REG_ISP) : PTOS_RAM_START;
+	uint32_t supervisor = parent_depth ? m68k_get_reg(NULL, M68K_REG_ISP) : PTOS_ALLOC_START;
 	uint32_t stack = m68k_read_memory_32(bp + BP_HIGH) & ~3u;
 	stack -= 8;
 	m68k_write_memory_32(stack, 0);

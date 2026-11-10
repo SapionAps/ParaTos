@@ -30,6 +30,8 @@ static long supervisor(void)
 	unsigned short sr;
 	__asm__ volatile("move.w %%sr,%0" : "=d"(sr));
 	if (!(sr & 0x2000) || Super(1L) != -1L) return 1;
+	char message[] = "guest supervisor I/O\n";
+	if (Fwrite(1, sizeof(message) - 1, message) != sizeof(message) - 1) return 4;
 	if (overlay(6)) return 2;
 	if (preserved != 0x12345678L || Super(1L) != -1L) return 3;
 	return 23;

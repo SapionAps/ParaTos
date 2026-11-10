@@ -17,7 +17,7 @@ void ptos_memory_reset_low(void)
 	memset(low, 0, sizeof(low));
 	/* Guest memory limits and CPU identity must not describe the host. */
 	m68k_write_memory_32(0x42e, PTOS_RAM_END);
-	m68k_write_memory_32(0x432, PTOS_RAM_START);
+	m68k_write_memory_32(0x432, PTOS_ALLOC_START);
 	m68k_write_memory_32(0x436, PTOS_RAM_END);
 	m68k_write_memory_32(0x5a0, 0x1000);
 	m68k_write_memory_32(0x1000, 0x5f435055); /* _CPU = 68020 */

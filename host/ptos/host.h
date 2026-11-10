@@ -13,6 +13,10 @@ int32_t ptos_unmap(uint32_t address, uint32_t length);
 #define PTOS_RAM_START   0x00010000u
 #define PTOS_RAM_END     0x01000000u
 #define PTOS_PAGE_BYTES  4096u
+/* C callbacks may pass supervisor-stack buffers to native syscalls. Keep
+ * that stack in identity-mapped RAM, reserved below the guest heap. */
+#define PTOS_SUPER_STACK_BYTES 0x00010000u
+#define PTOS_ALLOC_START (PTOS_RAM_START + PTOS_SUPER_STACK_BYTES)
 
 #define PTOS_ENOSYS (-32)
 #define PTOS_EINVAL (-25)

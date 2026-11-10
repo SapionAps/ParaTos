@@ -87,6 +87,11 @@ Guest memory and privileges
   00010000..00ffffff  private identity-mapped guest RAM, host RW, not executable
   41000000 upward    native emulator image (native heap/stack follow host ABI)
 
+The first 64 KiB of mapped guest RAM (00010000..0001ffff) is reserved for
+the emulated supervisor stack. The guest heap starts at 00020000, also
+reported by membot. This lets Supexec callbacks pass their stack buffers
+to native file/console calls while preserving the low-memory shadow rules.
+
 No TT-RAM or Atari hardware/MMIO mapping is supplied. Unavailable guest
 ranges fault rather than falling through into native image/heap/stack
 memory. A fatal guest fault ends the emulation run with status 255.

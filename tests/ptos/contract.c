@@ -224,13 +224,13 @@ static void test_bad_images(void)
 	assert(fwrite(bad, 1, 4, f) == 4); fclose(f);
 	char tail[128] = {0};
 	assert(ptos_load("contract.prg", tail, "\0") == PTOS_EPLFMT);
-	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_RAM_START);
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 	fixture(code, sizeof(code));
 	f = fopen("contract.prg", "r+b"); assert(f);
 	/* Require a relocation table, but leave it truncated. */
 	assert(fseek(f, 27, SEEK_SET) == 0); assert(fputc(0, f) != EOF); fclose(f);
 	assert(ptos_load("contract.prg", tail, "\0") == PTOS_EPLFMT);
-	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_RAM_START);
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 }
 
 static void test_nested_supervisor_stack(void)
@@ -301,7 +301,7 @@ int main(int argc, char **argv)
 	test_fault();
 	test_cli();
 	ptos_allocator_destroy();
-	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_RAM_START);
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 	ptos_memory_destroy();
 	remove("contract.prg");
 	puts("pTOS backend contract: PASS");

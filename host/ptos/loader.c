@@ -37,10 +37,10 @@ static uint32_t gap(uint32_t start, uint32_t end, uint32_t need, uint32_t *large
 
 int32_t ptos_alloc(int32_t size)
 {
-	if (size != -1 && (size <= 0 || (uint32_t)size > PTOS_RAM_END - PTOS_RAM_START))
+	if (size != -1 && (size <= 0 || (uint32_t)size > PTOS_RAM_END - PTOS_ALLOC_START))
 		return PTOS_ENSMEM;
 	uint32_t need = size == -1 ? 0 : ((uint32_t)size + 3) & ~3u;
-	uint32_t start = PTOS_RAM_START, largest = 0, found = 0;
+	uint32_t start = PTOS_ALLOC_START, largest = 0, found = 0;
 	block **at = &blocks;
 	while (*at)
 	{
