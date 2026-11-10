@@ -74,7 +74,9 @@ const char *ptos_guest_string(uint32_t address, uint32_t limit)
 
 static int width_mode(unsigned int width, int writing)
 {
-	return (writing ? 0x0d : 0x0a) + (width == 4 ? 0 : width == 2 ? 1 : 2);
+	if (writing)
+		return width == 4 ? SSYSTEM_OP_SETLVAL : width == 2 ? SSYSTEM_OP_SETWVAL : SSYSTEM_OP_SETBVAL;
+	return width == 4 ? SSYSTEM_OP_GETLVAL : width == 2 ? SSYSTEM_OP_GETWVAL : SSYSTEM_OP_GETBVAL;
 }
 
 int32_t ptos_low_read(uint32_t address, unsigned int width, uint32_t *value)
@@ -88,7 +90,7 @@ int32_t ptos_low_read(uint32_t address, unsigned int width, uint32_t *value)
 		uint32_t base = live[i].address, n = live[i].width;
 		if (address >= base + n || base >= address + width)
 			continue;
-		int32_t r = ptos_call(0x154, width_mode(n, 0), base, 0, 0);
+		int32_t r = ptos_call(GEMDOS_OP_SSYSTEM, width_mode(n, 0), base, 0, 0);
 		if (r == PTOS_ENOSYS || r == -36)
 			return r;
 		for (uint32_t j = 0; j < n; j++)
@@ -113,7 +115,7 @@ int32_t ptos_low_write(uint32_t address, unsigned int width, uint32_t value)
 			continue;
 		if (address != base || width != n)
 			return PTOS_EINVAL;
-		int32_t r = ptos_call(0x154, width_mode(n, 1), base, value, 0);
+		int32_t r = ptos_call(GEMDOS_OP_SSYSTEM, width_mode(n, 1), base, value, 0);
 		if (r < 0)
 			return r;
 	}

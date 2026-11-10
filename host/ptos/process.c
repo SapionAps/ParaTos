@@ -150,18 +150,21 @@ static const char *guest_env(uint32_t address)
 int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 {
 	uint16_t operation = mode & 0x7fff;
-	if (operation == 4 || operation == 6) return ptos_go(tail, operation == 6);
-	if (operation != 0 && operation != 200 && operation != 3 && operation != 5 && operation != 7)
+	if (operation == PTOS_EXEC_GO || operation == PTOS_EXEC_GO_FREE)
+		return ptos_go(tail, operation == PTOS_EXEC_GO_FREE);
+	if (operation != PTOS_EXEC_LOAD_GO && operation != PTOS_EXEC_REPLACE && operation != PTOS_EXEC_LOAD &&
+		operation != PTOS_EXEC_BASEPAGE && operation != PTOS_EXEC_BASEPAGE_FLAGS)
 		return PTOS_ENOSYS;
 	const char *command = ptos_guest_buffer(tail, 128);
 	const char *environment = guest_env(env);
-	if (operation == 5 || operation == 7) return ptos_basepage(command, environment);
+	if (operation == PTOS_EXEC_BASEPAGE || operation == PTOS_EXEC_BASEPAGE_FLAGS)
+		return ptos_basepage(command, environment);
 	const char *guest_path = ptos_guest_string(path, 1024);
 	char filename[1024];
 	size_t n = strlen(guest_path);
 	for (size_t i = 0; i <= n; i++) filename[i] = guest_path[i] == '/' ? '\\' : guest_path[i];
-	if (operation == 3) return ptos_load(filename, command, environment);
+	if (operation == PTOS_EXEC_LOAD) return ptos_load(filename, command, environment);
 	/* Includes guest-to-guest modes 0 and 200: let native Pexec/binfmt
 	 * select another Paratos instance. Never turn replacement into spawn. */
-	return ptos_call(0x4b, mode, (intptr_t)filename, (intptr_t)command, (intptr_t)environment);
+	return ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)filename, (intptr_t)command, (intptr_t)environment);
 }

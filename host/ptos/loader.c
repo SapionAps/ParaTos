@@ -154,7 +154,7 @@ static int32_t read_exact(int32_t handle, void *buffer, uint32_t count)
 	unsigned char *out = buffer;
 	while (count)
 	{
-		int32_t n = ptos_call(0x3f, handle, count, (intptr_t)out, 0);
+		int32_t n = ptos_call(GEMDOS_OP_FREAD, handle, count, (intptr_t)out, 0);
 		if (n < 0) return n;
 		if (!n || (uint32_t)n > count) return PTOS_EPLFMT;
 		out += n; count -= n;
@@ -166,7 +166,7 @@ int32_t ptos_load(const char *path, const char *tail, const char *environment)
 {
 	unsigned char hdr[28], fix[4];
 	int32_t result = PTOS_EPLFMT, bp = 0;
-	int32_t handle = ptos_call(0x3d, (intptr_t)path, 0, 0, 0);
+	int32_t handle = ptos_call(GEMDOS_OP_FOPEN, (intptr_t)path, 0, 0, 0);
 	if (handle < 0) return handle;
 	result = read_exact(handle, hdr, sizeof(hdr));
 	if (result < 0) goto done;
@@ -187,7 +187,7 @@ int32_t ptos_load(const char *path, const char *tail, const char *environment)
 	if (!(hdr[26] || hdr[27]))
 	{
 		if (symbols > INT32_MAX) goto done;
-		result = ptos_call(0x42, symbols, handle, 1, 0);
+		result = ptos_call(GEMDOS_OP_FSEEK, symbols, handle, 1, 0);
 		if (result < 0) goto done;
 		result = read_exact(handle, fix, 4);
 		if (result < 0) goto done;
@@ -211,7 +211,7 @@ int32_t ptos_load(const char *path, const char *tail, const char *environment)
 	result = bp;
 done:
 	{
-		int32_t closed = ptos_call(0x3e, handle, 0, 0, 0);
+		int32_t closed = ptos_call(GEMDOS_OP_FCLOSE, handle, 0, 0, 0);
 		if (result >= 0 && closed < 0) result = closed;
 	}
 	if (result < 0 && bp > 0) { ptos_free(m68k_read_memory_32(bp + BP_ENV)); ptos_free(bp); }

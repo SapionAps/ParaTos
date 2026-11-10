@@ -3,8 +3,10 @@ pTOS backend (issue #7, initial draft)
 
 Status
 ------
-This is a native pTOS/x32 CLI backend, not the POSIX executable renamed to
-.prg. ARM and GEM/AES/VDI remain follow-ups. The POSIX backend is unchanged.
+This is a native pTOS CLI backend for ARM and x32, not the POSIX executable
+renamed to .prg. GEM/AES/VDI remain follow-ups. The POSIX backend is unchanged.
+Architecture-specific syscall implementations live in host/ptos/arm/ and
+host/ptos/x32/; loading, guest memory and process emulation are shared.
 
 The executable builds, but the current pTOS kernel cannot run it with the
 required layout. The loader and memory prerequisites are tracked in:
@@ -17,8 +19,10 @@ RAM. main() refuses low relocation, and guest mapping uses FIXED_NOREPLACE.
 
 Build
 -----
-Requires CMake >= 3.13, a native x32-capable GCC/binutils, and the pTOS fork
-of libcmini (including its x32 crt0). Set LIBCMINI to an absolute path.
+Requires CMake >= 3.13, the pTOS fork of libcmini, and GCC/binutils for the
+selected target: x32-capable native GCC or arm-none-eabi-gcc for ARM.
+Set LIBCMINI to an absolute path. The startup and archive must match the
+target architecture.
 The libcmini build changes its ignored .config; do not build different
 libcmini architectures concurrently in one checkout. Library outputs stay
 in separate directories below build/.
@@ -38,10 +42,32 @@ in separate directories below build/.
   cmake --build build/ptos/native -j4
   readelf -h -l build/ptos/native/host/ptos/paratos.prg
 
-The result is an ELFCLASS32 / EM_X86_64 executable using the x32 ABI. Its
-PT_LOAD segments start at 0x41000000, above 1 GiB. Relocations are retained
-for the native pTOS ELF loader; this does not authorize relocating it into
-guest RAM.
+This builds an ELFCLASS32 / EM_X86_64 executable using the x32 ABI.
+
+For ARM, use a separate libcmini build and the ARM toolchain file:
+
+  mkdir -p build/ptos/arm-libcmini
+  make -C "$LIBCMINI" BUILDDIR="$PWD/build/ptos/arm-libcmini" \
+      ptos_arm_defconfig
+  make -C "$LIBCMINI" BUILDDIR="$PWD/build/ptos/arm-libcmini" \
+      -j4 dirs libs startups
+  cmake -S . -B build/ptos/arm-native \
+      -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/ptos-arm.cmake" \
+      -DPTOS_LIBCMINI_ROOT="$LIBCMINI" \
+      -DPTOS_LIBCMINI_ARCHIVE="$PWD/build/ptos/arm-libcmini/libcmini.a" \
+      -DPTOS_CRT0="$PWD/build/ptos/arm-libcmini/objs/crt0.o" \
+      -DCMAKE_BUILD_TYPE=Release
+  cmake --build build/ptos/arm-native -j4
+  arm-none-eabi-readelf -h -l build/ptos/arm-native/host/ptos/paratos.prg
+
+The ARM result is ELFCLASS32 / EM_ARM, EABI5, VFP hard-float, compiled for
+ARMv6 in ARM mode (Pi 1 and newer ARM targets). It uses word relocations
+rather than MOVW/MOVT relocation pairs. The GEMDOS bridge passes the function
+in r0 and up to six arguments in r1-r6 through SVC #1.
+
+Both executables have PT_LOAD segments starting at 0x41000000, above 1 GiB.
+Relocations are retained for the native pTOS ELF loader; this does not
+authorize relocating the native program into guest RAM.
 
 After kernel prerequisites are available:
 
@@ -113,6 +139,19 @@ delegation, guest/native address separation, ownership and malformed PRG
 cleanup. Fixtures are generated at runtime; no cross compiler is required.
 Assertions stay enabled in Release builds too. This test currently uses
 Linux MAP_FIXED_NOREPLACE and is not enabled on macOS.
+
+ARM native syscall transport is additionally tested under QEMU. With
+qemu-system-arm available during configuration and BUILD_TESTING enabled
+(the default), the ARM build registers:
+
+  ctest --test-dir build/ptos/arm-native --output-on-failure
+  ctest --test-dir build/ptos/arm-native -R '^ptos_arm_abi$' --output-on-failure
+
+This links the actual ARM syscall bridge and runs it in USR mode on QEMU's
+virt/Cortex-A7. A minimal SVC monitor checks argument registers (including
+Mmap's fifth/sixth arguments), negative returns and register clobber handling.
+It does not simulate the pTOS loader, memory services or a complete kernel
+boot, and does not remove the kernel prerequisite above.
 
 Optional compiled 68k CLI integration (m68k-atari-mintelf toolchain required):
 

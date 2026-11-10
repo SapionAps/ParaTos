@@ -1,14 +1,50 @@
 if(NOT PTOS_LIBCMINI_ROOT OR NOT PTOS_LIBCMINI_ARCHIVE OR NOT PTOS_CRT0)
-	message(FATAL_ERROR "Set PTOS_LIBCMINI_ROOT, PTOS_LIBCMINI_ARCHIVE and PTOS_CRT0; see host/ptos/README.md")
+	message(FATAL_ERROR "Set PTOS_LIBCMINI_ROOT, PTOS_LIBCMINI_ARCHIVE and PTOS_CRT0; see host/ptos/README.txt")
 endif()
 
-add_executable(paratos main.c native.c memory.c loader.c process.c dispatch.c runtime.c)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	set(PTOS_ARCH_SOURCE x32/call.c)
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+	set(PTOS_ARCH_SOURCE arm/call.c)
+else()
+	message(FATAL_ERROR "Unsupported pTOS architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+add_executable(paratos main.c native.c ${PTOS_ARCH_SOURCE} memory.c loader.c process.c dispatch.c runtime.c)
 target_compile_features(paratos PRIVATE c_std_11)
 target_compile_options(paratos PRIVATE -Wall -Wextra -Werror)
 target_include_directories(paratos PRIVATE ${PROJECT_SOURCE_DIR}/mushashi)
 target_link_libraries(paratos PRIVATE mushashi ${PTOS_LIBCMINI_ARCHIVE})
 target_link_options(paratos PRIVATE -nostdlib -static -no-pie
-	-Wl,-m,elf32_x86_64,--build-id=none,--emit-relocs,-z,noexecstack
+	-Wl,--build-id=none,--emit-relocs,-z,noexecstack
 	-Wl,-z,max-page-size=0x1000,-z,noseparate-code,-Ttext-segment=0x41000000
 	${PTOS_CRT0})
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	target_link_options(paratos PRIVATE -Wl,-m,elf32_x86_64)
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+	target_link_libraries(paratos PRIVATE gcc)
+	if(BUILD_TESTING)
+		enable_language(ASM)
+		add_executable(ptos_arm_abi native.c ${PTOS_ARCH_SOURCE}
+			${PROJECT_SOURCE_DIR}/tests/ptos/arm_abi.c
+			${PROJECT_SOURCE_DIR}/tests/ptos/arm_abi.S)
+		target_include_directories(ptos_arm_abi PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+		target_compile_options(ptos_arm_abi PRIVATE -Wall -Wextra -Werror)
+		target_link_options(ptos_arm_abi PRIVATE -nostdlib -static
+			-Wl,--build-id=none,-z,noexecstack
+			-T${PROJECT_SOURCE_DIR}/tests/ptos/arm_abi.ld)
+		set_property(TARGET ptos_arm_abi APPEND PROPERTY LINK_DEPENDS
+			${PROJECT_SOURCE_DIR}/tests/ptos/arm_abi.ld)
+		find_program(PTOS_QEMU_ARM qemu-system-arm)
+		if(PTOS_QEMU_ARM)
+			add_test(NAME ptos_arm_abi COMMAND ${PTOS_QEMU_ARM}
+				-M virt -cpu cortex-a7 -m 128 -nic none
+				-display none -serial none -monitor none
+				-semihosting-config enable=on,target=native
+				-kernel $<TARGET_FILE:ptos_arm_abi>)
+			set_tests_properties(ptos_arm_abi PROPERTIES TIMEOUT 15
+				PASS_REGULAR_EXPRESSION "ARM pTOS SVC ABI: PASS"
+				FAIL_REGULAR_EXPRESSION "FAIL")
+		endif()
+	endif()
+endif()
 set_target_properties(paratos PROPERTIES SUFFIX ".prg")

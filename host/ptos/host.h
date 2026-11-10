@@ -1,8 +1,10 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "ops.h"
 
-/* Host ABI lives in native.c. Tests replace it without issuing host traps. */
+/* Shared native-call API; native.c delegates to arm/ or x32/. Core tests
+ * replace this boundary without issuing host traps. */
 int32_t ptos_call(uint16_t function, intptr_t a, intptr_t b, intptr_t c, intptr_t d);
 int32_t ptos_map(uint32_t address, uint32_t length);
 int32_t ptos_unmap(uint32_t address, uint32_t length);
