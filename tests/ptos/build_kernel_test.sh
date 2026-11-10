@@ -21,11 +21,12 @@ case $arch in
     x32)
         config=pc-x86_64
         prefix=
-        native_flags=-march=x86-64
+        native_flags="-march=x86-64 -fcf-protection=none"
         toolchain=ptos-x32.cmake
         ;;
     *) echo "unknown architecture: $arch" >&2; exit 2 ;;
 esac
+native_flags="$native_flags -fno-pie -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables"
 
 # Build pTOS's own m68k regression disk, with its existing CLI suites and
 # full TOS startup. The native minicrt0 used by other pTOS tests emits ELF.
@@ -57,6 +58,9 @@ case $arch in
     x32) libc_config=ptos_x86_64_defconfig ;;
 esac
 make -C "$libcmini" BUILDDIR="$build/libcmini" CROSSPREFIX="$prefix" "$libc_config"
+if [ -d "$build/libcmini/objs" ]; then
+    make -C "$libcmini" BUILDDIR="$build/libcmini" CROSSPREFIX="$prefix" clean
+fi
 make -C "$libcmini" BUILDDIR="$build/libcmini" CROSSPREFIX="$prefix" \
     ARCH_CFLAGS="$native_flags" -j4 dirs libs startups
 cmake -S "$top" -B "$build/native" \

@@ -32,7 +32,8 @@ in separate directories below build/.
   make -C "$LIBCMINI" BUILDDIR="$PWD/build/ptos/libcmini" \
       CROSSPREFIX= ptos_x86_64_defconfig
   make -C "$LIBCMINI" BUILDDIR="$PWD/build/ptos/libcmini" \
-      CROSSPREFIX= ARCH_CFLAGS=-march=x86-64 -j4 dirs libs startups
+      CROSSPREFIX= ARCH_CFLAGS="-march=x86-64 -fno-pie -fno-stack-protector -fcf-protection=none -fno-unwind-tables -fno-asynchronous-unwind-tables" \
+      -j4 dirs libs startups
   cmake -S . -B build/ptos/native \
       -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/ptos-x32.cmake" \
       -DPTOS_LIBCMINI_ROOT="$LIBCMINI" \
@@ -45,6 +46,7 @@ in separate directories below build/.
 This builds an ELFCLASS32 / EM_X86_64 executable using the x32 ABI.
 The explicit x86-64 instruction baseline is required even when the build
 host compiler defaults to x86-64-v3: pTOS preserves x87/SSE, not AVX state.
+The library must also disable host stack-protector/TLS instrumentation.
 Use fresh build directories when changing compiler or ABI flags.
 
 For ARM, use a separate libcmini build and the ARM toolchain file:
