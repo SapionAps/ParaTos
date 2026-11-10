@@ -1,7 +1,16 @@
-cmake_minimum_required(VERSION 3.10)
-project(ParaTos)
+cmake_minimum_required(VERSION 3.13)
+project(ParaTos LANGUAGES C)
 
+option(PARATOS_PTOS "Build the native pTOS/x32 backend" OFF)
+if(PARATOS_PTOS)
+	add_compile_definitions(PARATOS_PTOS=1)
+endif()
 add_subdirectory (mushashi)
+
+if(PARATOS_PTOS)
+	add_subdirectory(host/ptos)
+	return()
+endif()
 add_subdirectory (gemdos)
 
 set (SOURCE_FILES paratos.c memory.c tos_errors.c)
@@ -28,3 +37,8 @@ endif ()
 add_executable (paratos ${SOURCE_FILES})
 target_link_libraries (paratos mushashi gemdos)
 add_definitions( -D_GNU_SOURCE )
+
+include(CTest)
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	add_subdirectory(tests/ptos)
+endif()
