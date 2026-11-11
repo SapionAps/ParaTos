@@ -291,6 +291,18 @@ static void test_file_lifetimes(void)
 	remove("contract-files.tmp");
 }
 
+static void test_filesystem_lifetime(void)
+{
+	reset();
+	const unsigned char code[] = {0x4e, 0x75};
+	uint32_t parent = load_fixture(code, sizeof(code));
+	assert(ptos_shrink(parent, 4096) == 0);
+	ptos_process = parent;
+	uint32_t child = load_fixture(code, sizeof(code));
+	test_filesystem_retained(child);
+	ptos_allocator_destroy();
+}
+
 static void test_bios_devices(void)
 {
 	uint32_t sp = PTOS_ALLOC_START;
@@ -541,6 +553,7 @@ int main(int argc, char **argv)
 	test_file_lifetimes();
 	test_bios_devices();
 	test_filesystem();
+	test_filesystem_lifetime();
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);

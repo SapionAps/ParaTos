@@ -223,3 +223,23 @@ void test_filesystem(void)
 	ptos_filesystem_cleanup();
 	ptos_process = previous;
 }
+
+void test_filesystem_retained(uint32_t child)
+{
+	uint32_t parent = ptos_process;
+	uint32_t sp = child + 1024, out = child + 512, name = child + 640;
+	assert(ptos_go(child, 0) == 0);
+	m68k_write_memory_32(child + BP_DTA, out);
+	strcpy(ptos_guest_buffer(name, 32), "C:/SEARCH/*.TXT");
+	m68k_write_memory_32(sp + 2, name); m68k_write_memory_16(sp + 6, 0);
+	assert(invoke(sp, GEMDOS_OP_FSFIRST) == 0);
+	ptos_terminate(23);
+	assert(ptos_process == parent && ptos_image_valid(child));
+	uint32_t saved_sp = m68k_get_reg(NULL, M68K_REG_SP);
+	/* The retained basepage still exists. Its terminated guest must no
+	 * longer have a search, before the caller frees that image. */
+	ptos_process = child;
+	assert(invoke(sp, GEMDOS_OP_FSNEXT) == -49);
+	ptos_process = parent;
+	m68k_set_reg(M68K_REG_SP, saved_sp);
+}

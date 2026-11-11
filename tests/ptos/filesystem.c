@@ -3,6 +3,7 @@
 #include <string.h>
 #include <mint/osbind.h>
 #include <mint/mintbind.h>
+#include <mint/basepage.h>
 
 _Static_assert(sizeof(_DTA) == 44, "68k DTA ABI");
 _Static_assert(sizeof(XATTR) == 52, "68k XATTR ABI");
@@ -55,8 +56,14 @@ int main(void)
 	/* A nested overlay owns its DTA and search without replacing the
 	 * parent's native search cursor. The overlay deliberately leaves it set. */
 	char tail[128] = {0};
-	void *child = (void *)Pexec(3, "C:/FSOVL.TOS", tail, 0);
-	if ((long)child <= 0 || Pexec(6, "", child, 0) != 31) return 6;
+	for (int mode = 4; mode <= 6; mode += 2)
+	{
+		BASEPAGE *child = (BASEPAGE *)Pexec(3, "C:/FSOVL.TOS", tail, 0);
+		if ((long)child <= 0) return 6;
+		void *environment = child->p_env;
+		if (Pexec(mode, "", child, 0) != 31) return 6;
+		if (mode == 4 && (Mfree(environment) || Mfree(child))) return 6;
+	}
 	if (Fgetdta() != &second) return 7;
 	Fsetdta(&first);
 	XATTR metadata;

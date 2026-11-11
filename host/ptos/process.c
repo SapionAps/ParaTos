@@ -164,6 +164,8 @@ int32_t ptos_go(uint32_t bp, int take_ownership)
 
 void ptos_terminate(uint16_t status)
 {
+	/* PE_GO retains the image but the terminating guest loses its searches. */
+	ptos_filesystem_drop(ptos_process);
 	ptos_free_owned(ptos_process);
 	if (parents)
 	{
