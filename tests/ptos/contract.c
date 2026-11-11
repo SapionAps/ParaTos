@@ -13,6 +13,7 @@
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "filesystem_contract.h"
 
 static char output[8192];
 static size_t output_size;
@@ -67,7 +68,8 @@ int32_t ptos_unmap(uint32_t address, uint32_t length)
 
 int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 {
-	(void)d;
+	int32_t filesystem_result;
+	if (filesystem_test_native(fn, a, b, c, d, &filesystem_result)) return filesystem_result;
 	switch (fn)
 	{
 	case 0x154:
@@ -538,6 +540,7 @@ int main(int argc, char **argv)
 	test_arguments();
 	test_file_lifetimes();
 	test_bios_devices();
+	test_filesystem();
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);

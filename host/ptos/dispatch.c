@@ -6,8 +6,8 @@
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "filesystem.h"
 
-static uint32_t dta;
 static uint32_t word(uint32_t sp, unsigned int offset) { return m68k_read_memory_16(sp + offset); }
 static uint32_t lng(uint32_t sp, unsigned int offset) { return m68k_read_memory_32(sp + offset); }
 static intptr_t path(uint32_t address, char *buffer)
@@ -91,13 +91,20 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_DGETDRV:
 	case GEMDOS_OP_TGETDATE:
 	case GEMDOS_OP_TGETTIME:
+	case GEMDOS_OP_SSYNC:
 	case GEMDOS_OP_SVERSION:
 	case GEMDOS_OP_PGETPID:
 	case GEMDOS_OP_PGETPPID:
 	case GEMDOS_OP_PGETPGRP:
+	case GEMDOS_OP_PGETEUID:
+	case GEMDOS_OP_PGETEGID:
+	case GEMDOS_OP_PGETAUID:
 	case GEMDOS_OP_PGETUID:
 	case GEMDOS_OP_PGETGID:
 		r = ptos_call(fn, 0, 0, 0, 0); break;
+	case GEMDOS_OP_PNICE:
+	case GEMDOS_OP_PUMASK:
+	case GEMDOS_OP_PSETAUID:
 	case GEMDOS_OP_CCONOUT:
 	case GEMDOS_OP_CAUXOUT:
 	case GEMDOS_OP_CPRNOUT:
@@ -114,13 +121,14 @@ void dispatch_gemdos_trap(void)
 		r = ptos_call(fn, (intptr_t)ptos_guest_buffer(buf, 2 + m68k_read_memory_8(buf)), 0, 0, 0); break;
 	}
 	case GEMDOS_OP_FSETDTA:
-		dta = lng(sp, 2); ptos_guest_buffer(dta, 44);
-		m68k_write_memory_32(ptos_process + BP_DTA, dta); r = 0; break;
+		ptos_guest_buffer(lng(sp, 2), 44);
+		m68k_write_memory_32(ptos_process + BP_DTA, lng(sp, 2)); r = 0; break;
 	case GEMDOS_OP_FGETDTA: r = m68k_read_memory_32(ptos_process + BP_DTA); break;
 	case GEMDOS_OP_SUPER: r = ptos_super(lng(sp, 2)); break;
 	case GEMDOS_OP_DCREATE:
 	case GEMDOS_OP_DDELETE:
 	case GEMDOS_OP_DSETPATH:
+	case GEMDOS_OP_DCHROOT:
 	case GEMDOS_OP_FDELETE:
 		r = ptos_call(fn, path(lng(sp, 2), p1), 0, 0, 0); break;
 	case GEMDOS_OP_FCREATE:
@@ -139,6 +147,39 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_FSEEK: {
 		int32_t handle = ptos_file_handle(word(sp, 6));
 		r = handle == PTOS_EIHNDL ? handle : ptos_call(fn, (int32_t)lng(sp, 2), handle, word(sp, 8), 0); break;
+	}
+	case GEMDOS_OP_PGETPRIORITY:
+		r = ptos_call(fn, (int16_t)word(sp, 2), (int16_t)word(sp, 4), 0, 0); break;
+	case GEMDOS_OP_PSETPRIORITY:
+		r = ptos_call(fn, (int16_t)word(sp, 2), (int16_t)word(sp, 4), (int16_t)word(sp, 6), 0); break;
+	case GEMDOS_OP_PRUSAGE: {
+		uint32_t out = lng(sp, 2), usage[8] = {0};
+		ptos_guest_buffer(out, sizeof(usage));
+		r = ptos_call(fn, (intptr_t)usage, 0, 0, 0);
+		if (r >= 0)
+			for (unsigned int i = 0; i < 8; i++) m68k_write_memory_32(out + i * 4, usage[i]);
+		break;
+	}
+	case GEMDOS_OP_DFREE: r = ptos_disk_free(lng(sp, 2), word(sp, 6)); break;
+	case GEMDOS_OP_FSFIRST: r = ptos_search(fn, (const char *)path(lng(sp, 2), p1), word(sp, 6)); break;
+	case GEMDOS_OP_FSNEXT: r = ptos_search(fn, NULL, 0); break;
+	case GEMDOS_OP_FXATTR: r = ptos_xattr(word(sp, 2), (const char *)path(lng(sp, 4), p1), lng(sp, 8)); break;
+	case GEMDOS_OP_DPATHCONF: r = ptos_call(fn, path(lng(sp, 2), p1), (int16_t)word(sp, 6), 0, 0); break;
+	case GEMDOS_OP_FCHMOD: r = ptos_call(fn, path(lng(sp, 2), p1), word(sp, 6), 0, 0); break;
+	case GEMDOS_OP_FCHOWN: r = ptos_call(fn, path(lng(sp, 2), p1), (int16_t)word(sp, 6), (int16_t)word(sp, 8), 0); break;
+	case GEMDOS_OP_DLOCK: r = ptos_call(fn, (int16_t)word(sp, 2), (int16_t)word(sp, 4), 0, 0); break;
+	case GEMDOS_OP_DGETCWD: {
+		int16_t size = word(sp, 8);
+		if (size < 0) { r = PTOS_EINVAL; break; }
+		r = ptos_call(fn, (intptr_t)ptos_guest_buffer(lng(sp, 2), size), (int16_t)word(sp, 6), size, 0); break;
+	}
+	case GEMDOS_OP_FLINK:
+	case GEMDOS_OP_FSYMLINK:
+		r = ptos_call(fn, path(lng(sp, 2), p1), path(lng(sp, 6), p2), 0, 0); break;
+	case GEMDOS_OP_FREADLINK: {
+		int16_t size = word(sp, 2);
+		if (size < 0) { r = PTOS_EINVAL; break; }
+		r = ptos_call(fn, size, (intptr_t)ptos_guest_buffer(lng(sp, 4), size), path(lng(sp, 8), p1), 0); break;
 	}
 	case GEMDOS_OP_FATTRIB: r = ptos_call(fn, path(lng(sp, 2), p1), word(sp, 6), word(sp, 8), 0); break;
 	case GEMDOS_OP_MXALLOC: { /* No TT-RAM in this initial guest layout. */

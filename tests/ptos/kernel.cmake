@@ -26,12 +26,14 @@ endif()
 
 add_executable(ptos_kernel_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/kernel_launcher.c)
 ptos_executable(ptos_kernel_launcher 0x00400000)
+add_executable(ptos_fs_native ${PROJECT_SOURCE_DIR}/tests/ptos/fs_native.c)
+ptos_executable(ptos_fs_native 0x00400000)
 add_executable(ptos_native_child ${PROJECT_SOURCE_DIR}/tests/ptos/native_child.c)
 ptos_executable(ptos_native_child 0x00400000)
 
 set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
 set(PTOS_GUEST_OUTPUTS)
-foreach(fixture cli semantics overlay fault interpreter)
+foreach(fixture cli semantics overlay fault interpreter filesystem fs_overlay)
 	set(output ${PTOS_FIXTURES_DIR}/${fixture}.tos)
 	add_custom_command(OUTPUT ${output}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${PTOS_FIXTURES_DIR}
@@ -50,7 +52,7 @@ add_test(NAME ptos_kernel
 	COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/ptos/run_kernel.py
 		--arch ${PTOS_TEST_ARCH} --kernel-dir ${PTOS_KERNEL_DIR}
 		--paratos $<TARGET_FILE:paratos> --launcher $<TARGET_FILE:ptos_kernel_launcher>
-		--native-child $<TARGET_FILE:ptos_native_child> --fixtures ${PTOS_FIXTURES_DIR}
+		--native-child $<TARGET_FILE:ptos_native_child> --filesystem-native $<TARGET_FILE:ptos_fs_native> --fixtures ${PTOS_FIXTURES_DIR}
 		--qemu ${PTOS_TEST_QEMU} --ovmf ${PTOS_OVMF_DIR}
 		--qemu-data "${PTOS_QEMU_DATA_DIR}"
 		--output ${CMAKE_CURRENT_BINARY_DIR}/kernel-test)
@@ -63,7 +65,7 @@ if(PTOS_M68K_TEST_DISK)
 		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/ptos/run_kernel.py
 			--arch ${PTOS_TEST_ARCH} --kernel-dir ${PTOS_KERNEL_DIR}
 			--paratos $<TARGET_FILE:paratos> --launcher $<TARGET_FILE:ptos_disk_runner>
-			--native-child $<TARGET_FILE:ptos_native_child> --fixtures ${PTOS_FIXTURES_DIR}
+			--native-child $<TARGET_FILE:ptos_native_child> --filesystem-native $<TARGET_FILE:ptos_fs_native> --fixtures ${PTOS_FIXTURES_DIR}
 			--qemu ${PTOS_TEST_QEMU} --ovmf ${PTOS_OVMF_DIR}
 			--qemu-data "${PTOS_QEMU_DATA_DIR}" --test-disk ${PTOS_M68K_TEST_DISK}
 			--output ${CMAKE_CURRENT_BINARY_DIR}/m68k-disk-test)

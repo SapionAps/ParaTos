@@ -7,6 +7,7 @@
 
 static const char cli_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
 static const char semantics_env[] = "DEMO=present\0ARGV=\0C:\\SEMANTIC.TOS\0";
+static const char filesystem_env[] = "DEMO=present\0ARGV=\0C:\\FSCOMP.TOS\0";
 static const char read_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0read\0";
 static const char write_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0write\0";
 static const char script_env[] = "DEMO=present\0ARGV=NULL:2\0C:/SCRIPT.SH\0two words\0 \0";
@@ -56,6 +57,7 @@ int main(void)
 	static const struct { const char *name, *path, *env; long status; } cases[] = {
 		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_env, 37},
 		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, 0},
+		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_env, 0},
 		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_env, 255},
 		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_env, 255},
 		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_env, 42},
