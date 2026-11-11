@@ -390,6 +390,27 @@ void test_filesystem(void)
 	error = 0;
 	ptos_filesystem_cleanup();
 	assert(native_searches() == 0 && filesystem_searches() == 0 && native_dta == DEFAULT_DTA);
+	/* Fill all slots, then retire the owner while a temporary restoration
+	 * failure prevents cleanup. A later guest must reclaim those contexts
+	 * automatically before checking the native capacity limit. */
+	ptos_process = other;
+	for (unsigned int i = 0; i < 8; i++)
+	{
+		m68k_write_memory_32(other + BP_DTA, child_dtas + i * 64);
+		assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == 0);
+	}
+	assert(native_searches() == 8 && filesystem_searches() == 8);
+	fail_restore = 1;
+	assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == -36);
+	ptos_filesystem_drop(other);
+	assert(native_searches() == 8 && filesystem_searches() == 8);
+	fail_restore = 0;
+	ptos_process = bp;
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == 0);
+	assert(native_searches() == 1 && filesystem_searches() == 1 && native_dta == DEFAULT_DTA);
+	assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == 0);
+	ptos_filesystem_cleanup();
+	assert(native_searches() == 0 && filesystem_searches() == 0);
 	ptos_process = previous;
 }
 

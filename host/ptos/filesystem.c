@@ -82,6 +82,11 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 	ptos_guest_buffer(address, 44);
 	int32_t repaired = repair_native_dta();
 	if (repaired < 0) return repaired;
+	/* Temporary cleanup failures must not permanently occupy the cursor
+	 * budget. Retry retired contexts before admitting another search. */
+	ptos_filesystem_drop(0);
+	repaired = repair_native_dta();
+	if (repaired < 0) return repaired;
 	search *p = find_search(address);
 	if (function == GEMDOS_OP_FSFIRST && (!p || !p->started) &&
 		active_searches() >= NATIVE_SEARCH_LIMIT) return PTOS_ENSMEM;

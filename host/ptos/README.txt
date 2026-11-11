@@ -155,7 +155,9 @@ freed at guest
 termination (including retained PE_GO images) and on emulator cleanup. If native
 DTA restoration fails, the buffer stays alive with a retired owner until pointer
 restoration and cleanup can be retried. Non-EOF cleanup errors also retain the
-context for retry. Restarting a DTA first exhausts its previous search, so a path
+context for retry. Later search calls retry retired contexts before enforcing
+the cursor limit, so a temporary failure cannot permanently consume the slots.
+Restarting a DTA first exhausts its previous search, so a path
 error cannot leave a pluggable filesystem directory cookie behind. Cleanup may
 therefore scan the remaining matching entries before releasing a search.
 Copying reserved DTA bytes does not clone a native search: pTOS itself keys
