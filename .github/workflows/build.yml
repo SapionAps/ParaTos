@@ -41,11 +41,11 @@ jobs:
     steps:
       # Keep pTOS at the workspace root so its local setup actions resolve
       # there. The tested Paratos revision is a separate nested checkout.
-      - name: Check out the kernel with high-image/low-RAM support
+      - name: Check out the kernel with binfmt and shebang support
         uses: actions/checkout@v4
         with:
           repository: kelihlodversson/pTOS
-          ref: e83242935290bcf4a934bb9c2b4ddcf956a43957
+          ref: fc3148179494f1b507ed38ee4c328ad52624fecf
           submodules: recursive
       - name: Check out Paratos
         uses: actions/checkout@v4
