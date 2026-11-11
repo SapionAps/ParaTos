@@ -10,7 +10,7 @@
 #include "common.h"
 #include "gemdos.h"
 #include "path.h"
-#include "tos_errors.h"
+#include "host.h"
 
 /**
  * Dchroot - 330

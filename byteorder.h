@@ -1,26 +1,28 @@
-#ifdef __APPLE__
-#include <machine/endian.h>
-#include <libkern/OSByteOrder.h>
+#pragma once
+#include <stdint.h>
 
-#define htobe16(x) OSSwapHostToBigInt16(x)
-#define htole16(x) OSSwapHostToLittleInt16(x)
-#define be16toh(x) OSSwapBigToHostInt16(x)
-#define le16toh(x) OSSwapLittleToHostInt16(x)
-
-#define htobe32(x) OSSwapHostToBigInt32(x)
-#define htole32(x) OSSwapHostToLittleInt32(x)
-#define be32toh(x) OSSwapBigToHostInt32(x)
-#define le32toh(x) OSSwapLittleToHostInt32(x)
-
-#define htobe64(x) OSSwapHostToBigInt64(x)
-#define htole64(x) OSSwapHostToLittleInt64(x)
-#define be64toh(x) OSSwapBigToHostInt64(x)
-#define le64toh(x) OSSwapLittleToHostInt64(x)
-
-#define __BIG_ENDIAN    BIG_ENDIAN
-#define __LITTLE_ENDIAN LITTLE_ENDIAN
-#define __BYTE_ORDER    BYTE_ORDER
+// Guest byte order is independent of native OS headers.
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define paratos_htobe16(x) __builtin_bswap16((uint16_t)(x))
+#define paratos_htole16(x) ((uint16_t)(x))
+#define paratos_htobe32(x) __builtin_bswap32((uint32_t)(x))
+#define paratos_htole32(x) ((uint32_t)(x))
+#define paratos_htobe64(x) __builtin_bswap64((uint64_t)(x))
+#define paratos_htole64(x) ((uint64_t)(x))
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define paratos_htobe16(x) ((uint16_t)(x))
+#define paratos_htole16(x) __builtin_bswap16((uint16_t)(x))
+#define paratos_htobe32(x) ((uint32_t)(x))
+#define paratos_htole32(x) __builtin_bswap32((uint32_t)(x))
+#define paratos_htobe64(x) ((uint64_t)(x))
+#define paratos_htole64(x) __builtin_bswap64((uint64_t)(x))
 #else
-#include <endian.h> 
+#error Unsupported native byte order
 #endif
 
+#define paratos_be16toh(x) paratos_htobe16(x)
+#define paratos_le16toh(x) paratos_htole16(x)
+#define paratos_be32toh(x) paratos_htobe32(x)
+#define paratos_le32toh(x) paratos_htole32(x)
+#define paratos_be64toh(x) paratos_htobe64(x)
+#define paratos_le64toh(x) paratos_htole64(x)

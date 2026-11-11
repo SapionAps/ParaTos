@@ -1,8 +1,8 @@
-project (gemdos)
-
-include_directories( .. ../mushashi )
-
-
-set (SOURCE_FILES cdev.c date.c dir.c file.c mem.c net.c path.c pexec.c proc.c signals.c sys.c loader.c gemdos_dispatch.c cookiejar.c)
-add_library (gemdos STATIC ${SOURCE_FILES})
-add_definitions( -D_GNU_SOURCE )
+# Guest ABI, PRG/argument loading and CPU integration. Object files let the
+# CPU callbacks and host adapters refer to each other without archive cycles.
+add_library(gemdos OBJECT arguments.c mem.c path.c process.c loader.c
+	gemdos_dispatch.c traps.c cookiejar.c
+	${PROJECT_SOURCE_DIR}/memory.c ${PROJECT_SOURCE_DIR}/runtime.c)
+target_include_directories(gemdos PUBLIC ${PROJECT_SOURCE_DIR}
+	${PROJECT_SOURCE_DIR}/mushashi ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(gemdos PRIVATE -std=c11)

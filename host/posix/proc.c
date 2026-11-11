@@ -7,7 +7,7 @@
 #include <sys/wait.h>
 
 #include "common.h"
-#include "tos_errors.h"
+#include "host.h"
 #include "gemdos.h"
 
 typedef struct pid_map {
@@ -65,30 +65,6 @@ static void forget_pid_by_host(pid_t host_pid)
 		}
 		current = &(*current)->next;
 	}
-}
-
-/**
- * Pdomain - 281
- *
- * The function Pdomain serves for setting or obtaining the domain in which
- * the process is executed. This domain can influence the behaviour of the
- * process drastically in parts. The following apply: dom Meaning
- */
-int16_t Pdomain ( int16_t dom )
-{
-	if (dom > -1)
-	{
-		if (dom > 1)
-		{
-			return -1;
-		}
-		else
-		{
-			m68k_write_field(current_process, basepage_t, mint_domain, dom);
-		}
-	}
-
-	return m68k_read_field(current_process, basepage_t, mint_domain);
 }
 
 /**

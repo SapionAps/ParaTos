@@ -1,7 +1,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include "common.h"
-#include "tos_errors.h"
+#include "host.h"
 
 uint32_t unixtime2dos(const time_t* unixtime)
 {

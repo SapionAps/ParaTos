@@ -4,7 +4,7 @@
 #include <sys/types.h>
 
 #include "common.h"
-#include "tos_errors.h"
+#include "host.h"
 #include "gemdos.h"
 
 enum mint_signal

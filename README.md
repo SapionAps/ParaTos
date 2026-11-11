@@ -1,6 +1,6 @@
 # ParaTos
 
-Userspace Tos (and MiNT) emulator for Linux.
+Userspace Tos (and MiNT) emulator for Linux and macOS, with a native pTOS backend.
 
 This is an emulator that instead of emulating ST hardware, it translates system calls into native OS calls.
 
@@ -19,11 +19,44 @@ ParaTos uses cmake to build the project. The following should work:
 	cmake ..
 	make
 
-You shoyld now be able run the generated paratos executable on simple Tos executables:
+You should now be able to run the generated paratos executable on simple Tos executables:
 
 	./paratos hello.tos
 
 Currently, only a handful of trap #1 functions have been implemented, so you should get a lot of unimplemented function call errors.
+
+# Source layout and testing
+
+Linux and macOS share [host/posix](host/posix/README.md). It owns native
+startup, executable discovery, memory mapping and protection, filesystem/path
+translation, processes, signals, errno mapping and syscall adapters.
+
+`gemdos/` retains guest ABI structures, trap decoding, PRG loading and
+relocation, arguments, basepages, guest allocation, cookies and 8.3 names.
+`memory.c`, `memory.i`, `byteorder.h` and `runtime.c` provide guest memory
+access, endian conversion and CPU setup/diagnostics. These use standard C
+and the CPU interface without POSIX headers. `mushashi/` contains the CPU.
+
+The default build selects the POSIX backend and still produces `build/paratos`.
+`PARATOS_PTOS=ON` selects `host/ptos` through the ARM or x32 toolchain file.
+
+Run all CTest checks, or one POSIX integration check:
+
+```sh
+ctest --test-dir build --output-on-failure
+ctest --test-dir build -R '^posix_launch$' --output-on-failure
+```
+
+The POSIX tests cover guest byte order and basepage state. With Python 3
+available at configuration time, generated 68000 PRGs also test startup,
+arguments, environment, relocation and nested execution on Linux and macOS.
+The pTOS contract test runs on Linux. The compiled POSIX syscall suite needs
+the m68k-atari-mintelf toolchain:
+
+```sh
+make -C test_programs -j4
+test_programs/run_syscalls.sh --no-build
+```
 
 # pTOS port
 

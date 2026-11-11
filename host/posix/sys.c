@@ -6,7 +6,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include "common.h"
-#include "tos_errors.h"
+#include "host.h"
 #include "sysvars.h"
 #include "cookiejar.h"
 #include <signal.h>
