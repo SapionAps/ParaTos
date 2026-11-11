@@ -146,12 +146,17 @@ Search buffers belong to a guest basepage and DTA address, so switching DTAs
 or running an internal overlay preserves the parent's search. Each search
 temporarily selects its native DTA and restores the original native pointer.
 Native search state remains private; guest reserved DTA bytes are not native
-pointers. Buffers are released when their guest exits and on emulator cleanup.
+pointers. Unfinished native cursors are cancelled before their buffers are freed at guest
+termination (including retained PE_GO images) and on emulator cleanup. If native
+DTA restoration fails, the buffer stays alive with a retired owner until pointer
+restoration and cleanup can be retried.
 Copying reserved DTA bytes does not clone a native search: pTOS itself keys
 its protected search state by DTA address.
 
 Forwarding does not require a kernel implementation of the syscall. Native
-errors, including ENOSYS, return unchanged in guest D0. Converted output is
+errors, including ENOSYS, return unchanged in guest D0. Signed non-positive
+Dgetcwd/Freadlink lengths use a native scratch buffer and still reach the kernel,
+so native ERANGE/ENOSYS is preserved. Converted output is
 committed only on success. Unknown structure/command ABIs still need explicit
 adapters; directory streams, stat64, signals and networking remain follow-ups.
 Full MiNT libc startup is not yet supported.
@@ -278,7 +283,8 @@ checks low-memory byte order/live updates, identity pointers, host launch
 delegation, guest/native address separation, ownership and malformed PRG
 cleanup. It also checks 100 nested overlay file-lifetime cycles against real
 host descriptors. Filesystem contract cases check unaligned guest outputs,
-DTA/XATTR/disk/usage byte order, DTA and guest ownership, exact native errors,
+DTA/XATTR/disk/usage byte order, DTA and guest ownership, bounded native cursor
+slots, retained-image termination, restoration retries, signed sizes, exact errors,
 and unchanged converted output on error. Fixtures are generated at runtime; no cross compiler is required.
 Unstarted-image tests also verify descriptor counts through 100 load/free
 cycles, snapshot/load failures, failed-start retry and allocator cleanup.

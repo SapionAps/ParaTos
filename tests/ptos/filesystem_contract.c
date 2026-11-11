@@ -12,6 +12,22 @@ void dispatch_gemdos_trap(void);
 #define DEFAULT_DTA ((intptr_t)0x10000000)
 static intptr_t native_dta = DEFAULT_DTA;
 static int32_t error;
+static int fail_restore;
+static struct { intptr_t address; unsigned int position, stamp; } cursors[8];
+static unsigned int cursor_clock;
+
+static unsigned int native_searches(void)
+{
+	unsigned int count = 0;
+	for (unsigned int i = 0; i < 8; i++) count += cursors[i].address != 0;
+	return count;
+}
+
+static void forget_cursor(intptr_t address)
+{
+	for (unsigned int i = 0; i < 8; i++)
+		if (cursors[i].address == address) cursors[i].address = 0;
+}
 static uint16_t last_function;
 static intptr_t arguments[4];
 static char first_path[1024], second_path[1024];
@@ -19,7 +35,10 @@ static char first_path[1024], second_path[1024];
 int filesystem_test_native(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d, int32_t *result)
 {
 	if (fn == GEMDOS_OP_FGETDTA) { *result = (int32_t)native_dta; return 1; }
-	if (fn == GEMDOS_OP_FSETDTA) { native_dta = a; *result = 0; return 1; }
+	if (fn == GEMDOS_OP_FSETDTA) {
+		if (a == DEFAULT_DTA && fail_restore) { *result = -36; return 1; }
+		native_dta = a; *result = 0; return 1;
+	}
 	switch (fn)
 	{
 	case GEMDOS_OP_FSFIRST:
@@ -27,15 +46,33 @@ int filesystem_test_native(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intp
 		last_function = fn;
 		assert(native_dta != DEFAULT_DTA);
 		ptos_native_dta *value = (ptos_native_dta *)native_dta;
+		if (fn == GEMDOS_OP_FSFIRST)
+		{
+			forget_cursor(native_dta); /* native Fsfirst always forgets first */
+			if (!strcmp((const char *)a, "?:\\")) { *result = error ? error : -46; return 1; }
+			assert(!strcmp((const char *)a, "C:\\SEARCH\\*.TXT"));
+		}
 		if (error) { memset(value, 0xcc, sizeof(*value)); *result = error; return 1; }
 		if (fn == GEMDOS_OP_FSFIRST)
 		{
-			assert(!strcmp((const char *)a, "C:\\SEARCH\\*.TXT"));
+			unsigned int victim = 0;
+			for (unsigned int i = 0; i < 8; i++)
+			{
+				if (!cursors[i].address) { victim = i; break; }
+				if (cursors[i].stamp < cursors[victim].stamp) victim = i;
+			}
+			cursors[victim].address = native_dta; cursors[victim].position = 0;
+			cursors[victim].stamp = ++cursor_clock;
 			memset(value, 0, sizeof(*value));
-			value->reserved[0] = 0x5a;
 		}
-		else if (value->reserved[0] != 0x5a || value->reserved[1]++)
-		{ *result = -49; return 1; }
+		else
+		{
+			unsigned int i;
+			for (i = 0; i < 8; i++) if (cursors[i].address == native_dta) break;
+			if (i == 8) { *result = -49; return 1; }
+			if (cursors[i].position++) { forget_cursor(native_dta); *result = -49; return 1; }
+			cursors[i].stamp = ++cursor_clock;
+		}
 		value->attribute = 0x21; value->time = 0x1234; value->date = 0x5678;
 		value->size = fn == GEMDOS_OP_FSFIRST ? 0x12345678 : 0x12345679;
 		strcpy(value->name, fn == GEMDOS_OP_FSFIRST ? "ONE.TXT" : "TWO.TXT");
@@ -74,7 +111,7 @@ int filesystem_test_native(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intp
 	case GEMDOS_OP_PSETPRIORITY:
 	case GEMDOS_OP_PNICE:
 	case GEMDOS_OP_PUMASK: break;
-	case GEMDOS_OP_DGETCWD: strcpy((char *)a, "NATIVE"); break;
+	case GEMDOS_OP_DGETCWD: if (c > 0) strcpy((char *)a, "NATIVE"); break;
 	case GEMDOS_OP_DPATHCONF:
 	case GEMDOS_OP_FCHMOD:
 	case GEMDOS_OP_FCHOWN:
@@ -100,7 +137,8 @@ int filesystem_test_native(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intp
 	case GEMDOS_OP_DCHROOT: strcpy(first_path, (const char *)a); break;
 	default: break;
 	}
-	*result = error;
+	*result = error ? error : ((fn == GEMDOS_OP_DGETCWD && c <= 0) ||
+		(fn == GEMDOS_OP_FREADLINK && a <= 0)) ? PTOS_ERANGE : 0;
 	return 1;
 }
 
@@ -111,7 +149,7 @@ static int32_t invoke(uint32_t sp, uint16_t function)
 	last_function = 0;
 	dispatch_gemdos_trap();
 	assert(last_function == function);
-	assert(native_dta == DEFAULT_DTA);
+	assert(fail_restore || native_dta == DEFAULT_DTA);
 	return (int32_t)m68k_get_reg(NULL, M68K_REG_D0);
 }
 
@@ -173,12 +211,14 @@ void test_filesystem(void)
 	assert(invoke(sp, GEMDOS_OP_FSNEXT) == -49);
 	assert(invoke(sp, GEMDOS_OP_FSFIRST) == 0);
 	ptos_filesystem_drop(other);
+	assert(native_searches() == 2);
 	ptos_process = bp;
 	assert(invoke(sp, GEMDOS_OP_FSNEXT) == 0 && m68k_read_memory_32(out + 26) == 0x12345679);
 	assert(invoke(sp, GEMDOS_OP_FSNEXT) == -49);
 	m68k_write_memory_32(bp + BP_DTA, dta2);
 	assert(invoke(sp, GEMDOS_OP_FSNEXT) == 0); /* independent search cursor */
 	ptos_filesystem_drop(bp);
+	assert(native_searches() == 0);
 	assert(invoke(sp, GEMDOS_OP_FSNEXT) == -49);
 
 	error = PTOS_ENOSYS;
@@ -219,8 +259,60 @@ void test_filesystem(void)
 	m68k_write_memory_32(sp + 2, out);
 	assert(invoke(sp, GEMDOS_OP_PRUSAGE) == 0);
 	for (unsigned int i = 0; i < 8; i++) assert(m68k_read_memory_32(out + i * 4) == 0x12345678 + i);
+	/* Non-positive signed lengths must reach the kernel even when the
+	 * supplied guest pointer is unusable; only a native scratch is passed. */
+	const int16_t sizes[] = {0, -1, INT16_MIN};
+	const int32_t size_errors[] = {0, PTOS_ENOSYS};
+	for (unsigned int e = 0; e < 2; e++)
+		for (unsigned int i = 0; i < 3; i++)
+		{
+			error = size_errors[e];
+			memset(ptos_guest_buffer(out, 64), 0xa7, 64);
+			m68k_write_memory_32(sp + 2, PTOS_NATIVE_BASE);
+			m68k_write_memory_16(sp + 6, 0); m68k_write_memory_16(sp + 8, sizes[i]);
+			int32_t expected = error ? error : PTOS_ERANGE;
+			assert(invoke(sp, GEMDOS_OP_DGETCWD) == expected);
+			assert(arguments[0] != PTOS_NATIVE_BASE && arguments[2] == sizes[i]);
+			m68k_write_memory_16(sp + 2, sizes[i]); m68k_write_memory_32(sp + 4, PTOS_NATIVE_BASE);
+			m68k_write_memory_32(sp + 8, name);
+			assert(invoke(sp, GEMDOS_OP_FREADLINK) == expected);
+			assert(arguments[0] == sizes[i] && arguments[1] != PTOS_NATIVE_BASE);
+			for (unsigned int j = 0; j < 64; j++) assert(m68k_read_memory_8(out + j) == 0xa7);
+		}
 	error = 0;
+	m68k_write_memory_32(bp + BP_DTA, out);
+	m68k_write_memory_32(other + BP_DTA, dta2);
+	m68k_write_memory_32(sp + 2, name); m68k_write_memory_16(sp + 6, 0);
+	assert(invoke(sp, GEMDOS_OP_FSFIRST) == 0);
+	/* A protected native table has eight slots. Abandoned child searches
+	 * must not consume them or evict the parent's cursor. */
+	for (unsigned int i = 0; i < 32; i++)
+	{
+		ptos_process = other;
+		assert(invoke(sp, GEMDOS_OP_FSFIRST) == 0 && native_searches() == 2);
+		ptos_filesystem_drop(other);
+		assert(native_searches() == 1);
+	}
+	ptos_process = bp;
+	assert(invoke(sp, GEMDOS_OP_FSNEXT) == 0);
 	ptos_filesystem_cleanup();
+	assert(native_searches() == 0 && native_dta == DEFAULT_DTA);
+	/* If restoration temporarily fails, retain the buffer, retire the
+	 * owner and repair the native pointer before retrying cleanup. */
+	const int32_t operation_errors[] = {0, PTOS_ENOSYS};
+	for (unsigned int i = 0; i < 2; i++)
+	{
+		error = operation_errors[i]; fail_restore = 1;
+		memset(ptos_guest_buffer(out, 44), 0xa7, 44);
+		m68k_write_memory_32(sp + 2, name); m68k_write_memory_16(sp + 6, 0);
+		assert(invoke(sp, GEMDOS_OP_FSFIRST) == (error ? error : -36));
+		assert(native_dta != DEFAULT_DTA);
+		for (unsigned int j = 0; j < 44; j++) assert(m68k_read_memory_8(out + j) == 0xa7);
+		ptos_filesystem_drop(bp);
+		fail_restore = 0; error = 0;
+		ptos_filesystem_cleanup();
+		assert(native_searches() == 0 && native_dta == DEFAULT_DTA);
+	}
 	ptos_process = previous;
 }
 
@@ -235,6 +327,7 @@ void test_filesystem_retained(uint32_t child)
 	assert(invoke(sp, GEMDOS_OP_FSFIRST) == 0);
 	ptos_terminate(23);
 	assert(ptos_process == parent && ptos_image_valid(child));
+	assert(native_searches() == 0);
 	uint32_t saved_sp = m68k_get_reg(NULL, M68K_REG_SP);
 	/* The retained basepage still exists. Its terminated guest must no
 	 * longer have a search, before the caller frees that image. */

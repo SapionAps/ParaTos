@@ -23,6 +23,39 @@ static search *searches;
 /* Never used for Fsfirst. Fsnext on an unstarted guest DTA must not reuse
  * kernel search state belonging to a freed/reallocated native buffer. */
 static ptos_native_dta empty_dta;
+static uint32_t pending_dta;
+static int pending_restore;
+
+static int32_t restore_native_dta(uint32_t address)
+{
+	int32_t result = ptos_call(GEMDOS_OP_FSETDTA, (intptr_t)address, 0, 0, 0);
+	pending_restore = result < 0;
+	if (pending_restore) pending_dta = address;
+	return result;
+}
+
+static int32_t repair_native_dta(void)
+{
+	return pending_restore ? restore_native_dta(pending_dta) : 0;
+}
+
+/* pTOS forgets the old protected cursor at Fsfirst entry. An invalid drive
+ * cannot start a replacement search, so this also releases its cursor slot. */
+static int32_t cancel_search(search *p)
+{
+	int32_t result = repair_native_dta();
+	if (result < 0 || !p->started) return result;
+	int32_t old = ptos_call(GEMDOS_OP_FGETDTA, 0, 0, 0, 0);
+	if (old < 0) return old;
+	result = ptos_call(GEMDOS_OP_FSETDTA, (intptr_t)&p->native, 0, 0, 0);
+	if (result < 0) return result;
+	result = ptos_call(GEMDOS_OP_FSFIRST, (intptr_t)"?:\\", 0, 0, 0);
+	int32_t restored = restore_native_dta((uint32_t)old);
+	if (restored < 0) return restored;
+	if (result >= 0) return PTOS_EINVAL;
+	p->started = 0;
+	return 0;
+}
 
 static search *find_search(uint32_t address)
 {
@@ -35,6 +68,8 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 {
 	uint32_t address = m68k_read_memory_32(ptos_process + BP_DTA);
 	ptos_guest_buffer(address, 44);
+	int32_t repaired = repair_native_dta();
+	if (repaired < 0) return repaired;
 	search *p = find_search(address);
 	if (function == GEMDOS_OP_FSFIRST && !p)
 	{
@@ -51,7 +86,7 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 	if (result < 0) return result;
 	if (function == GEMDOS_OP_FSFIRST) memset(native, 0, sizeof(*native));
 	result = ptos_call(function, (intptr_t)path, attribute, 0, 0);
-	int32_t restored = ptos_call(GEMDOS_OP_FSETDTA, (intptr_t)(uint32_t)old, 0, 0, 0);
+	int32_t restored = restore_native_dta((uint32_t)old);
 	if (p && function == GEMDOS_OP_FSFIRST) p->started = result >= 0;
 	if (p && function == GEMDOS_OP_FSNEXT && result == PTOS_ENMFIL) p->started = 0;
 	/* Preserve the operation's error, including native ENOSYS. */
@@ -110,15 +145,19 @@ void ptos_filesystem_drop(uint32_t owner)
 	{
 		search *p = *at;
 		if (p->owner != owner) { at = &p->next; continue; }
+		/* Keep the buffer alive for a later retry if native restoration fails.
+		 * Retire its owner so a reused guest basepage cannot claim it. */
+		if (cancel_search(p) < 0) { p->owner = 0; at = &p->next; continue; }
 		*at = p->next; free(p);
 	}
 }
 
 void ptos_filesystem_cleanup(void)
 {
-	while (searches)
+	for (search **at = &searches; *at; )
 	{
-		search *p = searches;
-		searches = p->next; free(p);
+		search *p = *at;
+		if (cancel_search(p) < 0) { p->owner = 0; at = &p->next; continue; }
+		*at = p->next; free(p);
 	}
 }

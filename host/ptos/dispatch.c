@@ -170,16 +170,18 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_DLOCK: r = ptos_call(fn, (int16_t)word(sp, 2), (int16_t)word(sp, 4), 0, 0); break;
 	case GEMDOS_OP_DGETCWD: {
 		int16_t size = word(sp, 8);
-		if (size < 0) { r = PTOS_EINVAL; break; }
-		r = ptos_call(fn, (intptr_t)ptos_guest_buffer(lng(sp, 2), size), (int16_t)word(sp, 6), size, 0); break;
+		char scratch = 0;
+		void *buffer = size > 0 ? ptos_guest_buffer(lng(sp, 2), size) : &scratch;
+		r = ptos_call(fn, (intptr_t)buffer, (int16_t)word(sp, 6), size, 0); break;
 	}
 	case GEMDOS_OP_FLINK:
 	case GEMDOS_OP_FSYMLINK:
 		r = ptos_call(fn, path(lng(sp, 2), p1), path(lng(sp, 6), p2), 0, 0); break;
 	case GEMDOS_OP_FREADLINK: {
 		int16_t size = word(sp, 2);
-		if (size < 0) { r = PTOS_EINVAL; break; }
-		r = ptos_call(fn, size, (intptr_t)ptos_guest_buffer(lng(sp, 4), size), path(lng(sp, 8), p1), 0); break;
+		char scratch = 0;
+		void *buffer = size > 0 ? ptos_guest_buffer(lng(sp, 4), size) : &scratch;
+		r = ptos_call(fn, size, (intptr_t)buffer, path(lng(sp, 8), p1), 0); break;
 	}
 	case GEMDOS_OP_FATTRIB: r = ptos_call(fn, path(lng(sp, 2), p1), word(sp, 6), word(sp, 8), 0); break;
 	case GEMDOS_OP_MXALLOC: { /* No TT-RAM in this initial guest layout. */

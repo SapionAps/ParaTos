@@ -56,6 +56,7 @@ int main(void)
 	/* A nested overlay owns its DTA and search without replacing the
 	 * parent's native search cursor. The overlay deliberately leaves it set. */
 	char tail[128] = {0};
+	for (int cycle = 0; cycle < 16; cycle++)
 	for (int mode = 4; mode <= 6; mode += 2)
 	{
 		BASEPAGE *child = (BASEPAGE *)Pexec(3, "C:/FSOVL.TOS", tail, 0);
@@ -78,6 +79,10 @@ int main(void)
 	char directory[128], classic[128];
 	long cwd = Dgetcwd(directory, 0, sizeof(directory));
 	if (cwd || Dgetpath(classic, 0) || strcmp(directory, classic)) return 12;
+	memset(directory, 0x5a, sizeof(directory));
+	if (!same_native('n', Dgetcwd(directory, 0, -1)) ||
+		!same_native('r', Freadlink(-1, directory, "C:/FSCOMP/A.TXT"))) return 14;
+	for (unsigned int i = 0; i < sizeof(directory); i++) if ((unsigned char)directory[i] != 0x5a) return 15;
 	Fsetdta(original);
 	if (Fdelete("C:/FSCOMP/A.TXT") || Fdelete("C:/FSCOMP/B.TXT") ||
 		Ddelete("C:/FSCOMP")) return 13;
