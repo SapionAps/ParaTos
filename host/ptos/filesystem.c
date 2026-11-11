@@ -49,8 +49,9 @@ static int32_t repair_native_dta(void)
 	return pending_restore ? restore_native_dta(pending_dta) : 0;
 }
 
-/* pTOS forgets the old protected cursor at Fsfirst entry. An invalid drive
- * cannot start a replacement search, so this also releases its cursor slot. */
+/* Exhaust through Fsnext: both the protected DTA cache and a pluggable
+ * filesystem's directory cookie must be released before freeing the buffer.
+ * A failing Fsfirst can clear only the former and leak the latter. */
 static int32_t cancel_search(search *p)
 {
 	int32_t result = repair_native_dta();
@@ -59,12 +60,13 @@ static int32_t cancel_search(search *p)
 	if (old < 0) return old;
 	result = ptos_call(GEMDOS_OP_FSETDTA, (intptr_t)&p->native, 0, 0, 0);
 	if (result < 0) return result;
-	result = ptos_call(GEMDOS_OP_FSFIRST, (intptr_t)"?:\\", 0, 0, 0);
+	do { result = ptos_call(GEMDOS_OP_FSNEXT, 0, 0, 0, 0); } while (result >= 0);
+	if (result == PTOS_ENMFIL) p->started = 0;
 	int32_t restored = restore_native_dta((uint32_t)old);
-	if (restored < 0) return restored;
-	if (result >= 0) return PTOS_EINVAL;
-	p->started = 0;
-	return 0;
+	/* Other errors do not prove that every native cursor has been released.
+	 * Keep the context alive and retry later rather than losing its address. */
+	if (result != PTOS_ENMFIL) return result;
+	return restored;
 }
 
 static search *find_search(uint32_t address)
@@ -89,6 +91,11 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 		if (!p) return PTOS_ENSMEM;
 		p->owner = ptos_process; p->address = address;
 		p->next = searches; searches = p;
+	}
+	if (function == GEMDOS_OP_FSFIRST && p->started)
+	{
+		int32_t cancelled = cancel_search(p);
+		if (cancelled < 0) return cancelled;
 	}
 	ptos_native_dta *native = p && (function == GEMDOS_OP_FSFIRST || p->started)
 		? &p->native : &empty_dta;
@@ -166,6 +173,8 @@ void ptos_filesystem_drop(uint32_t owner)
 
 void ptos_filesystem_cleanup(void)
 {
+	/* Fsnext on empty_dta can also leave a pending native restoration. */
+	if (repair_native_dta() < 0) return;
 	for (search **at = &searches; *at; )
 	{
 		search *p = *at;

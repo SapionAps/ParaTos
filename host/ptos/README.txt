@@ -150,10 +150,14 @@ pointers. The emulator shares the kernel's eight native search slots across
 internal guests. A ninth live search returns ENSMEM before starting, so resource
 pressure cannot silently evict an existing parent or child cursor. Restarting an
 existing search reuses its slot; EOF or guest termination releases it.
-Unfinished native cursors are cancelled before their buffers are freed at guest
+Unfinished native searches are exhausted through Fsnext before their buffers are
+freed at guest
 termination (including retained PE_GO images) and on emulator cleanup. If native
 DTA restoration fails, the buffer stays alive with a retired owner until pointer
-restoration and cleanup can be retried.
+restoration and cleanup can be retried. Non-EOF cleanup errors also retain the
+context for retry. Restarting a DTA first exhausts its previous search, so a path
+error cannot leave a pluggable filesystem directory cookie behind. Cleanup may
+therefore scan the remaining matching entries before releasing a search.
 Copying reserved DTA bytes does not clone a native search: pTOS itself keys
 its protected search state by DTA address.
 

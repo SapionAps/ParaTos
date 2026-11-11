@@ -62,7 +62,12 @@ int main(void)
 		BASEPAGE *child = (BASEPAGE *)Pexec(3, "C:/FSOVL.TOS", tail, 0);
 		if ((long)child <= 0) return 6;
 		void *environment = child->p_env;
-		if (Pexec(mode, "", child, 0) != 31) return 6;
+		long status = Pexec(mode, "", child, 0);
+		if (status != 31)
+		{
+			printf("filesystem overlay cycle %d mode %d: %ld\n", cycle, mode, status);
+			return 6;
+		}
 		if (mode == 4 && (Mfree(environment) || Mfree(child))) return 6;
 	}
 	if (Fgetdta() != &second) return 7;
