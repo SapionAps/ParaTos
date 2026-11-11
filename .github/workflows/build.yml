@@ -37,15 +37,16 @@ jobs:
             packages: gcc-arm-none-eabi qemu-system-arm
           - arch: x32
             packages: gcc-multilib qemu-system-x86 ovmf
-    runs-on: ubuntu-latest
+    # Keep the kernel toolchain packages on a fixed Ubuntu release.
+    runs-on: ubuntu-24.04
     steps:
       # Keep pTOS at the workspace root so its local setup actions resolve
       # there. The tested Paratos revision is a separate nested checkout.
-      - name: Check out the kernel with high-image/low-RAM support
+      - name: Check out the kernel with binfmt and shebang support
         uses: actions/checkout@v4
         with:
           repository: kelihlodversson/pTOS
-          ref: e83242935290bcf4a934bb9c2b4ddcf956a43957
+          ref: fc3148179494f1b507ed38ee4c328ad52624fecf
           submodules: recursive
       - name: Check out Paratos
         uses: actions/checkout@v4

@@ -68,6 +68,13 @@ static int native_launch(void)
 	tail[0] = sprintf(tail + 1, "%ld", fd);
 	long launched = Pexec(0, "C:/NATIVE.TOS", tail, 0);
 	if (launched != 23) { printf("native Pexec result: %ld\n", launched); return 3; }
+	/* A fresh Paratos process must be selected by the kernel for a 68k
+	 * target too. This short tail overrides the inherited parent's ARGV. */
+	tail[0] = sprintf(tail + 1, "'two words' ''");
+	launched = Pexec(0, "C:/CLI.TOS", tail, 0);
+	if (launched != 37) { printf("guest Pexec result: %ld\n", launched); return 9; }
+	launched = Pexec(0, "C:/SCRIPT.SH", tail, 0);
+	if (launched != 42) { printf("guest shebang Pexec result: %ld\n", launched); return 10; }
 	/* Replacement is currently unavailable. It must not spawn another child. */
 	if (Pexec(200, "C:/NATIVE.TOS", tail, 0) != -32L) return 4;
 	if (Fseek(0, (short)fd, 0) != 0) return 5;

@@ -31,7 +31,7 @@ ptos_executable(ptos_native_child 0x00400000)
 
 set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
 set(PTOS_GUEST_OUTPUTS)
-foreach(fixture cli semantics overlay fault)
+foreach(fixture cli semantics overlay fault interpreter)
 	set(output ${PTOS_FIXTURES_DIR}/${fixture}.tos)
 	add_custom_command(OUTPUT ${output}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${PTOS_FIXTURES_DIR}

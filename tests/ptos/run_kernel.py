@@ -51,14 +51,14 @@ def run(args):
     def enabled(name):
         return re.search(r"^#define\s+" + name + r"\s+1\s*$", config, re.M) is not None
 
-    for name in ("CONF_WITH_MMAP", "CONF_WITH_ELF_LOADER", "CONF_EXTERNAL_CLI"):
+    for name in ("CONF_WITH_MMAP", "CONF_WITH_ELF_LOADER", "CONF_WITH_BINFMT", "CONF_EXTERNAL_CLI"):
         if not enabled(name):
             raise ValueError("The prepared kernel must enable " + name)
     machine = "MACHINE_VIRT_ARM" if args.arch == "arm" else "MACHINE_PC_X86_64"
     if not enabled(machine) or (args.arch == "arm" and not enabled("CONF_WITH_PROCESS_ASPACES")):
         raise ValueError("The prepared kernel does not match the selected architecture/address spaces")
     verify_image(args.paratos, args.arch)
-    for name in ("cli", "semantics", "overlay", "fault"):
+    for name in ("cli", "semantics", "overlay", "fault", "interpreter"):
         if (args.fixtures / (name + ".tos")).read_bytes()[:2] != b"\x60\x1a":
             raise ValueError(name + " must be a compiled 68k TOS PRG")
     revision = "unknown"
@@ -78,8 +78,13 @@ def run(args):
     log.write_text("")
     with tempfile.TemporaryDirectory(prefix="staging-", dir=output) as temporary:
         stage = Path(temporary)
-        for source, target in ((args.paratos, "PARATOS.PRG"), (args.launcher, "EMUCON.TOS")):
-            shutil.copyfile(source, stage / target)
+        (stage / "BIN").mkdir()
+        shutil.copyfile(args.paratos, stage / "BIN/PARATOS.PRG")
+        shutil.copyfile(args.launcher, stage / "EMUCON.TOS")
+        # Root-relative interpreter paths resolve on the boot drive. Exercise
+        # both accepted separators and keep the emulator out of the disk root.
+        (stage / "PTOS.INI").write_bytes(
+            b"[binfmt.tos68k]\r\nmagic=601A\r\ninterpreter=/BIN\\PARATOS.PRG\r\n")
         original = None
         if args.test_disk:
             shutil.copyfile(args.test_disk, output / "disk.img")
@@ -87,13 +92,16 @@ def run(args):
                                                 "::RUNTESTS.TOS"])
             if original[:2] != b"\x60\x1a":
                 raise ValueError("The disk's RUNTESTS.TOS must be a 68k TOS PRG, not a native ELF")
-            (stage / "GUESTEST.TOS").write_bytes(original)
-            shutil.copyfile(args.launcher, stage / "RUNTESTS.TOS")
         else:
             shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
             for source, target in (("cli", "CLI.TOS"), ("semantics", "SEMANTIC.TOS"),
-                                   ("overlay", "OVERLAY.TOS"), ("fault", "FAULT.TOS")):
+                                   ("overlay", "OVERLAY.TOS"), ("fault", "FAULT.TOS"),
+                                   ("interpreter", "BIN/INTERP.TOS")):
                 shutil.copyfile(args.fixtures / (source + ".tos"), stage / target)
+            # The script's 68k interpreter itself needs binfmt redirection.
+            # The optional shebang argument is one argument, including quotes.
+            (stage / "SCRIPT.SH").write_bytes(
+                b"#!/BIN\\INTERP.TOS option with 'quotes'\r\nscript fixture\r\n")
         qemu = [args.qemu]
         if args.qemu_data:
             qemu += ["-L", args.qemu_data]
@@ -136,7 +144,7 @@ def run(args):
                            stdout=stream, stderr=subprocess.STDOUT, check=True)
         if original is not None:
             preserved = subprocess.check_output(["mtype", "-i", str(output / "disk.img") + "@@1048576",
-                                                 "::GUESTEST.TOS"])
+                                                 "::RUNTESTS.TOS"])
             if preserved != original:
                 raise RuntimeError("The original 68k test runner was not preserved byte for byte")
         qemu += ["-nic", "none", "-display", "none", "-monitor", "none", "-serial", "file:" + str(log)]

@@ -8,9 +8,22 @@ renamed to .prg. GEM/AES/VDI remain follow-ups. The POSIX backend is unchanged.
 Architecture-specific syscall implementations live in host/ptos/arm/ and
 host/ptos/x32/; loading, guest memory and process emulation are shared.
 
-Requires a kernel with pTOS #946, merged as e83242935290bcf4a934bb9c2b4ddcf956a43957:
-https://github.com/kelihlodversson/pTOS/pull/947
-The native backend has been boot-tested on both ARM and x32 with that kernel.
+Requires pTOS #946's high-image/low-RAM support. Direct 68k execution and
+the real-kernel tests also require pTOS #944's binfmt/shebang support,
+merged as fc3148179494f1b507ed38ee4c328ad52624fecf:
+https://github.com/kelihlodversson/pTOS/pull/949
+The native backend is boot-tested on both ARM and x32.
+
+For direct execution, place the native emulator at BIN/PARATOS.PRG on the
+boot drive and add this section to PTOS.INI in that drive's root:
+
+  [binfmt.tos68k]
+  magic=601A
+  interpreter=/BIN\PARATOS.PRG
+
+The kernel reads PTOS.INI at boot. Both path separators are accepted;
+the root-relative interpreter path uses the boot drive even when a caller
+changes its working directory. Native ELF programs retain native dispatch.
 
 In particular, linking high is insufficient: the native basepage,
 environment and startup mappings must also leave guest RAM available.
@@ -154,9 +167,10 @@ Validation
 ----------
 The real-kernel tests build native Paratos and a native test launcher, plus
 ordinary 68k PRGs compiled against libcmini. They boot pTOS under QEMU,
-using a real FAT disk image, and run 24 native launches per architecture:
+using a real FAT disk image and boot-drive PTOS.INI, and run 36 top-level
+launches per architecture:
 
-- Direct execution and split Pexec 3->4/6, repeated with image/basepage/
+- Direct 68k execution and split Pexec 3->4/6 through binfmt, repeated with image/basepage/
   environment cleanup and high native load addresses checked.
 - Quoted/empty arguments, environment, console and file I/O, status 37.
 - Guest Super/Supexec, live Ssystem-backed low memory, guest CPU cookies,
@@ -167,6 +181,12 @@ using a real FAT disk image, and run 24 native launches per architecture:
 - BIOS output remains on the console while GEMDOS stdout is redirected.
 - Native Pexec with inherited handles, working directory and environment;
   mode 200's native ENOSYS without an extra child launch.
+- Guest-to-guest Pexec(0) through the kernel and registered handler, with
+  short command tails overriding inherited ARGV while preserving environment.
+- Shebang scripts with a 68k interpreter (shebang followed by binfmt), an
+  optional argument containing spaces/quotes, empty arguments, CRLF and
+  propagated status 42, launched from native and guest callers.
+- Explicit PARATOS.PRG CLI launches continue to work alongside direct execution.
 - Invalid guest access to the native image and a partial live low-memory
   write terminate emulation with status 255; later launches still succeed.
 
@@ -187,10 +207,10 @@ OVMF_DIR and QEMU_DATA_DIR override firmware locations when needed.
 They also build pTOS's actual m68k test-hd.img with a CLI selection of its
 unmodified regression sources: cookie_values, fseek_rewind, open_unlink and
 sysconf. Full crt0.o produces a TOS PRG instead of a native m68k ELF. The
-additional ptos_m68k_disk test boots a copy of that image: the original
-RUNTESTS.TOS is preserved byte for byte as GUESTEST.TOS, and a native wrapper
-replaces RUNTESTS.TOS/EMUCON.TOS. It launches PARATOS.PRG GUESTEST.TOS through
-native Pexec, so this needs no binfmt handler. The other disk files remain
+additional ptos_m68k_disk test boots a copy of that image: RUNTESTS.TOS stays
+in place, preserved byte for byte, and a native wrapper replaces EMUCON.TOS.
+It launches RUNTESTS.TOS directly through native Pexec and the boot-configured
+binfmt handler. The other disk files remain
 in place. CTest requires both a successful upstream test summary and exit
 status 0 from the guest; failures are not filtered into a passing result.
 GUI/VDI, hardware, native-MMU and unimplemented MiNT ABI suites are outside
@@ -209,7 +229,7 @@ containing libcmini.a and objs/crt0.o). Then build and run just the boot test:
   cmake --build build/ptos/arm-native -j4
   ctest --test-dir build/ptos/arm-native -R '^ptos_kernel$' --output-on-failure
 
-The prepared kernel needs Mmap, the ELF loader and an external CLI. ARM uses
+The prepared kernel needs Mmap, the ELF loader, binfmt and an external CLI. ARM uses
 virt-arm-aspace; x32 uses pc-x86_64 with Mmap enabled. The build script
 disables the x32 kernel's own boot self-test to keep this test independent
 of its fixtures. An already built default x32 kernel additionally needs
