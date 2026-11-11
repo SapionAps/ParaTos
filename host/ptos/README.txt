@@ -146,7 +146,11 @@ Search buffers belong to a guest basepage and DTA address, so switching DTAs
 or running an internal overlay preserves the parent's search. Each search
 temporarily selects its native DTA and restores the original native pointer.
 Native search state remains private; guest reserved DTA bytes are not native
-pointers. Unfinished native cursors are cancelled before their buffers are freed at guest
+pointers. The emulator shares the kernel's eight native search slots across
+internal guests. A ninth live search returns ENSMEM before starting, so resource
+pressure cannot silently evict an existing parent or child cursor. Restarting an
+existing search reuses its slot; EOF or guest termination releases it.
+Unfinished native cursors are cancelled before their buffers are freed at guest
 termination (including retained PE_GO images) and on emulator cleanup. If native
 DTA restoration fails, the buffer stays alive with a retired owner until pointer
 restoration and cleanup can be retried.
@@ -194,7 +198,8 @@ launches per architecture:
 
 - Direct 68k execution and split Pexec 3->4/6 through binfmt, repeated with image/basepage/
   environment cleanup and high native load addresses checked.
-- Dfree, interleaved searches with distinct DTAs, nested-overlay search isolation,
+- Dfree, interleaved searches with distinct DTAs, nested-overlay search isolation
+  under native cursor-table pressure,
   classic DTA field offsets and byte order, and native/guest status comparison
   for Fxattr, Dpathconf and Ssync, including host ENOSYS.
 - Quoted/empty arguments, environment, console and file I/O, status 37.

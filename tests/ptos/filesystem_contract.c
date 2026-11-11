@@ -293,6 +293,26 @@ void test_filesystem(void)
 		ptos_filesystem_drop(other);
 		assert(native_searches() == 1);
 	}
+	uint32_t child_dtas = sp + 4096;
+	/* One overlay can also fill the table before exiting. Refuse its
+	 * eighth cursor rather than evicting the parent's active cursor. */
+	for (unsigned int i = 0; i < 7; i++)
+	{
+		m68k_write_memory_32(other + BP_DTA, child_dtas + i * 64);
+		assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == 0);
+	}
+	assert(native_searches() == 8);
+	uint32_t full_dta = child_dtas + 7 * 64;
+	m68k_write_memory_32(other + BP_DTA, full_dta);
+	memset(ptos_guest_buffer(full_dta, 44), 0xa7, 44);
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == PTOS_ENSMEM);
+	assert(native_searches() == 8 && native_dta == DEFAULT_DTA);
+	for (unsigned int i = 0; i < 44; i++) assert(m68k_read_memory_8(full_dta + i) == 0xa7);
+	/* Restarting a search reuses its existing slot, even at capacity. */
+	m68k_write_memory_32(other + BP_DTA, child_dtas);
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == 0);
+	ptos_filesystem_drop(other);
+	assert(native_searches() == 1);
 	ptos_process = bp;
 	assert(invoke(sp, GEMDOS_OP_FSNEXT) == 0);
 	ptos_filesystem_cleanup();

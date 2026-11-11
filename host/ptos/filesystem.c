@@ -20,6 +20,16 @@ typedef struct search {
 	ptos_native_dta native;
 } search;
 static search *searches;
+/* The pTOS protected DTA table has eight slots per native process. Never
+ * start a ninth cursor: it would silently evict a suspended guest's search. */
+#define NATIVE_SEARCH_LIMIT 8
+
+static unsigned int active_searches(void)
+{
+	unsigned int count = 0;
+	for (search *p = searches; p; p = p->next) count += p->started != 0;
+	return count;
+}
 /* Never used for Fsfirst. Fsnext on an unstarted guest DTA must not reuse
  * kernel search state belonging to a freed/reallocated native buffer. */
 static ptos_native_dta empty_dta;
@@ -71,6 +81,8 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 	int32_t repaired = repair_native_dta();
 	if (repaired < 0) return repaired;
 	search *p = find_search(address);
+	if (function == GEMDOS_OP_FSFIRST && (!p || !p->started) &&
+		active_searches() >= NATIVE_SEARCH_LIMIT) return PTOS_ENSMEM;
 	if (function == GEMDOS_OP_FSFIRST && !p)
 	{
 		p = calloc(1, sizeof(*p));
