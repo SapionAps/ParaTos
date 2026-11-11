@@ -4,7 +4,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-#include "tos_errors.h"
+#include "host.h"
 #include <errno.h>
 
 int32_t MapErrno(void)

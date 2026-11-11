@@ -1,5 +1,5 @@
 #pragma once
-#include <time.h>
+#include "common.h"
 // Character input/output
 
 int32_t Cauxin ( void );
@@ -172,9 +172,6 @@ int32_t Suptime ( emuptr32_t uptime, emuptr32_t loadaverage );
 uint16_t Sversion ( void );
 void Syield ( void );
 int32_t Sysconf ( int16_t n );
-
-uint32_t unixtime2dos(const time_t* unixtime);
-time_t dostime2unix(uint32_t dostime);
 
 void InitMemory(void);
 

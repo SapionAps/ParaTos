@@ -18,7 +18,7 @@
 
 #include "common.h"
 #include "path.h"
-#include "tos_errors.h"
+#include "host.h"
 #include "gemdos.h"
 
 
@@ -675,19 +675,6 @@ int32_t Fgetchar ( int16_t fh, int16_t mode )
 }
 
 /**
- * Fgetdta - 47
- *
- * The GEMDOS routine Fgetdta obtains the address of a buffer for Fsfirst and
- * Fsnext.
- *
- * DTA *Fgetdta ( void )
- */
-emuptr32_t Fgetdta ( void )
-{
-	return m68k_read_field(current_process, basepage_t, p_dta);
-}
-
-/**
  * Finstat - 261
  *
  * The function Finstat returns the maximum number of bytes that may be read
@@ -1261,24 +1248,6 @@ int32_t Fpoll ( /*POLLFD */ emuptr32_t fds, uint32_t nfds, uint32_t timeout )
 	return retval;
 #	undef READ
 #	undef WRITE
-}
-
-/**
- * Fsetdta - 26
- *
- * The GEMDOS routine Fsetdta sets the address of the memory segment that
- * will be used as the new DTA. The parameter buf is a pointer to this
- * structure.
- *
- * Note: At program launch the DTA will be established starting at offset
- * 0x80 in the basepage.
- *
- * void Fsetdta ( DTA *buf )
- */
-
-void Fsetdta ( emuptr32_t buf )
-{
-	m68k_write_field(current_process, basepage_t, p_dta, buf);
 }
 
 /**

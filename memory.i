@@ -6,8 +6,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/mman.h>
 #include "byteorder.h"
 
 extern uint8_t* memory;
@@ -26,17 +24,17 @@ INLINE unsigned int m68k_read_memory_8(unsigned int address)
 
 INLINE unsigned int m68k_read_memory_16(unsigned int address)
 {
-    return be16toh(MEM16(address));
+    return paratos_be16toh(MEM16(address));
 }
 
 INLINE unsigned int m68k_read_memory_32(unsigned int address)
 {
-    return be32toh(MEM32(address));
+    return paratos_be32toh(MEM32(address));
 }
 
 INLINE uint64_t m68k_read_memory_64(unsigned int address)
 {
-    return be64toh(MEM64(address));
+    return paratos_be64toh(MEM64(address));
 }
 
 INLINE void m68k_write_memory_8(unsigned int address, unsigned int value)
@@ -46,16 +44,16 @@ INLINE void m68k_write_memory_8(unsigned int address, unsigned int value)
 
 INLINE void m68k_write_memory_16(unsigned int address, unsigned int value)
 {
-    MEM16(address) = htobe16((uint16_t)value);
+    MEM16(address) = paratos_htobe16((uint16_t)value);
 }
 
 INLINE void m68k_write_memory_32(unsigned int address, unsigned int value)
 {
-    MEM32(address) = htobe32((uint32_t)value);
+    MEM32(address) = paratos_htobe32((uint32_t)value);
 }
 
 INLINE void m68k_write_memory_64(unsigned int address, uint64_t value)
 {
-	MEM64(address) = htobe64(value);
+	MEM64(address) = paratos_htobe64(value);
 }
 #endif

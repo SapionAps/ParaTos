@@ -2,7 +2,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "common.h"
-#include "tos_errors.h"
+#include "host.h"
 
 /**
  * Cauxin - 3

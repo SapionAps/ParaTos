@@ -1,5 +1,5 @@
 #include "common.h"
-#include "tos_errors.h"
+#include "host.h"
 
 /**
  * Nversion - 96

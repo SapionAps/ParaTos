@@ -7,8 +7,9 @@ This repository is a C11 project built with CMake.
 
 - Binary: `paratos` (userspace Atari TOS/MiNT emulator)
 - Root build script: `CMakeLists.txt`
-- Main executable sources: `paratos.c`, `memory.c`, `tos_errors.c`
-- Internal library: `gemdos/` (GEMDOS syscall emulation)
+- POSIX backend: `host/posix/` (Linux/macOS startup and native adapters)
+- Native pTOS backend: `host/ptos/` (ARM/x32)
+- Guest ABI/runtime: `gemdos/`, `memory.c`, `memory.i`, `byteorder.h`, `runtime.c`
 - Bundled dependency: `mushashi/` (68k CPU emulator)
 
 ## 2) Build Commands
@@ -36,8 +37,9 @@ Run emulator:
 
 ## 3) Test Commands (Including Single-Test Workflow)
 
-There is currently no committed test suite (`add_test(...)` is not present).
-Still, use CTest conventions whenever tests are added.
+CTest includes POSIX memory/basepage checks, generated PRG launch checks when
+Python 3 is available, and the pTOS contract test on Linux. Native pTOS builds
+can additionally run ARM ABI and real-kernel boot tests; see host/ptos/README.txt.
 
 ```bash
 # run all tests
@@ -53,7 +55,8 @@ ctest --test-dir build -R "^<exact-test-name>$" -V
 ctest --test-dir build -N
 ```
 
-Expected current behavior: CTest reports no tests found.
+The compiled POSIX syscall suite is separate: `make -C test_programs -j4`, then
+`test_programs/run_syscalls.sh --no-build`.
 
 ## 4) Lint / Static Analysis
 
@@ -137,7 +140,8 @@ Follow local style in each file and avoid unrelated reformatting.
 
 ## 6) Build Graph Conventions
 
-- Root target links static libraries `mushashi` and `gemdos`.
+- The POSIX executable links `mushashi` and the shared `gemdos` object library.
+- Keep POSIX APIs in `host/posix/`; guest ABI/PRG/CPU helpers remain outside it.
 - `mushashi` decoder sources are generated via `m68kmake` during build.
 - Do not hand-edit generated decoder outputs if they appear.
 

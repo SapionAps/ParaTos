@@ -10,8 +10,6 @@
 #include "gemdos.h"
 #include "loader.h"
 
-extern char **environ;
-
 #define MAX_TOS_ARG 126
 
 uint32_t BuildTosArglist(uint32_t args, char* argv[], int argc, uint32_t env)
@@ -92,7 +90,7 @@ notrunc:
 #define WRITE_BASEPAGE(field,value) m68k_write_field(base_tpa, basepage_t, field, value)
 #define READ_BASEPAGE(field) m68k_read_field(base_tpa, basepage_t, field)
 
-emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
+emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environment[])
 {
 	tos_header_t header;
 	FILE* file = fopen(filename,"r");
@@ -102,14 +100,14 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 		return 0;
 	}
 	fread(&header, sizeof(tos_header_t), 1, file);
-	header.PRG_magic = be16toh(header.PRG_magic);
-	header.PRG_tsize = be32toh(header.PRG_tsize);
-	header.PRG_dsize = be32toh(header.PRG_dsize);
-	header.PRG_bsize = be32toh(header.PRG_bsize);
-	header.PRG_ssize = be32toh(header.PRG_ssize);
-	header.PRG_res1 = be32toh(header.PRG_res1);
-	header.PRGFLAGS = be32toh(header.PRGFLAGS);
-	header.ABSFLAG = be16toh(header.ABSFLAG);
+	header.PRG_magic = paratos_be16toh(header.PRG_magic);
+	header.PRG_tsize = paratos_be32toh(header.PRG_tsize);
+	header.PRG_dsize = paratos_be32toh(header.PRG_dsize);
+	header.PRG_bsize = paratos_be32toh(header.PRG_bsize);
+	header.PRG_ssize = paratos_be32toh(header.PRG_ssize);
+	header.PRG_res1 = paratos_be32toh(header.PRG_res1);
+	header.PRGFLAGS = paratos_be32toh(header.PRGFLAGS);
+	header.ABSFLAG = paratos_be16toh(header.ABSFLAG);
 	TRACEF("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 
 	uint32_t base_tpa = Malloc(Malloc(-1));
@@ -121,7 +119,7 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 	WRITE_BASEPAGE(p_env, current);          /* Address of the environment string   */
 
 	// copy environment
-	for(char ** ep=environ; *ep; ep++)
+	for(char ** ep=environment; *ep; ep++)
 	{
 		for(char *vp=*ep; *vp;vp++)
 		{
@@ -168,7 +166,7 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc)
 	uint32_t fixed;
 	if (fread(&fixup, sizeof(uint32_t), 1, file))
 	{
-		fixup = be32toh(fixup);
+		fixup = paratos_be32toh(fixup);
 		TRACEF("Performing fixups starting at offset %08x\n", fixup);
 		if (fixup)
 		{

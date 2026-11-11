@@ -1,5 +1,5 @@
 #pragma once
-#include <stdint.h>
+#include "common.h"
 typedef struct  {
 	uint16_t PRG_magic;
 	int32_t PRG_tsize;
@@ -11,4 +11,4 @@ typedef struct  {
 	uint16_t ABSFLAG;
 } __attribute__((packed)) tos_header_t;
 
-emuptr32_t LoadExe(const char* filename, char* argv[], int argc);
+emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environment[]);

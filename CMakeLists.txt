@@ -14,12 +14,6 @@ if(PARATOS_PTOS)
 endif()
 add_subdirectory (gemdos)
 
-set (SOURCE_FILES paratos.c memory.c tos_errors.c)
-
-include_directories( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/mushashi ${CMAKE_CURRENT_SOURCE_DIR}/gemdos)
-
-set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")  # enable C11 standard
-
 if (CMAKE_C_COMPILER_ID MATCHES "Clang")
 	add_compile_options(
 		-Wno-sign-conversion
@@ -35,9 +29,7 @@ if (CMAKE_C_COMPILER_ID MATCHES "Clang")
 	)
 endif ()
 
-add_executable (paratos ${SOURCE_FILES})
-target_link_libraries (paratos mushashi gemdos)
-add_definitions( -D_GNU_SOURCE )
+add_subdirectory(host/posix)
 
 if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	add_subdirectory(tests/ptos)
