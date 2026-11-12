@@ -26,6 +26,7 @@ void ptos_command_tail(char tail[128], int argc, char **argv);
 #define PTOS_EIHNDL (-37)
 #define PTOS_ENSMEM (-39)
 #define PTOS_EIMBA  (-40)
+#define PTOS_ENMFIL (-49)
 #define PTOS_ERANGE (-64)
 #define PTOS_EPLFMT (-66)
 

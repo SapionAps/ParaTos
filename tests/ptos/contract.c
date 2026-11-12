@@ -13,6 +13,7 @@
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "filesystem_contract.h"
 
 static char output[8192];
 static size_t output_size;
@@ -67,7 +68,8 @@ int32_t ptos_unmap(uint32_t address, uint32_t length)
 
 int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 {
-	(void)d;
+	int32_t filesystem_result;
+	if (filesystem_test_native(fn, a, b, c, d, &filesystem_result)) return filesystem_result;
 	switch (fn)
 	{
 	case 0x154:
@@ -287,6 +289,18 @@ static void test_file_lifetimes(void)
 	assert(fcntl(inherited, F_GETFD) >= 0);
 	close(inherited);
 	remove("contract-files.tmp");
+}
+
+static void test_filesystem_lifetime(void)
+{
+	reset();
+	const unsigned char code[] = {0x4e, 0x75};
+	uint32_t parent = load_fixture(code, sizeof(code));
+	assert(ptos_shrink(parent, 4096) == 0);
+	ptos_process = parent;
+	uint32_t child = load_fixture(code, sizeof(code));
+	test_filesystem_retained(child);
+	ptos_allocator_destroy();
 }
 
 static void test_bios_devices(void)
@@ -538,6 +552,8 @@ int main(int argc, char **argv)
 	test_arguments();
 	test_file_lifetimes();
 	test_bios_devices();
+	test_filesystem();
+	test_filesystem_lifetime();
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);

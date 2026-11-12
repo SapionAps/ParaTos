@@ -34,7 +34,7 @@ make -C "$libcmini" BUILDDIR="$build/guest-libcmini" mintelf_defconfig
 make -C "$libcmini" BUILDDIR="$build/guest-libcmini" ONLY_68K=y -j4 dirs libs startups
 make -C "$kernel" atari512_defconfig
 make -C "$kernel" CROSS_COMPILE=m68k-atari-mintelf- \
-    TEST_SUITES="cookie_values fseek_rewind open_unlink sysconf" \
+    TEST_SUITES="cookie_values fseek_rewind open_unlink process_calls sysconf" \
     TEST_STARTUP="$build/guest-libcmini/objs/crt0.o" -j4 test-hd
 cp "$kernel/test-hd.img" "$build/m68k-test-hd.img"
 

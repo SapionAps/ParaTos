@@ -58,7 +58,7 @@ def run(args):
     if not enabled(machine) or (args.arch == "arm" and not enabled("CONF_WITH_PROCESS_ASPACES")):
         raise ValueError("The prepared kernel does not match the selected architecture/address spaces")
     verify_image(args.paratos, args.arch)
-    for name in ("cli", "semantics", "overlay", "fault", "interpreter"):
+    for name in ("cli", "semantics", "overlay", "fault", "interpreter", "filesystem", "fs_overlay"):
         if (args.fixtures / (name + ".tos")).read_bytes()[:2] != b"\x60\x1a":
             raise ValueError(name + " must be a compiled 68k TOS PRG")
     revision = "unknown"
@@ -94,9 +94,11 @@ def run(args):
                 raise ValueError("The disk's RUNTESTS.TOS must be a 68k TOS PRG, not a native ELF")
         else:
             shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
+            shutil.copyfile(args.filesystem_native, stage / "FSNATIVE.TOS")
             for source, target in (("cli", "CLI.TOS"), ("semantics", "SEMANTIC.TOS"),
                                    ("overlay", "OVERLAY.TOS"), ("fault", "FAULT.TOS"),
-                                   ("interpreter", "BIN/INTERP.TOS")):
+                                   ("interpreter", "BIN/INTERP.TOS"),
+                                   ("filesystem", "FSCOMP.TOS"), ("fs_overlay", "FSOVL.TOS")):
                 shutil.copyfile(args.fixtures / (source + ".tos"), stage / target)
             # The script's 68k interpreter itself needs binfmt redirection.
             # The optional shebang argument is one argument, including quotes.
@@ -183,7 +185,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arch", required=True, choices=("arm", "x32"))
-    for name in ("kernel-dir", "paratos", "launcher", "native-child", "fixtures", "output"):
+    for name in ("kernel-dir", "paratos", "launcher", "native-child", "filesystem-native", "fixtures", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--qemu", required=True)
     parser.add_argument("--qemu-data", default="")

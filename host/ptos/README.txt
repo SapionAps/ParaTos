@@ -134,10 +134,44 @@ close/delete/rename, attributes and date/time (with endian conversion);
 directory get/set/create/delete; guest Malloc/Mfree/Mshrink and ST-RAM
 Mxalloc; guest basepages, PRG loading/relocation, Sysconf and selected Ssystem calls.
 BIOS device calls use native BIOS traps and bypass GEMDOS stream redirection.
-Calls with unimplemented structure ABIs return ENOSYS instead of passing
-big-endian guest structures blindly to native code. This includes directory
-search/extended stat interfaces and much of MiNT; full MiNT libc startup
-is not yet supported. Dfree, signals and networking are not implemented.
+CLI filesystem forwarding also covers Fsfirst/Fsnext, Dfree, Dgetcwd,
+Dpathconf, Dlock, Dchroot, links/readlink, chmod/chown, Fxattr and Ssync.
+Additional process calls forward effective/audit IDs, audit-ID setting,
+priority queries/updates, nice/umask and Prusage.
+
+Native output structures are marshalled into the 68k ABI: the 48-byte
+native DTA becomes a 44-byte guest DTA, the 56-byte native XATTR becomes
+52 bytes, and disk information/resource usage use big-endian 32-bit values.
+Search buffers belong to a guest basepage and DTA address, so switching DTAs
+or running an internal overlay preserves the parent's search. Each search
+temporarily selects its native DTA and restores the original native pointer.
+Native search state remains private; guest reserved DTA bytes are not native
+pointers. The emulator shares the kernel's eight native search slots across
+internal guests. A ninth live search returns ENSMEM before starting, so resource
+pressure cannot silently evict an existing parent or child cursor. Restarting an
+existing search reuses its slot; EOF or guest termination releases it.
+Unfinished native searches are exhausted through Fsnext before their buffers are
+freed at guest
+termination (including retained PE_GO images) and on emulator cleanup. If native
+DTA restoration fails, the buffer stays alive with a retired owner until pointer
+restoration and cleanup can be retried. Non-EOF cleanup errors also retain the
+context for retry. Later search calls retry retired contexts before enforcing
+the cursor limit, so a temporary failure cannot permanently consume the slots.
+Failed or exhausted searches release their inactive bookkeeping immediately when
+restoration succeeds; pending restoration retires the record for later cleanup.
+Restarting a DTA first exhausts its previous search, so a path
+error cannot leave a pluggable filesystem directory cookie behind. Cleanup may
+therefore scan the remaining matching entries before releasing a search.
+Copying reserved DTA bytes does not clone a native search: pTOS itself keys
+its protected search state by DTA address.
+
+Forwarding does not require a kernel implementation of the syscall. Native
+errors, including ENOSYS, return unchanged in guest D0. Signed non-positive
+Dgetcwd/Freadlink lengths use a native scratch buffer and still reach the kernel,
+so native ERANGE/ENOSYS is preserved. Converted output is
+committed only on success. Unknown structure/command ABIs still need explicit
+adapters; directory streams, stat64, signals and networking remain follow-ups.
+Full MiNT libc startup is not yet supported.
 
 Pexec(0) and Pexec(200) delegate to native Pexec even for a 68k target.
 This depends on binfmt registration to select another Paratos instance;
@@ -167,11 +201,15 @@ Validation
 ----------
 The real-kernel tests build native Paratos and a native test launcher, plus
 ordinary 68k PRGs compiled against libcmini. They boot pTOS under QEMU,
-using a real FAT disk image and boot-drive PTOS.INI, and run 36 top-level
+using a real FAT disk image and boot-drive PTOS.INI, and run 42 top-level
 launches per architecture:
 
 - Direct 68k execution and split Pexec 3->4/6 through binfmt, repeated with image/basepage/
   environment cleanup and high native load addresses checked.
+- Dfree, interleaved searches with distinct DTAs, nested-overlay search isolation
+  under native cursor-table pressure,
+  classic DTA field offsets and byte order, and native/guest status comparison
+  for Fxattr, Dpathconf and Ssync, including host ENOSYS.
 - Quoted/empty arguments, environment, console and file I/O, status 37.
 - Guest Super/Supexec, live Ssystem-backed low memory, guest CPU cookies,
   denied writes and unsupported calls. All native execution stays in userspace.
@@ -205,8 +243,8 @@ sequentially and finish testing one before selecting the next kernel.
 OVMF_DIR and QEMU_DATA_DIR override firmware locations when needed.
 
 They also build pTOS's actual m68k test-hd.img with a CLI selection of its
-unmodified regression sources: cookie_values, fseek_rewind, open_unlink and
-sysconf. Full crt0.o produces a TOS PRG instead of a native m68k ELF. The
+unmodified regression sources: cookie_values, fseek_rewind,
+open_unlink, process_calls and sysconf. Full crt0.o produces a TOS PRG instead of a native m68k ELF. The
 additional ptos_m68k_disk test boots a copy of that image: RUNTESTS.TOS stays
 in place, preserved byte for byte, and a native wrapper replaces EMUCON.TOS.
 It launches RUNTESTS.TOS directly through native Pexec and the boot-configured
@@ -257,7 +295,11 @@ The contract test executes real 68k instructions for Supexec and overlays,
 checks low-memory byte order/live updates, identity pointers, host launch
 delegation, guest/native address separation, ownership and malformed PRG
 cleanup. It also checks 100 nested overlay file-lifetime cycles against real
-host descriptors. Fixtures are generated at runtime; no cross compiler is required.
+host descriptors. Filesystem contract cases check unaligned guest outputs,
+DTA/XATTR/disk/usage byte order, DTA and guest ownership, bounded native cursor
+slots, retained-image termination, restoration retries, bounded allocations across
+256 completed/failed searches on distinct DTAs, signed sizes, exact errors,
+and unchanged converted output on error. Fixtures are generated at runtime; no cross compiler is required.
 Unstarted-image tests also verify descriptor counts through 100 load/free
 cycles, snapshot/load failures, failed-start retry and allocator cleanup.
 Assertions stay enabled in Release builds too. This test currently uses

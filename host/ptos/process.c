@@ -4,6 +4,7 @@
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "filesystem.h"
 
 int ptos_finished;
 uint16_t ptos_status;
@@ -84,6 +85,7 @@ int32_t ptos_capture_process(uint32_t bp)
 void ptos_drop_process(uint32_t bp)
 {
 	ptos_files_drop(bp);
+	ptos_filesystem_drop(bp);
 	for (loaded_context **at = &loaded; *at; at = &(*at)->next)
 	{
 		loaded_context *p = *at;
@@ -96,6 +98,7 @@ void ptos_drop_process(uint32_t bp)
 void ptos_process_cleanup(void)
 {
 	ptos_files_cleanup();
+	ptos_filesystem_cleanup();
 	while (parents)
 	{
 		parent *p = parents;
@@ -161,6 +164,8 @@ int32_t ptos_go(uint32_t bp, int take_ownership)
 
 void ptos_terminate(uint16_t status)
 {
+	/* PE_GO retains the image but the terminating guest loses its searches. */
+	ptos_filesystem_drop(ptos_process);
 	ptos_free_owned(ptos_process);
 	if (parents)
 	{
