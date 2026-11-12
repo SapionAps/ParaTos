@@ -8,6 +8,13 @@
 static const char cli_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
 static const char semantics_env[] = "DEMO=present\0ARGV=\0C:\\SEMANTIC.TOS\0";
 static const char filesystem_env[] = "DEMO=present\0ARGV=\0C:\\FSCOMP.TOS\0";
+#if defined(__arm__)
+static const char vdi_env[] = "VDI=kernel\0ARGV=\0C:\\VDI.TOS\0";
+#elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
+static const char vdi_env[] = "VDI=required\0ARGV=\0C:\\VDI.TOS\0";
+#else
+static const char vdi_env[] = "VDI=absent\0ARGV=\0C:\\VDI.TOS\0";
+#endif
 static const char read_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0read\0";
 static const char write_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0write\0";
 static const char script_env[] = "DEMO=present\0ARGV=NULL:2\0C:/SCRIPT.SH\0two words\0 \0";
@@ -58,6 +65,7 @@ int main(void)
 		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_env, 37},
 		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, 0},
 		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_env, 0},
+		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_env, 0},
 		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_env, 255},
 		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_env, 255},
 		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_env, 42},
@@ -74,6 +82,9 @@ int main(void)
 		for (unsigned int mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++)
 			for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
 			{
+#ifdef PTOS_TEST_VDI_ONLY
+				if (cases[i].env != vdi_env) continue;
+#endif
 				long result = launch(modes[mode], cases[i].path, cases[i].env);
 				printf("round %d mode %d %s: %ld\n", round + 1, modes[mode], cases[i].name, result);
 				if (result != cases[i].status)

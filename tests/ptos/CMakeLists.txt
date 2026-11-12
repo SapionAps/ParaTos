@@ -7,7 +7,9 @@ target_include_directories(mushashi_ptos PRIVATE ${PROJECT_SOURCE_DIR}/mushashi 
 target_compile_definitions(mushashi_ptos PRIVATE PARATOS_PTOS=1)
 add_dependencies(mushashi_ptos mushashi)
 
-add_executable(ptos_contract contract.c filesystem_contract.c
+add_executable(ptos_contract contract.c filesystem_contract.c vdi_contract.c
+	${PROJECT_SOURCE_DIR}/vdi/vdi.c
+	${PROJECT_SOURCE_DIR}/host/ptos/vdi.c
 	${PROJECT_SOURCE_DIR}/host/ptos/arguments.c
 	${PROJECT_SOURCE_DIR}/host/ptos/memory.c
 	${PROJECT_SOURCE_DIR}/host/ptos/loader.c

@@ -58,7 +58,7 @@ def run(args):
     if not enabled(machine) or (args.arch == "arm" and not enabled("CONF_WITH_PROCESS_ASPACES")):
         raise ValueError("The prepared kernel does not match the selected architecture/address spaces")
     verify_image(args.paratos, args.arch)
-    for name in ("cli", "semantics", "overlay", "fault", "interpreter", "filesystem", "fs_overlay"):
+    for name in ("cli", "semantics", "overlay", "fault", "interpreter", "filesystem", "fs_overlay", "vdi", "vdi_overlay"):
         if (args.fixtures / (name + ".tos")).read_bytes()[:2] != b"\x60\x1a":
             raise ValueError(name + " must be a compiled 68k TOS PRG")
     revision = "unknown"
@@ -98,7 +98,8 @@ def run(args):
             for source, target in (("cli", "CLI.TOS"), ("semantics", "SEMANTIC.TOS"),
                                    ("overlay", "OVERLAY.TOS"), ("fault", "FAULT.TOS"),
                                    ("interpreter", "BIN/INTERP.TOS"),
-                                   ("filesystem", "FSCOMP.TOS"), ("fs_overlay", "FSOVL.TOS")):
+                                   ("filesystem", "FSCOMP.TOS"), ("fs_overlay", "FSOVL.TOS"),
+                                   ("vdi", "VDI.TOS"), ("vdi_overlay", "VDIOVL.TOS")):
                 shutil.copyfile(args.fixtures / (source + ".tos"), stage / target)
             # The script's 68k interpreter itself needs binfmt redirection.
             # The optional shebang argument is one argument, including quotes.

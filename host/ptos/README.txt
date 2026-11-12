@@ -4,7 +4,8 @@ pTOS backend (issue #7)
 Status
 ------
 This is a native pTOS CLI backend for ARM and x32, not the POSIX executable
-renamed to .prg. GEM/AES/VDI remain follow-ups. The POSIX backend is unchanged.
+renamed to .prg. AES remains a follow-up. An optional x32 userspace VDI adapter
+supports the operations documented in ../../vdi/README.md. The POSIX backend is unchanged.
 Architecture-specific syscall implementations live in host/ptos/arm/ and
 host/ptos/x32/; loading, guest memory and process emulation are shared.
 
@@ -201,7 +202,7 @@ Validation
 ----------
 The real-kernel tests build native Paratos and a native test launcher, plus
 ordinary 68k PRGs compiled against libcmini. They boot pTOS under QEMU,
-using a real FAT disk image and boot-drive PTOS.INI, and run 42 top-level
+using a real FAT disk image and boot-drive PTOS.INI, and run 48 top-level
 launches per architecture:
 
 - Direct 68k execution and split Pexec 3->4/6 through binfmt, repeated with image/basepage/
@@ -210,6 +211,9 @@ launches per architecture:
   under native cursor-table pressure,
   classic DTA field offsets and byte order, and native/guest status comparison
   for Fxattr, Dpathconf and Ssync, including host ENOSYS.
+- x32 VDI array/MFDB conversion, drawing/inquiry, raster byte order and repeated
+  retained/transferred overlays with workstation cleanup. ARM forwards SVC #2
+  and compares kernel errors with an independent native VDI probe.
 - Quoted/empty arguments, environment, console and file I/O, status 37.
 - Guest Super/Supexec, live Ssystem-backed low memory, guest CPU cookies,
   denied writes and unsupported calls. All native execution stays in userspace.

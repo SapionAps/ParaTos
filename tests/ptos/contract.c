@@ -14,6 +14,7 @@
 #include "memory.h"
 #include "guest.h"
 #include "filesystem_contract.h"
+#include "vdi_contract.h"
 
 static char output[8192];
 static size_t output_size;
@@ -300,6 +301,7 @@ static void test_filesystem_lifetime(void)
 	ptos_process = parent;
 	uint32_t child = load_fixture(code, sizeof(code));
 	test_filesystem_retained(child);
+	test_vdi_retained(child);
 	ptos_allocator_destroy();
 }
 
@@ -553,6 +555,7 @@ int main(int argc, char **argv)
 	test_file_lifetimes();
 	test_bios_devices();
 	test_filesystem();
+	test_vdi();
 	test_filesystem_lifetime();
 	test_delegation();
 	test_guest_super();

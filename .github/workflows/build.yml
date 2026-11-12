@@ -74,8 +74,8 @@ jobs:
         with:
           name: ptos-${{ matrix.arch }}
           path: |
-            paratos/build/ptos/kernel-*/native/host/ptos/kernel-test/*.log
-            paratos/build/ptos/kernel-*/native/host/ptos/kernel-test/kernel.json
+            paratos/build/ptos/kernel-*/native/host/ptos/kernel*-test/*.log
+            paratos/build/ptos/kernel-*/native/host/ptos/kernel*-test/kernel.json
             paratos/build/ptos/kernel-*/native/host/ptos/m68k-disk-test/*.log
             paratos/build/ptos/kernel-*/native/host/ptos/m68k-disk-test/kernel.json
             paratos/build/ptos/kernel-*/native/Testing/Temporary/LastTest.log
