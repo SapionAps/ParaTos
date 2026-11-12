@@ -56,8 +56,11 @@ responsible for final reclamation if the emulator process exits or faults.
 For x32, build pTOS with `CONF_WITH_X32_VDI=y`, run `make x32-vdi`, and configure
 ParaTos with `-DPTOS_VDI_LIBRARY=/path/to/pTOS/obj/x32/libptos-vdi.a`. This links
 the checked userspace client; no general VDIPB is passed to a kernel syscall.
-Without the optional archive, workstation opening returns ENOSYS. The current
-ARM backend also returns ENOSYS because pTOS has no ring-3 typed VDI entry there.
+Without the optional archive, x32 workstation opening returns ENOSYS. ARM calls
+`svc #2` with r0=0x73 and r1 pointing to the marshalled native parameter block.
+The kernel decides availability; its result is returned unchanged. The pinned
+kernel currently refuses userspace VDI with -1, rather than ENOSYS. The emulator
+does not translate that error or replace it with a local availability check.
 The shared marshaller is compiled on both architectures.
 
 The POSIX executable retains its preliminary GEM trap handling. This marshaller
@@ -81,8 +84,11 @@ ctest --test-dir build -R '^ptos_contract$' --output-on-failure
 The real-kernel test compiles ordinary 68k TRAP #2 callers. x32 exercises the
 native client, text/line drawing, inquiry, one-pixel planar copies, multi-plane
 MFDB transformation, invalid pointers and 64 unclosed internal overlays per
-fixture invocation. ARM verifies ENOSYS without changing the guest's control
-block. An x32 test build without the optional client also selects this unsupported
+fixture invocation. ARM compares guest errors with a separate native SVC #2
+probe and checks that the guest control block stays unchanged. Its QEMU SVC ABI
+monitor also checks register arguments/clobbers, full-width kernel errors and
+successful native output updates. An x32 test build without the optional client
+selects its unsupported
 mode. Each architecture runs 48 top-level launches plus the existing m68k disk.
 When the x32 client is linked, a second emulator/launcher without that archive
 also runs six fallback launches in `ptos_kernel_no_vdi`.

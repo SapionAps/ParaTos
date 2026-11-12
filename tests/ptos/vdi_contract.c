@@ -165,8 +165,8 @@ void test_vdi(void)
 	m68k_write_memory_16(INPUT, 'A'); m68k_write_memory_16(INPUT + 2, 0x1234);
 	m68k_write_memory_16(INPUT + 4, 0xff); m68k_write_memory_16(POINTS, -123);
 	assert(invoke() == 0);
-	const int32_t errors[] = {-36, PTOS_ENOSYS, PTOS_EIHNDL};
-	for (unsigned int i = 0; i < 3; i++)
+	const int32_t errors[] = {-36, PTOS_ENOSYS, (int32_t)0x89abcdef, PTOS_EIHNDL};
+	for (unsigned int i = 0; i < sizeof(errors) / sizeof(errors[0]); i++)
 	{
 		request(17, 1, 0, handle); native_error = errors[i];
 		assert(invoke() == native_error);

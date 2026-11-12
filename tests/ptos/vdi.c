@@ -22,6 +22,15 @@ int main(void)
 {
 	const char *mode = getenv("VDI");
 	long result = open_workstation();
+	if (mode && !strcmp(mode, "kernel") && result < 0)
+	{
+		char tail[128] = {1, 'v', 0};
+		long native = Pexec(0, "C:/FSNATIVE.TOS", tail, 0);
+		const short expected[12] = {100, 0, 0, 11, 0, 0, 0, 0, 0, 0, 0, 0};
+		if ((unsigned short)native != (unsigned short)result || memcmp(control, expected, sizeof(control))) return 18;
+		puts("pTOS VDI kernel error propagation: PASS");
+		return 0;
+	}
 	if (mode && !strcmp(mode, "absent"))
 	{
 		if (result != -32L || control[6] != 0) return 1;

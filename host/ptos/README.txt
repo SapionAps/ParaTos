@@ -212,7 +212,8 @@ launches per architecture:
   classic DTA field offsets and byte order, and native/guest status comparison
   for Fxattr, Dpathconf and Ssync, including host ENOSYS.
 - x32 VDI array/MFDB conversion, drawing/inquiry, raster byte order and repeated
-  retained/transferred overlays with workstation cleanup. ARM checks ENOSYS.
+  retained/transferred overlays with workstation cleanup. ARM forwards SVC #2
+  and compares kernel errors with an independent native VDI probe.
 - Quoted/empty arguments, environment, console and file I/O, status 37.
 - Guest Super/Supexec, live Ssystem-backed low memory, guest CPU cookies,
   denied writes and unsupported calls. All native execution stays in userspace.

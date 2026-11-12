@@ -8,7 +8,9 @@
 static const char cli_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
 static const char semantics_env[] = "DEMO=present\0ARGV=\0C:\\SEMANTIC.TOS\0";
 static const char filesystem_env[] = "DEMO=present\0ARGV=\0C:\\FSCOMP.TOS\0";
-#if defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
+#if defined(__arm__)
+static const char vdi_env[] = "VDI=kernel\0ARGV=\0C:\\VDI.TOS\0";
+#elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
 static const char vdi_env[] = "VDI=required\0ARGV=\0C:\\VDI.TOS\0";
 #else
 static const char vdi_env[] = "VDI=absent\0ARGV=\0C:\\VDI.TOS\0";

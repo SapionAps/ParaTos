@@ -45,7 +45,7 @@ ptos_executable(paratos 0x41000000)
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
 	if(BUILD_TESTING)
 		enable_language(ASM)
-		add_executable(ptos_arm_abi native.c ${PTOS_ARCH_SOURCE}
+		add_executable(ptos_arm_abi native.c ${PTOS_ARCH_SOURCE} ${PTOS_VDI_SOURCE}
 			${PROJECT_SOURCE_DIR}/tests/ptos/arm_abi.c
 			${PROJECT_SOURCE_DIR}/tests/ptos/arm_abi.S)
 		target_include_directories(ptos_arm_abi PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
