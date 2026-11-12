@@ -11,6 +11,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import termios
+import time
 import unittest
 
 
@@ -33,6 +35,14 @@ def prg(code, relocations=()):
 
 def terminate(status=37):
     return bytes.fromhex("3f3c") + struct.pack(">H", status) + bytes.fromhex("3f3c004c4e41")
+
+
+def console_input(device=2):
+    # Bconin(device); discard arguments; write all four bytes of D0 to stdout.
+    code = (bytes.fromhex("3f3c") + struct.pack(">H", device)
+            + bytes.fromhex("3f3c00024e4d588f2f00204f2f082f3c00000004"
+                            "3f3c00013f3c00404e41"))
+    return prg(code + terminate(0))
 
 
 def print_tail():
@@ -66,6 +76,63 @@ def parent():
 
 
 class LaunchTests(unittest.TestCase):
+    def test_bconin_pipe_and_eof(self):
+        (self.directory / "INPUT.TOS").write_bytes(console_input())
+        for data, expected in ((b"A", 65), (b"\xe9", 233), (b"", 4)):
+            with self.subTest(data=data):
+                result = self.run_guest("INPUT.TOS", input=data)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, struct.pack(">I", expected))
+                self.assertEqual(result.stderr, b"")
+
+    def test_bconin_unsupported_device(self):
+        (self.directory / "INPUT.TOS").write_bytes(console_input(1))
+        result = self.run_guest("INPUT.TOS", input=b"A")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, struct.pack(">i", -32))
+
+    def test_bconin_terminal(self):
+        (self.directory / "INPUT.TOS").write_bytes(console_input())
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        saved = termios.tcgetattr(slave)
+        child = subprocess.Popen([str(PARATOS), "INPUT.TOS"],
+                                 cwd=self.directory, stdin=slave,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 3
+            while termios.tcgetattr(slave)[3] & termios.ICANON:
+                self.assertIsNone(child.poll(), "Bconin did not wait for input")
+                self.assertLess(time.monotonic(), deadline, "terminal stayed canonical")
+                time.sleep(0.01)
+            self.assertFalse(termios.tcgetattr(slave)[3] & termios.ECHO)
+            self.assertIsNone(child.poll())
+            # A single byte must complete the read without a newline or echo.
+            os.write(master, b"\xe9")
+            stdout, stderr = child.communicate(timeout=3)
+            self.assertEqual(child.returncode, 0, stderr)
+            self.assertEqual(stdout, struct.pack(">I", 233))
+            self.assertEqual(stderr, b"")
+            self.assertEqual(termios.tcgetattr(slave), saved)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.communicate()
+
+    def test_bconin_preserves_queued_terminal_input(self):
+        (self.directory / "INPUT.TOS").write_bytes(console_input())
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        saved = termios.tcgetattr(slave)
+        os.write(master, b"Q\n")
+        result = subprocess.run([str(PARATOS), "INPUT.TOS"], cwd=self.directory,
+                                stdin=slave, capture_output=True, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, struct.pack(">I", ord("Q")))
+        self.assertEqual(termios.tcgetattr(slave), saved)
+
     def test_seek_errors_use_tos_codes(self):
         for handle, expected in ((1, -6), (32767, -37)):
             with self.subTest(handle=handle):
