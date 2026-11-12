@@ -19,6 +19,7 @@
 #include "common.h"
 #include "path.h"
 #include "host.h"
+#include "tasks.h"
 #include "gemdos.h"
 
 
@@ -128,7 +129,7 @@ int32_t Fchown ( emuptr32_t filename, int16_t uid, int16_t gid )
  */
 int16_t Fclose ( int16_t handle )
 {
-	return close(handle);
+	return PosixClose(handle) < 0 ? MapErrno() : 0;
 }
 
 /**
@@ -291,8 +292,9 @@ int16_t Fclose ( int16_t handle )
 int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 {
 	int32_t retval;
+	if (cmd == 0 && arg < 3) arg = 3;
 	if (cmd <=7)
-		retval = fcntl(fh, cmd, arg, 0);
+		retval = fcntl(PosixHostFd(fh), cmd, arg, 0);
 	else {
 		pid_t nativePid;
 		switch (cmd)
@@ -303,7 +305,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 			case 0x5400: // TIOCGETP
 			{
 				struct termios termios;
-				if (tcgetattr(fh, &termios) == -1)
+				if (tcgetattr(PosixHostFd(fh), &termios) == -1)
 					return MapErrno();
 				struct mint_sgttyb sg;
 				sg.sg_ispeed=cfgetispeed(&termios);
@@ -340,7 +342,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 			}
 			break;
 			case 0x5406: //TIOCGPGRP
-			retval = ioctl(fh, TIOCGPGRP, &nativePid);
+			retval = ioctl(PosixHostFd(fh), TIOCGPGRP, &nativePid);
 			if( retval == -1)
 			   return MapErrno();
 			m68k_write_memory_32(arg, nativePid);
@@ -348,14 +350,14 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 			break;
 			case 0x5407: //TIOCSPGRP
 			nativePid = m68k_read_memory_32(arg);
-			retval = ioctl(fh, TIOCSPGRP, &nativePid);
+			retval = ioctl(PosixHostFd(fh), TIOCSPGRP, &nativePid);
 			if( retval == -1)
 			   return MapErrno();
 			break;
 			case 0x540b: //TIOCGWINSZ
 			{
 				struct winsize w;
-				retval = ioctl(fh, TIOCGWINSZ, &w);
+				retval = ioctl(PosixHostFd(fh), TIOCGWINSZ, &w);
 				if( retval == -1)
 				   return MapErrno();
 				TRACEF("%d,%d,%d,%d\n",w.ws_row,w.ws_col, w.ws_xpixel, w.ws_ypixel);
@@ -372,7 +374,7 @@ int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 				w.ws_col = m68k_read_memory_16(arg+2);
 				w.ws_xpixel = m68k_read_memory_16(arg+4);
 				w.ws_ypixel = m68k_read_memory_16(arg+6);
-				retval = ioctl(fh, TIOCSWINSZ, &w);
+				retval = ioctl(PosixHostFd(fh), TIOCSWINSZ, &w);
 				if( retval == -1)
 				   return MapErrno();
 				break;
@@ -504,7 +506,7 @@ int16_t Ffstat64 (int16_t fd, /*struct stat */ uint32_t address)
 
 	//TRACEF("Ffstat64(%d, 0x%08x)\n", fd, address);
 	struct stat st;
-	if(fstat(fd, &st) < 0)
+	if(fstat(PosixHostFd(fd), &st) < 0)
 	{
 		return MapErrno();
 	}
@@ -562,7 +564,7 @@ void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
 	if(!wflag)
 	{
 		struct stat st;
-		if(fstat(handle, &st) == 0)
+		if(fstat(PosixHostFd(handle), &st) == 0)
 		{
 			m68k_write_memory_32(timeptr, unixtime2dos(&st.st_mtime));
 		}
@@ -572,7 +574,7 @@ void Fdatime ( emuptr32_t timeptr, int16_t handle, int16_t wflag )
 		struct timeval tv[2];
 		tv[0].tv_sec = tv[1].tv_sec = dostime2unix(m68k_read_memory_32(timeptr));
 		tv[0].tv_usec = tv[1].tv_usec = 0;
-		futimes(handle, tv);
+		futimes(PosixHostFd(handle), tv);
 	}
 }
 
@@ -610,7 +612,8 @@ int16_t Fdelete ( emuptr32_t filename )
  */
 int16_t Fdup ( int16_t handle )
 {
-	return dup(handle);
+	int result = fcntl(PosixHostFd(handle), F_DUPFD, 3);
+	return result < 0 ? MapErrno() : result;
 }
 
 /**
@@ -620,7 +623,7 @@ int16_t Fdup ( int16_t handle )
  */
 int32_t Ffchmod ( int16_t fd, int16_t mode)
 {
-	if(fchmod(fd, mode) != 0)
+	if(fchmod(PosixHostFd(fd), mode) != 0)
 		return MapErrno();
 	return TOS_E_OK;
 }
@@ -637,7 +640,7 @@ int32_t Ffchmod ( int16_t fd, int16_t mode)
  */
 int32_t Ffchown ( int16_t fd, int16_t uid, int16_t gid )
 {
-	if(fchown(fd, uid, gid) != 0)
+	if(fchown(PosixHostFd(fd), uid, gid) != 0)
 		return MapErrno();
 	return TOS_E_OK;
 }
@@ -653,7 +656,7 @@ int16_t Fforce ( int16_t stdh, int16_t nonstdh )
 {
 	//NOT_IMPLEMENTED(GEMDOS, Fforce, stdh);
 	//NOT_IMPLEMENTED(GEMDOS, Fforce, nonstdh);
-	if ( dup2(nonstdh, stdh) == -1)
+	if ( PosixForce(stdh, nonstdh) == -1)
 		return MapErrno();
 	return TOS_E_OK;
 }
@@ -668,7 +671,7 @@ int16_t Fforce ( int16_t stdh, int16_t nonstdh )
 int32_t Fgetchar ( int16_t fh, int16_t mode )
 {
 	char c;
-	if(read(fh, &c, 1) > 0)
+	if(PosixRead(fh, &c, 1) > 0)
 		return MapErrno();
 	else
 		return c;
@@ -827,7 +830,7 @@ int32_t Fopen ( emuptr32_t filename, int16_t mode )
 		flags |= O_NONBLOCK;
 	}
 
-	retval = open(path, flags, 0777);
+	retval = PosixAdoptFd(open(path, flags, 0777));
 	if (retval < 1)
 		retval = MapErrno();
 
@@ -886,6 +889,15 @@ int16_t Fpipe ( emuptr32_t usrh )
 	{
 		return MapErrno();
 	}
+	pipefd[0] = PosixAdoptFd(pipefd[0]);
+	pipefd[1] = PosixAdoptFd(pipefd[1]);
+	if (pipefd[0] < 0 || pipefd[1] < 0)
+	{
+		int32_t result = MapErrno();
+		if (pipefd[0] >= 0) close(pipefd[0]);
+		if (pipefd[1] >= 0) close(pipefd[1]);
+		return result;
+	}
 	m68k_write_memory_16(usrh, pipefd[0]);
 	m68k_write_memory_16(usrh+2, pipefd[1]);
 	return 0;
@@ -901,7 +913,7 @@ int16_t Fpipe ( emuptr32_t usrh )
 int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
 {
 	char c = (char)ch;
-	int retval = write(fh, &c, 1);
+	int retval = PosixWrite(fh, &c, 1);
 	if (retval < 0)
 	{
 		return MapErrno();
@@ -921,7 +933,7 @@ int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
 int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
 {
 	uint8_t* buffer = &memory[address];
-	int32_t bytes_read = read(handle, buffer, count);
+	int32_t bytes_read = PosixRead(handle, buffer, count);
 	if (bytes_read < 0)
 	{
 		return MapErrno();
@@ -989,7 +1001,7 @@ int32_t Frename ( emuptr32_t oldname, emuptr32_t newname )
  */
 int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
 {
-	off_t result = lseek(handle, offset, seekmode);
+	off_t result = lseek(PosixHostFd(handle), offset, seekmode);
 	return result < 0 ? MapErrno() : result;
 }
 
@@ -1117,7 +1129,7 @@ int32_t Fselect ( uint16_t timeout, emuptr32_t rfdsp, emuptr32_t wfdsp, emuptr32
 		mask &= mask-1; // Clear last significant bit in mask
 	}
 
-	int32_t status = poll(native_fds, nfds, timeout==0?-1:timeout);
+	int32_t status = PosixPoll(native_fds, nfds, timeout==0?-1:timeout);
 	if(status == -1)
 	{
 		return MapErrno();
@@ -1232,7 +1244,7 @@ int32_t Fpoll ( /*POLLFD */ emuptr32_t fds, uint32_t nfds, uint32_t timeout )
 		native_fds[i].events = mint_poll2native(READ(i, events));
 		native_fds[i].revents = mint_poll2native(READ(i, revents)); // or 0?
 	}
-	retval = poll(native_fds, nfds, timeout);
+	retval = PosixPoll(native_fds, nfds, timeout);
 	if (retval < 0)
 	{
 		retval = MapErrno();
@@ -1459,7 +1471,7 @@ int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
 int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
 {
 	uint8_t* buffer = &memory[address];
-	int32_t bytes_written = write(handle, buffer, count);
+	int32_t bytes_written = PosixWrite(handle, buffer, count);
 	if (bytes_written < 0)
 	{
 		return MapErrno();
@@ -1502,7 +1514,7 @@ int32_t _Ffxattr ( int16_t handle, emuptr32_t xattr )
 {
 	int32_t retval = TOS_E_OK;
 	struct stat st;
-	if(fstat(handle, &st) < 0)
+	if(fstat(PosixHostFd(handle), &st) < 0)
 	{
 		retval = MapErrno();
 	}

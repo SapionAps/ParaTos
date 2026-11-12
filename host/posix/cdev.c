@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include "common.h"
 #include "host.h"
+#include "tasks.h"
 
 /**
  * Cauxin - 3
@@ -130,7 +131,7 @@ int16_t Cconos ( void )
  */
 int32_t Cconout ( int16_t c )
 {
-	return write(1, &c, 1);
+	return PosixWrite(1, &c, 1);
 }
 
 /**
@@ -169,7 +170,7 @@ int32_t Cconws ( emuptr32_t address )
 {
 	uint8_t* buffer = &memory[address];
 	int count=strlen(buffer);
-	int32_t bytes_written = write(1, buffer, count);
+	int32_t bytes_written = PosixWrite(1, buffer, count);
 	if (bytes_written < 0)
 	{
 		return MapErrno();
@@ -249,16 +250,16 @@ int32_t Crawcin ( void )
 
     /* Retrieve current terminal settings, turn echoing off */
 
-    if (tcgetattr(0, &tp) != -1)
+    if (tcgetattr(PosixHostFd(0), &tp) != -1)
     {
 		save = tp;                          /* So we can restore settings later */
 		cfmakeraw(&tp);						/* Switch termial to raw mode */
-	    needRestore = (tcsetattr(0, TCSAFLUSH, &tp) != -1);
+	    needRestore = (tcsetattr(PosixHostFd(0), TCSAFLUSH, &tp) != -1);
 	}
 
 	int retval = TOS_ENOSYS;
 
-	if (read(0, &input, 1) == -1)
+	if (PosixRead(0, &input, 1) == -1)
 	{
 		retval = MapErrno();
 	}
@@ -267,7 +268,7 @@ int32_t Crawcin ( void )
 		retval = input;
 	}
 	if (needRestore)
-		tcsetattr(STDIN_FILENO, TCSAFLUSH, &save);
+		tcsetattr(PosixHostFd(STDIN_FILENO), TCSAFLUSH, &save);
 	//TRACEF("Crawcin --> %08x %c\n", retval, retval);
 
 	return retval;

@@ -13,4 +13,7 @@ if(Python3_Interpreter_FOUND)
 	add_test(NAME posix_launch COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/launch.py $<TARGET_FILE:paratos>)
 	set_tests_properties(posix_launch PROPERTIES TIMEOUT 30)
+	add_test(NAME posix_pexec COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/pexec.py $<TARGET_FILE:paratos>)
+	set_tests_properties(posix_pexec PROPERTIES TIMEOUT 60)
 endif()

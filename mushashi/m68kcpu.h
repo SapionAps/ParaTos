@@ -518,7 +518,7 @@
 /* Address error */
 #if M68K_EMULATE_ADDRESS_ERROR
 	#include <setjmp.h>
-	extern jmp_buf m68ki_aerr_trap;
+	extern M68K_THREAD_LOCAL jmp_buf m68ki_aerr_trap;
 
 	#define m68ki_set_address_error_trap() \
 		if(setjmp(m68ki_aerr_trap) != 0) \
@@ -855,19 +855,20 @@ typedef struct
 } m68ki_cpu_core;
 
 
-extern m68ki_cpu_core m68ki_cpu;
-extern sint           m68ki_remaining_cycles;
-extern uint           m68ki_tracing;
+extern M68K_THREAD_LOCAL m68ki_cpu_core m68ki_cpu;
+extern M68K_THREAD_LOCAL int            m68ki_initial_cycles;
+extern M68K_THREAD_LOCAL sint           m68ki_remaining_cycles;
+extern M68K_THREAD_LOCAL uint           m68ki_tracing;
 extern uint8          m68ki_shift_8_table[];
 extern uint16         m68ki_shift_16_table[];
 extern uint           m68ki_shift_32_table[];
 extern uint8          m68ki_exception_cycle_table[][256];
-extern uint           m68ki_address_space;
+extern M68K_THREAD_LOCAL uint           m68ki_address_space;
 extern uint8          m68ki_ea_idx_cycle_table[];
 
-extern uint           m68ki_aerr_address;
-extern uint           m68ki_aerr_write_mode;
-extern uint           m68ki_aerr_fc;
+extern M68K_THREAD_LOCAL uint           m68ki_aerr_address;
+extern M68K_THREAD_LOCAL uint           m68ki_aerr_write_mode;
+extern M68K_THREAD_LOCAL uint           m68ki_aerr_fc;
 
 /* Read data immediately after the program counter */
 INLINE uint m68ki_read_imm_16(void);

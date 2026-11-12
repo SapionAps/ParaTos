@@ -35,5 +35,56 @@ status propagation and nested Pexec through a renamed emulator with a
 deliberately unrelated native `argv[0]`. Linux additionally checks the existing
 SIGSEGV recovery and guest diagnostics. All test fixtures are temporary.
 
+## Pexec and guest threads
+
+| Mode | POSIX behavior |
+| --- | --- |
+| 0 | Start a native program or another ParaTos process and wait for its status. |
+| 3 | Load and relocate a TOS PRG into this process's guest memory; return its basepage. Native executables are rejected. |
+| 4 | Run the basepage in argument 2 on a host thread and wait; retain its image and environment for the caller. |
+| 5 | Create a basepage/TPA and copy the command tail and environment; the caller supplies an entry point before using mode 4/6/104. Argument 1 is ignored. |
+| 6 | Run a loaded basepage on a host thread and wait; transfer its image/environment ownership to the child and release them at termination. |
+| 100 | Start as for mode 0 and return a child ID immediately, without waiting. |
+| 104 | Run as for mode 4 and return a guest thread ID immediately. The caller retains the image/environment. |
+| 200 | Replace the host process. |
+
+Modes 3 and 5 allocate a separate environment block and the largest available
+TPA, as on TOS. A caller must shrink its own TPA before loading children. A
+program that shrinks its TPA must also move its stack into the retained area.
+The child gets its own basepage, default DTA, command tail, copied environment
+and parent-basepage link. A zero environment argument inherits the caller's
+environment. Mode 6 executes the PRG already loaded into the supplied basepage;
+it does not start another emulator process.
+
+Musashi's CPU registers, cycle counters, tracing/address-error state and
+callbacks are thread local, as is `current_process`. Opcode tables are shared
+and initialized with `pthread_once`. Guest execution is serialized in bounded
+CPU slices to protect shared guest RAM and allocator/runtime lists. Blocking
+reads, writes, polling, child-process waits and thread joins release the
+execution mutex so another guest thread can run.
+
+`Pterm` and `Pterm0` end only the calling guest thread. The host waits for
+remaining guest threads before returning the initial guest's status. Owned
+allocations remain alive while descendant threads need them. Standard streams
+are duplicated per execution thread, so a child's stdio cleanup cannot close
+its parent's streams. Other descriptors and the working directory are shared
+by threads. Modes 0/100 remain separate host processes. `Pfork`/`Pvfork` are
+rejected while guest threads exist; duplicating a live threaded runtime through
+fork without exec is unsupported.
+
+`Pwait`, `Pwait3` and `Pwaitpid` can reap mode 100 processes and mode 104 guest
+threads. IDs share a positive 16-bit namespace; nonblocking waits return zero
+while a child is running. Guest-thread rusage currently reports zero.
+
+The generated `posix_pexec` fixtures cover split execution, shared-memory
+effects, CPU/TLS and DTA/environment isolation, ownership and repeated cleanup,
+nonblocking and wait-any operation, pipe I/O, malformed PRGs and descendant
+lifetimes. Run all suites or just these fixtures:
+
+```sh
+ctest --test-dir build --output-on-failure
+ctest --test-dir build -R '^posix_pexec$' --output-on-failure
+```
+
 The Linux/macOS CI matrix runs these checks; pTOS ARM/x32 boot tests and the
 existing compiled POSIX syscall regressions remain in the same workflow.

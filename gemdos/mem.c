@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include "common.h"
+#include "gemdos.h"
 #include "tos_errors.h"
 #include "sysvars.h"
 
@@ -7,6 +8,7 @@ typedef struct memblock {
 	struct memblock* next;
 	emuptr32_t start;
 	int32_t size;
+	emuptr32_t owner;
 } memblock_t;
 
 memblock_t freeMem;
@@ -96,6 +98,7 @@ emuptr32_t Malloc ( int32_t size )
 			}
 			rover = (prev == &freeMem?prev->next:prev);
 			current->next = usedMem.next;
+			current->owner = current_process;
 			usedMem.next = current;
 			return current->start;
 		}
@@ -183,6 +186,31 @@ int32_t Mfree ( emuptr32_t block )
 	return TOS_EIMBA;
 }
 
+int32_t MemoryBlockSize(emuptr32_t block)
+{
+	for (memblock_t *b = usedMem.next; b; b = b->next)
+		if (b->start == block) return b->size;
+	return 0;
+}
+
+void SetMemoryOwner(emuptr32_t block, emuptr32_t owner)
+{
+	for (memblock_t *b = usedMem.next; b; b = b->next)
+		if (b->start == block) { b->owner = owner; return; }
+}
+
+void FreeOwnedMemory(emuptr32_t owner)
+{
+	memblock_t **at = &usedMem.next;
+	while (*at)
+	{
+		memblock_t *b = *at;
+		if (b->owner != owner) { at = &b->next; continue; }
+		*at = b->next;
+		freeBlock(b);
+	}
+}
+
 /**
  * Mshrink - 74
  *
@@ -208,6 +236,9 @@ int32_t Mshrink ( emuptr32_t block, int32_t newsiz )
 			new->start = current->start+newsiz;
 			new->size = current->size-newsiz;
 			current->size=newsiz;
+			if ((uint32_t)newsiz >= sizeof(basepage_t) &&
+				m68k_read_field(block, basepage_t, p_lowtpa) == block)
+				m68k_write_field(block, basepage_t, p_hitpa, block + newsiz);
 			freeBlock(new);
 			return newsiz;
 		}

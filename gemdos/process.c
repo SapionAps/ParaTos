@@ -1,7 +1,7 @@
 #include "common.h"
 #include "gemdos.h"
 
-emuptr32_t current_process;
+M68K_THREAD_LOCAL emuptr32_t current_process;
 
 /**
  * Pdomain - 281

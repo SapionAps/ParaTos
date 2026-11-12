@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""Exercise split PRG execution, shared memory and asynchronous lifetimes."""
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+
+PARATOS = Path(sys.argv.pop(1)).resolve()
+
+
+class Program:
+    def __init__(self):
+        self.code = bytearray()
+        self.labels = {}
+        self.fixups = []
+
+    def emit(self, code):
+        self.code += bytes.fromhex(code)
+
+    def address(self, label):
+        self.fixups.append((len(self.code), label))
+        self.code += bytes(4)
+
+    def label(self, name, data=b""):
+        if len(self.code) & 1:
+            self.emit("00")
+        self.labels[name] = len(self.code)
+        self.code += data
+
+    def push(self, label):
+        self.emit("4879")
+        self.address(label)
+
+    def pexec(self, mode, basepage=False, env=None):
+        if env:
+            self.push(env)
+        else:
+            self.emit("42a7")  # inherited environment
+        if basepage:
+            self.emit("2f0c42a7")  # arg2=A4, ignored arg1=NULL
+        else:
+            self.push("tail")
+            self.push("child")
+        self.emit("3f3c" + struct.pack(">H", mode).hex() + "3f3c004b4e414fef0010")
+
+    def report(self):
+        # Fwrite(stdout, 4, &saved_D0), preserving A4/A5.
+        self.emit("2f00204f2f082f3c000000043f3c00013f3c00404e414fef0010")
+
+    def shrink(self):
+        self.emit("2a6f00042f3c000100002f0d42673f3c004a4e414fef000c")
+        self.emit("200d06800000fffc2e40")  # move stack into the retained TPA
+
+    def finish(self, status=0):
+        self.emit("3f3c" + struct.pack(">H", status).hex() + "3f3c004c4e41")
+
+    def wait(self, flags=0, any_child=False):
+        # Pwaitpid(D6, 0, NULL).
+        self.emit("42a73f3c" + struct.pack(">H", flags).hex())
+        self.emit("3f3cffff" if any_child else "3f06")
+        self.emit("3f3c013a4e414fef000a")
+
+    def free(self, environment=False):
+        self.emit("2f2c002c" if environment else "2f0c")
+        self.emit("3f3c00494e414fef0006")
+        self.report()
+
+    def image(self):
+        relocations = []
+        for offset, label in self.fixups:
+            struct.pack_into(">I", self.code, offset, self.labels[label])
+            relocations.append(offset)
+        records = bytearray(struct.pack(">I", relocations[0] if relocations else 0))
+        for previous, current in zip(relocations, relocations[1:]):
+            distance = current - previous
+            while distance > 254:
+                records.append(1)
+                distance -= 254
+            records.append(distance)
+        if relocations:
+            records.append(0)
+        return struct.pack(">H6IH", 0x601a, len(self.code), 0, 0, 0, 0, 0, 0) + self.code + records
+
+
+def child(wait_gate=False, read_input=False, output=False):
+    p = Program()
+    if wait_gate:
+        p.emit("4ab90000100467f8")  # wait for parent to open shared gate
+    if read_input:
+        # Fread(stdin, 1, scratch).
+        p.emit("4879000010082f3c000000013f3c00003f3c003f4e414fef000c")
+    p.emit("23fc1234567800001000")
+    if output:
+        p.emit("203c76543210")
+        p.report()
+    p.finish(37)
+    return p.image()
+
+
+def parent(mode, asynchronous=False, created=False, parent_exits=False):
+    p = Program()
+    p.shrink()
+    p.emit("2e3c55aa33cc")  # D7 sentinel must survive child CPU initialization
+    p.pexec(5 if created else 3)
+    p.emit("2840")  # A4=basepage
+    if created:
+        p.emit("297c")
+        p.address("entry")
+        p.emit("0008")  # basepage->p_tbase = embedded entry point
+    p.pexec(mode, basepage=True)
+    if asynchronous:
+        p.emit("2c00")  # D6=thread ID
+        p.emit("23fc0000000100001004")
+        if parent_exits:
+            p.finish(23)
+        else:
+            p.wait()
+            # Keep just the child's exit status (the ID is platform independent).
+            p.emit("0280000000ff")
+            p.report()
+    else:
+        p.report()
+    p.emit("203900001000")
+    p.report()
+    p.emit("2007")
+    p.report()
+    if mode == 4:
+        # Caller-owned image may be run again, then explicitly freed.
+        p.pexec(4, basepage=True)
+        p.report()
+        p.free(environment=True)
+        p.free()
+    elif mode == 6:
+        p.free()  # mode 6 already released its image
+    p.finish(23)
+    p.label("child", b"CHILD.TOS\0")
+    p.label("tail", bytes(128))
+    if created:
+        p.label("entry")
+        p.emit("23fc1234567800001000")
+        p.finish(37)
+    return p.image()
+
+
+class PexecTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="paratos pexec ")
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+
+    def run_pair(self, parent_image, child_image):
+        (self.directory / "PARENT.TOS").write_bytes(parent_image)
+        (self.directory / "CHILD.TOS").write_bytes(child_image)
+        return subprocess.run([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                              capture_output=True, timeout=5)
+
+    def assert_words(self, result, expected):
+        self.assertEqual(result.returncode, 23, result.stderr)
+        self.assertEqual(result.stderr, b"")
+        self.assertEqual(result.stdout, b"".join(struct.pack(">I", x & 0xffffffff) for x in expected))
+
+    def test_load_go_retains_image(self):
+        self.assert_words(self.run_pair(parent(4), child()),
+                          [37, 0x12345678, 0x55aa33cc, 37, 0, 0])
+
+    def test_load_go_free(self):
+        self.assert_words(self.run_pair(parent(6), child()),
+                          [37, 0x12345678, 0x55aa33cc, -40])
+
+    def test_create_go(self):
+        self.assert_words(self.run_pair(parent(4, created=True), child()),
+                          [37, 0x12345678, 0x55aa33cc, 37, 0, 0])
+
+    def test_go_without_wait(self):
+        self.assert_words(self.run_pair(parent(104, asynchronous=True), child(wait_gate=True)),
+                          [37, 0x12345678, 0x55aa33cc])
+
+    def test_parent_pterm_does_not_kill_thread(self):
+        result = self.run_pair(parent(104, asynchronous=True, parent_exits=True),
+                               child(wait_gate=True, output=True))
+        self.assert_words(result, [0x76543210])
+
+    def test_pterm0_only_ends_child(self):
+        p = Program()
+        p.emit("3f3c00004e41")
+        self.assert_words(self.run_pair(parent(6), p.image()),
+                          [0, 0, 0x55aa33cc, -40])
+
+    def test_child_closing_standard_streams_does_not_close_parent_streams(self):
+        p = Program()
+        for fd in (0, 1, 2):
+            p.emit("3f3c" + struct.pack(">H", fd).hex() + "3f3c003e4e41588f")
+        p.finish(37)
+        self.assert_words(self.run_pair(parent(6), p.image()),
+                          [37, 0, 0x55aa33cc, -40])
+
+    def test_nonblocking_wait_and_wait_any(self):
+        p = Program()
+        p.shrink()
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(104, basepage=True)
+        p.emit("2c00")
+        p.wait(flags=1)
+        p.report()
+        p.emit("23fc0000000100001004")
+        p.wait(any_child=True)
+        p.emit("0280000000ff")
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        self.assert_words(self.run_pair(p.image(), child(wait_gate=True)), [0, 37])
+
+    def test_bad_images_do_not_consume_guest_memory(self):
+        header = lambda text: struct.pack(">H6IH", 0x601a, text, 0, 0, 0, 0, 0, 0)
+        for image in (b"\x7fELF", header(8) + b"short", header(0x7fffffff),
+                      header(8) + bytes(8) + struct.pack(">I", 10)):
+            with self.subTest(image=image[:32]):
+                p = Program()
+                p.shrink()
+                p.emit("2f3cffffffff3f3c00484e415c8f")
+                p.report()
+                p.pexec(3)
+                p.report()
+                p.emit("2f3cffffffff3f3c00484e415c8f")
+                p.report()
+                p.finish(23)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("tail", bytes(128))
+                r = self.run_pair(p.image(), image)
+                self.assertEqual(r.returncode, 23, r.stderr)
+                before, error, after = struct.unpack(">IiI", r.stdout)
+                self.assertEqual(error, -66)
+                self.assertEqual(before, after)
+
+    def test_child_basepage_environment_and_dta(self):
+        c = Program()
+        c.emit("206f00042028002423c000001020")  # parent basepage
+        c.emit("2028002c2040201023c000001018")  # copied environment bytes
+        c.emit("206f00042028008023c00000101c")  # copied command tail
+        c.emit("3f3c002f4e41548f23c000001010")  # child Fgetdta
+        c.finish(37)
+        p = Program()
+        p.shrink()
+        p.pexec(3, env="env")
+        p.emit("2840")
+        p.report()
+        p.pexec(4, basepage=True)
+        p.report()
+        for address in (0x1010, 0x1018, 0x101c, 0x1020):
+            p.emit("2039" + struct.pack(">I", address).hex())
+            p.report()
+        p.emit("200d")  # parent's basepage from A5
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", b"\x04 xyz" + bytes(123))
+        p.label("env", b"TEST=child\0\0")
+        r = self.run_pair(p.image(), c.image())
+        self.assertEqual(r.returncode, 23, r.stderr)
+        bp, status, dta, env, tail, caller, parent_bp = struct.unpack(">7I", r.stdout)
+        self.assertEqual((status, dta, env, tail, caller),
+                         (37, bp + 128, 0x54455354, 0x04207879, parent_bp))
+
+    def test_repeated_go_free_reclaims_environment_and_image(self):
+        p = Program()
+        p.shrink()
+        p.emit("2f3cffffffff3f3c00484e415c8f")
+        p.report()
+        for _ in range(20):
+            p.pexec(3)
+            p.emit("2840")
+            p.pexec(6, basepage=True)
+        p.emit("2f3cffffffff3f3c00484e415c8f")
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        r = self.run_pair(p.image(), child())
+        self.assertEqual(r.returncode, 23, r.stderr)
+        before, after = struct.unpack(">II", r.stdout)
+        self.assertEqual(before, after)
+
+    def test_blocking_pipe_read_allows_child_thread_to_write(self):
+        c = Program()
+        c.emit("4879000011042f3c000000013f39000011023f3c00404e414fef000c")
+        c.finish(37)
+        p = Program()
+        p.shrink()
+        p.emit("4879000011003f3c01004e415c8f13fc005a00001104")
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(104, basepage=True)
+        p.emit("2c00")
+        p.emit("4879000011052f3c000000013f39000011003f3c003f4e414fef000c")
+        p.report()
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.emit("7000103900001105")
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        self.assert_words(self.run_pair(p.image(), c.image()), [1, 37, ord("Z")])
+
+    def test_nested_async_child_keeps_terminated_parent_image_alive(self):
+        c = Program()
+        c.shrink()
+        c.pexec(5)
+        c.emit("2840")
+        c.emit("297c")
+        c.address("entry")
+        c.emit("0008")
+        # Leave room for the root to allocate after this worker terminates.
+        c.emit("2f3c000100002f0c42673f3c004a4e414fef000c")
+        c.pexec(104, basepage=True)
+        c.finish(37)
+        c.label("entry")
+        c.emit("4ab90000100467f8203c76543210")
+        c.report()
+        c.finish(0)
+        c.label("child", b"ignored\0")
+        c.label("tail", bytes(128))
+        p = Program()
+        p.shrink()
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(6, basepage=True)
+        # If the worker image was prematurely freed, this allocation reuses
+        # and overwrites code still needed by its asynchronous child.
+        p.emit("2f3c000100003f3c00484e415c8f2040")
+        p.emit("323c3fff429851c9fffc")  # clear 64 KiB
+        p.emit("23fc0000000100001004")
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        self.assert_words(self.run_pair(p.image(), c.image()), [0x76543210])
+
+    def test_load_without_wait_native_process(self):
+        p = Program()
+        p.shrink()
+        p.pexec(100)
+        p.emit("2c00")
+        p.report()  # Python must see this before unblocking the child.
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        (self.directory / "PARENT.TOS").write_bytes(p.image())
+        (self.directory / "CHILD.TOS").write_bytes(child(read_input=True))
+        proc = subprocess.Popen([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        try:
+            import select
+            self.assertTrue(select.select([proc.stdout], [], [], 3)[0], "mode 100 waited")
+            pid = struct.unpack(">I", proc.stdout.read(4))[0]
+            self.assertGreater(pid, 0)
+            stdout, stderr = proc.communicate(b"x", timeout=5)
+            self.assertEqual(proc.returncode, 23, stderr)
+            self.assertEqual(stdout, struct.pack(">I", 37))
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
+
+
+if __name__ == "__main__":
+    unittest.main()

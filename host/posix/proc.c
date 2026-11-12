@@ -1,14 +1,17 @@
 #include <stdlib.h>
+#include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include "common.h"
 #include "host.h"
 #include "gemdos.h"
+#include "tasks.h"
 
 typedef struct pid_map {
 	int16_t tos_pid;
@@ -18,17 +21,28 @@ typedef struct pid_map {
 
 static pid_map_t *pid_map_head;
 
-static void remember_pid(pid_t host_pid)
+int16_t PosixRegisterPid(int host_pid)
 {
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
+		if (p->host_pid == host_pid) return p->tos_pid;
 	pid_map_t *entry = malloc(sizeof(pid_map_t));
 	if (!entry) {
-		return;
+		return -1;
 	}
-
-	entry->tos_pid = (int16_t)host_pid;
+	int id;
+	for (id = 1; id <= 32767; id++)
+	{
+		if (id == (uint16_t)getpid() || id == (uint16_t)getppid()) continue;
+		pid_map_t *p;
+		for (p = pid_map_head; p && p->tos_pid != id; p = p->next) {}
+		if (!p) break;
+	}
+	if (id > 32767) { free(entry); return -1; }
+	entry->tos_pid = (int16_t)id;
 	entry->host_pid = host_pid;
 	entry->next = pid_map_head;
 	pid_map_head = entry;
+	return entry->tos_pid;
 }
 
 static pid_t map_tos_pid_to_host(int16_t tos_pid)
@@ -53,7 +67,7 @@ static int16_t map_host_pid_to_tos(pid_t host_pid)
 	return (int16_t)host_pid;
 }
 
-static void forget_pid_by_host(pid_t host_pid)
+void PosixForgetPid(int host_pid)
 {
 	pid_map_t **current = &pid_map_head;
 	while (*current) {
@@ -86,9 +100,10 @@ static void forget_pid_by_host(pid_t host_pid)
  */
 int16_t Pfork ( void )
 {
+	if (PosixHasThreads()) return TOS_ENOSYS;
 	pid_t pid = fork();
 	if (pid > 0) {
-		remember_pid(pid);
+		return PosixRegisterPid(pid);
 	}
 	return (int16_t)pid;
 }
@@ -214,7 +229,7 @@ int16_t Pgetpgrp ( void )
  */
 int16_t Pgetpid ( void )
 {
-	return getpid();
+	return PosixTaskPid();
 }
 
 /**
@@ -239,7 +254,7 @@ int16_t Pgetpid ( void )
  */
 int16_t Pgetppid ( void )
 {
-	return getppid();
+	return PosixTaskParentPid();
 }
 
 /**
@@ -587,7 +602,7 @@ int16_t Psetuid ( int16_t id )
  */
 void Pterm ( uint16_t retcode )
 {
-	exit(retcode);
+	PosixTerminate(retcode);
 }
 
 /**
@@ -600,7 +615,7 @@ void Pterm ( uint16_t retcode )
  */
 void Pterm0 ( void )
 {
-	exit(0);
+	PosixTerminate(0);
 }
 
 /**
@@ -747,34 +762,63 @@ int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
  */
 int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusagep )
 {
+	if (rusagep && (rusagep >= memory_sz || memory_sz - rusagep < 8)) return TOS_EINVAL;
+retry:;
+	int32_t thread_result;
+	int thread_pending = PosixWaitThread(pid, flag | 1, rusagep, &thread_result);
+	if (thread_pending && thread_result) return thread_result;
+	if (thread_pending && pid != -1)
+	{
+		PosixWaitThread(pid, flag, rusagep, &thread_result);
+		return thread_result;
+	}
 	struct rusage usage;
 	int status;
 	int options = 0;
 	pid_t host_pid = -1;
-	if (flag & 1)
+	if ((flag & 1) || thread_pending)
 		options |= WNOHANG;
 	if (flag & 2)
 		options |= WUNTRACED;
 	if (pid != -1) {
 		host_pid = map_tos_pid_to_host(pid);
+		if (pid > 0 && host_pid < 0) return TOS_ECHILD;
 	}
 
-	pid_t childpid = wait4(host_pid, &status, options, rusagep?&usage:NULL);
+	PosixPause();
+	pid_t childpid;
+	do {
+		childpid = wait4(host_pid, &status, options, rusagep?&usage:NULL);
+	} while (childpid < 0 && errno == EINTR);
+	int saved_errno = errno;
+	PosixResume();
+	errno = saved_errno;
+	if (thread_pending && (!childpid || (childpid < 0 && errno == ECHILD)))
+	{
+		if (flag & 1) return 0;
+		/* Wait-any must service native processes and guest threads alike. */
+		const struct timespec delay = {0, 1000000};
+		PosixPause();
+		nanosleep(&delay, NULL);
+		PosixResume();
+		goto retry;
+	}
 	if (childpid == -1)
 	{
 		return MapErrno();
 	}
+	if (!childpid) return 0;
 
 	if (rusagep)
 	{
-		m68k_write_memory_32(rusagep, (uint32_t)(usage.ru_utime.tv_sec*1000 + usage.ru_utime.tv_usec));
-		m68k_write_memory_32(rusagep+1, (uint32_t)(usage.ru_stime.tv_sec*1000 + usage.ru_stime.tv_usec));
+		m68k_write_memory_32(rusagep, (uint32_t)(usage.ru_utime.tv_sec*1000 + usage.ru_utime.tv_usec/1000));
+		m68k_write_memory_32(rusagep+4, (uint32_t)(usage.ru_stime.tv_sec*1000 + usage.ru_stime.tv_usec/1000));
 	}
 
 	int16_t tos_childpid = map_host_pid_to_tos(childpid);
 	uint32_t retval = (uint32_t)(uint16_t)tos_childpid << 16;
 	if (WIFEXITED(status) || WIFSIGNALED(status)) {
-		forget_pid_by_host(childpid);
+		PosixForgetPid(childpid);
 	}
 	uint32_t signum = 0;
 	uint32_t code = 0;
