@@ -30,8 +30,11 @@ int main(void)
 	}
 	if (result || control[6] <= 0 || control[4] != 45 || control[2] != 6 || results[0] <= 0 || results[1] <= 0) return 2;
 	short handle = control[6];
+	request(11, 0, 2, handle); control[5] = 1;
+	points[0] = 2; points[1] = 2; points[2] = 12; points[3] = 8;
+	if (call()) return 17;
 	request(17, 1, 0, handle); integers[0] = 1;
-	if (call() || control[4] != 1) return 3;
+	if (call() || control[4] != 1 || control[5] != 1) return 3;
 	request(6, 0, 2, handle);
 	points[0] = 2; points[1] = 2; points[2] = 12; points[3] = 8;
 	if (call() || control[4] || control[2]) return 4;

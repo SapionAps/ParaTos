@@ -20,6 +20,7 @@ int32_t ptos_native_vdi(paratos_vdi_pb *block)
 	paratos_vdi_control *c = block->control;
 	calls++;
 	assert(c->reserved == 0);
+	assert(c->subcode == (c->code == VDI_GDP ? 1 : 0));
 	if (c->code == VDI_OPEN)
 	{
 		assert(c->nintin == 11 && c->nptsin == 0 && block->intin[10] == 2);
@@ -63,6 +64,7 @@ int32_t ptos_native_vdi(paratos_vdi_pb *block)
 	case VDI_TEXT:
 		assert(c->nintin == 3 && block->intin[0] == 'A' && block->intin[1] == 0x1234);
 		assert(block->intin[2] == 0x00ff && block->ptsin[0] == -123); break;
+	case VDI_GDP: assert(c->nintin == 0 && c->nptsin == 2); break;
 	case VDI_COPY: case VDI_TRANSFORM: {
 		paratos_vdi_fdb *s = c->args.raster.source, *d = c->args.raster.destination;
 		assert(s && d && s->address && d->address && s->address != d->address);
@@ -101,14 +103,14 @@ static void request(uint16_t operation, uint16_t ni, uint16_t np, int16_t handle
 	for (unsigned int i = 0; i < 12; i++) m68k_write_memory_16(CONTROL + i * 2, 0x7a7a);
 	m68k_write_memory_16(CONTROL, operation);
 	m68k_write_memory_16(CONTROL + 2, np); m68k_write_memory_16(CONTROL + 6, ni);
-	m68k_write_memory_16(CONTROL + 10, 0); m68k_write_memory_16(CONTROL + 12, handle);
+	m68k_write_memory_16(CONTROL + 10, 0x4567); m68k_write_memory_16(CONTROL + 12, handle);
 	memset(ptos_guest_buffer(OUTPUT - 2, 96), 0xa7, 96);
 	memset(ptos_guest_buffer(OUTPOINTS - 2, 28), 0xb8, 28);
 }
 
 static int32_t invoke(void)
 {
-	m68k_set_reg(M68K_REG_D0, 0x73); /* independent published TRAP #2 ABI */
+	m68k_set_reg(M68K_REG_D0, 0xffff0073); /* classic move.w leaves D0's upper half */
 	m68k_set_reg(M68K_REG_D1, PB);
 	m68k_set_reg(M68K_REG_A2, 0x12345678);
 	dispatch_gem_trap();
@@ -150,6 +152,11 @@ void test_vdi(void)
 	assert(m68k_read_memory_16(CONTROL + 14) == 0x7a7a); /* native pad must not shift guest pointers */
 	request(17, 1, 0, handle); m68k_write_memory_16(INPUT, 0xfedc);
 	assert(invoke() == 0 && last_input == (int16_t)0xfedc && m68k_read_memory_16(OUTPUT) == 0x2345);
+	assert(m68k_read_memory_16(CONTROL + 10) == 0x4567);
+	request(17, 1, 0, handle); m68k_write_memory_32(PB + 12, CONTROL + 22);
+	assert(invoke() == 0 && m68k_read_memory_16(CONTROL + 22) == 0x2345);
+	request(11, 0, 2, handle); m68k_write_memory_16(CONTROL + 10, 1);
+	assert(invoke() == 0 && m68k_read_memory_16(CONTROL + 10) == 1);
 	request(6, 0, 256, handle);
 	for (unsigned int i = 0; i < 512; i++) m68k_write_memory_16(POINTS + i * 2, 0x5678);
 	m68k_write_memory_16(POINTS, -1000); m68k_write_memory_16(POINTS + 2, -2000);
@@ -174,6 +181,10 @@ void test_vdi(void)
 	request(6, 0, 257, handle); assert(invoke() == PTOS_EINVAL);
 	request(8, 257, 1, handle); assert(invoke() == PTOS_EINVAL);
 	request(17, 0xffff, 0, handle); assert(invoke() == PTOS_EINVAL);
+	request(11, 0, 2, handle); m68k_write_memory_16(CONTROL + 10, 2);
+	assert(invoke() == PTOS_ENOSYS);
+	request(6, 0, 2, handle); m68k_write_memory_16(CONTROL + 10, 13);
+	assert(invoke() == PTOS_ENOSYS);
 	request(118, 0, 0, handle); assert(invoke() == PTOS_ENOSYS); /* guest callback never reaches native */
 	request(119, 0, 0, handle); assert(invoke() == PTOS_ENOSYS);
 	request(17, 1, 0, handle); m68k_write_memory_32(PB + 12, PTOS_NATIVE_BASE);
@@ -204,6 +215,13 @@ void test_vdi(void)
 	m68k_write_memory_32(SOURCE_DATA, 0x11223344);
 	assert(invoke() == 0 && m68k_read_memory_16(SOURCE_DATA) == 0x1122);
 	assert(m68k_read_memory_32(SOURCE_DATA + 2) == 0xa1b2c3d4);
+	/* A destination can overlap an unused control word without being erased
+	 * by control writeback after its successful raster copy. */
+	check_raster = 2;
+	request(109, 1, 4, handle); mfdb(SOURCE, SOURCE_DATA, 1, 0); mfdb(DEST, CONTROL + 22, 1, 0);
+	m68k_write_memory_32(CONTROL + 14, SOURCE); m68k_write_memory_32(CONTROL + 18, DEST);
+	m68k_write_memory_16(SOURCE_DATA, 0xa55a); m68k_write_memory_16(CONTROL + 22, 0x1234);
+	assert(invoke() == 0 && m68k_read_memory_16(CONTROL + 22) == 0x80f1);
 	check_raster = 2;
 	request(109, 1, 4, handle); mfdb(SOURCE, SOURCE_DATA, 1, 0); mfdb(DEST, DEST_DATA, 1, 0);
 	m68k_write_memory_32(CONTROL + 14, SOURCE); m68k_write_memory_32(CONTROL + 18, DEST);

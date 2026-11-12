@@ -9,15 +9,17 @@ static struct { short *control, *intin, *ptsin, *intout, *ptsout; } block =
 
 static void request(short operation, short ni, short np, short handle)
 {
+	short subcode = control[5]; /* Classic bindings reuse this word. */
 	memset(control, 0, sizeof(control));
+	control[5] = subcode;
 	control[0] = operation; control[1] = np; control[3] = ni; control[6] = handle;
 }
 
 static long call(void)
 {
-	register long d0 __asm__("d0") = 0x73;
+	register long d0 __asm__("d0") = -32;
 	register void *d1 __asm__("d1") = &block;
-	__asm__ volatile("trap #2" : "+r"(d0), "+r"(d1) : : "d2", "a0", "a1", "a2", "cc", "memory");
+	__asm__ volatile("move.w #0x73,%0\n\ttrap #2" : "+r"(d0), "+r"(d1) : : "d2", "a0", "a1", "a2", "cc", "memory");
 	return d0;
 }
 

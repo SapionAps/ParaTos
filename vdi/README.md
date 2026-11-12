@@ -23,6 +23,10 @@ Counts and output sizes come from each operation, not from the input values of
 `contrl[2]` and `contrl[4]`. Polylines and text are bounded to 256 points/words.
 All input and writable output ranges are checked before the native call.
 Outputs are staged and committed only after success and valid returned counts.
+Only the defined control outputs (counts and handle) are written back, preserving
+other output buffers that overlap input or filler words. Unused classic subcodes
+are normalized only in the native temporary; GDP and unsupported Bezier selectors
+retain their distinct meaning. TRAP #2 uses D0's low word, as on m68k TOS.
 Native errors, including ENOSYS, reach guest D0 unchanged. Invalid guest pointers
 return EIMBA; malformed counts return EINVAL. Unsupported operations return ENOSYS.
 
@@ -78,7 +82,10 @@ The real-kernel test compiles ordinary 68k TRAP #2 callers. x32 exercises the
 native client, text/line drawing, inquiry, one-pixel planar copies, multi-plane
 MFDB transformation, invalid pointers and 64 unclosed internal overlays per
 fixture invocation. ARM verifies ENOSYS without changing the guest's control
-block. Each architecture runs 48 top-level launches plus the existing m68k disk.
+block. An x32 test build without the optional client also selects this unsupported
+mode. Each architecture runs 48 top-level launches plus the existing m68k disk.
+When the x32 client is linked, a second emulator/launcher without that archive
+also runs six fallback launches in `ptos_kernel_no_vdi`.
 
 ```sh
 sh tests/ptos/build_kernel_test.sh x32 /path/to/pTOS

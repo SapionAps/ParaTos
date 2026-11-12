@@ -8,7 +8,7 @@
 static const char cli_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
 static const char semantics_env[] = "DEMO=present\0ARGV=\0C:\\SEMANTIC.TOS\0";
 static const char filesystem_env[] = "DEMO=present\0ARGV=\0C:\\FSCOMP.TOS\0";
-#if defined(__x86_64__)
+#if defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
 static const char vdi_env[] = "VDI=required\0ARGV=\0C:\\VDI.TOS\0";
 #else
 static const char vdi_env[] = "VDI=absent\0ARGV=\0C:\\VDI.TOS\0";
@@ -80,6 +80,9 @@ int main(void)
 		for (unsigned int mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++)
 			for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
 			{
+#ifdef PTOS_TEST_VDI_ONLY
+				if (cases[i].env != vdi_env) continue;
+#endif
 				long result = launch(modes[mode], cases[i].path, cases[i].env);
 				printf("round %d mode %d %s: %ld\n", round + 1, modes[mode], cases[i].name, result);
 				if (result != cases[i].status)

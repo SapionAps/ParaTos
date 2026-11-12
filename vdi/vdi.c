@@ -34,8 +34,11 @@ static int32_t shape(paratos_vdi_control *c, int *ni, int *np)
 	int input = 0, points = 0;
 	*ni = *np = 0;
 	if (c->nintin < 0 || c->nptsin < 0) return VDI_EINVAL;
-	if (c->subcode && !((c->code == VDI_GDP && c->subcode == 1) ||
-		(c->code == VDI_INQUIRE && c->subcode == 1))) return VDI_ENOSYS;
+	/* Classic bindings leave unused subcodes behind. The native client
+	 * requires them zeroed. GDP and the Bezier polyline selector are real
+	 * variants; never silently reinterpret those as ordinary operations. */
+	if (c->code == VDI_POLYLINE && c->subcode == 13) return VDI_ENOSYS;
+	if (c->code != VDI_GDP) c->subcode = 0;
 	switch (c->code)
 	{
 	case VDI_OPEN: input = 11; *ni = 45; *np = 6; break;
@@ -173,8 +176,10 @@ int32_t paratos_vdi_marshal(uint32_t address, const paratos_vdi_host *host)
 		m68k_write_memory_16(destination.descriptor + 10, destination.native.standard);
 	write_words(pointers[3], output, control.nintout);
 	write_words(pointers[4], outpoints, control.nptsout * 2);
-	original[2] = control.nptsout; original[4] = control.nintout; original[6] = control.handle;
-	write_words(pointers[0], original, 12);
+	/* Input/pointer/filler words can alias valid guest output buffers. */
+	m68k_write_memory_16(pointers[0] + 4, (uint16_t)control.nptsout);
+	m68k_write_memory_16(pointers[0] + 8, (uint16_t)control.nintout);
+	m68k_write_memory_16(pointers[0] + 12, (uint16_t)control.handle);
 done:
 	free(source.copy); free(destination.copy);
 	return result;

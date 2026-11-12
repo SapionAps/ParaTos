@@ -266,7 +266,7 @@ void dispatch_bios_trap(void)
 void dispatch_gem_trap(void)
 {
 	int32_t result = PTOS_ENOSYS;
-	if (m68k_get_reg(NULL, M68K_REG_D0) == VDI_TRAP)
+	if ((uint16_t)m68k_get_reg(NULL, M68K_REG_D0) == VDI_TRAP)
 		result = ptos_vdi(m68k_get_reg(NULL, M68K_REG_D1));
 	m68k_set_reg(M68K_REG_D0, (uint32_t)result);
 }

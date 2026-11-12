@@ -25,6 +25,9 @@ if(NOT PTOS_TEST_QEMU)
 endif()
 
 add_executable(ptos_kernel_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/kernel_launcher.c)
+if(PTOS_VDI_LIBRARY)
+	target_compile_definitions(ptos_kernel_launcher PRIVATE PTOS_TEST_VDI_AVAILABLE=1)
+endif()
 ptos_executable(ptos_kernel_launcher 0x00400000)
 add_executable(ptos_fs_native ${PROJECT_SOURCE_DIR}/tests/ptos/fs_native.c)
 ptos_executable(ptos_fs_native 0x00400000)
@@ -58,6 +61,28 @@ add_test(NAME ptos_kernel
 		--qemu-data "${PTOS_QEMU_DATA_DIR}"
 		--output ${CMAKE_CURRENT_BINARY_DIR}/kernel-test)
 set_tests_properties(ptos_kernel PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+
+if(PTOS_VDI_LIBRARY)
+	# Exercise the optional no-client build too, using the same VDI-enabled
+	# kernel. Only six VDI launches are needed to check the fallback path.
+	get_target_property(PTOS_NO_VDI_SOURCES paratos SOURCES)
+	add_executable(ptos_no_vdi ${PTOS_NO_VDI_SOURCES})
+	target_include_directories(ptos_no_vdi PRIVATE ${PROJECT_SOURCE_DIR}/mushashi)
+	target_link_libraries(ptos_no_vdi PRIVATE mushashi)
+	ptos_executable(ptos_no_vdi 0x41000000)
+	add_executable(ptos_no_vdi_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/kernel_launcher.c)
+	target_compile_definitions(ptos_no_vdi_launcher PRIVATE PTOS_TEST_VDI_ONLY=1)
+	ptos_executable(ptos_no_vdi_launcher 0x00400000)
+	add_test(NAME ptos_kernel_no_vdi
+		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/ptos/run_kernel.py
+			--arch ${PTOS_TEST_ARCH} --kernel-dir ${PTOS_KERNEL_DIR}
+			--paratos $<TARGET_FILE:ptos_no_vdi> --launcher $<TARGET_FILE:ptos_no_vdi_launcher>
+			--native-child $<TARGET_FILE:ptos_native_child> --filesystem-native $<TARGET_FILE:ptos_fs_native>
+			--fixtures ${PTOS_FIXTURES_DIR} --qemu ${PTOS_TEST_QEMU} --ovmf ${PTOS_OVMF_DIR}
+			--qemu-data "${PTOS_QEMU_DATA_DIR}"
+			--output ${CMAKE_CURRENT_BINARY_DIR}/kernel-no-vdi-test)
+	set_tests_properties(ptos_kernel_no_vdi PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+endif()
 
 if(PTOS_M68K_TEST_DISK)
 	add_executable(ptos_disk_runner ${PROJECT_SOURCE_DIR}/tests/ptos/disk_runner.c)
