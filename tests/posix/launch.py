@@ -66,6 +66,18 @@ def parent():
 
 
 class LaunchTests(unittest.TestCase):
+    def test_seek_errors_use_tos_codes(self):
+        for handle, expected in ((1, -6), (32767, -37)):
+            with self.subTest(handle=handle):
+                # Fseek(0, handle, SEEK_CUR); Pterm(D0).
+                code = (bytes.fromhex("3f3c00013f3c")
+                        + struct.pack(">H", handle)
+                        + bytes.fromhex("2f3c000000003f3c00424e41"
+                                        "3f003f3c004c4e41"))
+                (self.directory / "SEEK.TOS").write_bytes(prg(code))
+                result = self.run_guest("SEEK.TOS")
+                self.assertEqual(result.returncode, expected & 255, result.stderr)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="paratos guest ")
         self.addCleanup(self.temporary.cleanup)

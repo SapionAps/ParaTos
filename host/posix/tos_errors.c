@@ -13,6 +13,8 @@ int32_t MapErrno(void)
 	{
 	case 0:
 		return TOS_E_OK;
+	case ESPIPE:
+		return TOS_E_SEEK;
 	case ENOENT:
 		return TOS_EFILNF;
 	case ESRCH:
