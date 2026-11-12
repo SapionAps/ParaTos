@@ -989,7 +989,8 @@ int32_t Frename ( emuptr32_t oldname, emuptr32_t newname )
  */
 int32_t Fseek ( int32_t offset, int16_t handle, int16_t seekmode )
 {
-	return lseek(handle, offset, seekmode);
+	off_t result = lseek(handle, offset, seekmode);
+	return result < 0 ? MapErrno() : result;
 }
 
 static inline int popcount(uint32_t n)
