@@ -157,6 +157,8 @@ DTA restoration fails, the buffer stays alive with a retired owner until pointer
 restoration and cleanup can be retried. Non-EOF cleanup errors also retain the
 context for retry. Later search calls retry retired contexts before enforcing
 the cursor limit, so a temporary failure cannot permanently consume the slots.
+Failed or exhausted searches release their inactive bookkeeping immediately when
+restoration succeeds; pending restoration retires the record for later cleanup.
 Restarting a DTA first exhausts its previous search, so a path
 error cannot leave a pluggable filesystem directory cookie behind. Cleanup may
 therefore scan the remaining matching entries before releasing a search.
@@ -295,7 +297,8 @@ delegation, guest/native address separation, ownership and malformed PRG
 cleanup. It also checks 100 nested overlay file-lifetime cycles against real
 host descriptors. Filesystem contract cases check unaligned guest outputs,
 DTA/XATTR/disk/usage byte order, DTA and guest ownership, bounded native cursor
-slots, retained-image termination, restoration retries, signed sizes, exact errors,
+slots, retained-image termination, restoration retries, bounded allocations across
+256 completed/failed searches on distinct DTAs, signed sizes, exact errors,
 and unchanged converted output on error. Fixtures are generated at runtime; no cross compiler is required.
 Unstarted-image tests also verify descriptor counts through 100 load/free
 cycles, snapshot/load failures, failed-start retry and allocator cleanup.

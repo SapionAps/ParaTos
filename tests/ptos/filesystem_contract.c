@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include "m68k.h"
 #include "host.h"
@@ -12,7 +13,35 @@ void dispatch_gemdos_trap(void);
 #define DEFAULT_DTA ((intptr_t)0x10000000)
 static intptr_t native_dta = DEFAULT_DTA;
 static int32_t error;
-static int fail_restore;
+static int fail_restore, fail_get, fail_select;
+/* Linker wrappers count search allocations only during the isolated stress
+ * section, whose native-call backend and guest-memory helpers do not allocate. */
+static int track_search_allocations;
+static unsigned int live_search_allocations, peak_search_allocations;
+void *__real_calloc(size_t count, size_t size);
+void __real_free(void *pointer);
+
+void *__wrap_calloc(size_t count, size_t size)
+{
+	void *pointer = __real_calloc(count, size);
+	if (track_search_allocations && pointer)
+	{
+		live_search_allocations++;
+		if (live_search_allocations > peak_search_allocations)
+			peak_search_allocations = live_search_allocations;
+	}
+	return pointer;
+}
+
+void __wrap_free(void *pointer)
+{
+	if (track_search_allocations && pointer)
+	{
+		assert(live_search_allocations > 0);
+		live_search_allocations--;
+	}
+	__real_free(pointer);
+}
 static struct { intptr_t address; unsigned int position, stamp; } cursors[8];
 static unsigned int cursor_clock;
 /* Pluggable filesystem cursors survive an early Fsfirst path error even
@@ -57,9 +86,9 @@ static char first_path[1024], second_path[1024];
 
 int filesystem_test_native(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d, int32_t *result)
 {
-	if (fn == GEMDOS_OP_FGETDTA) { *result = (int32_t)native_dta; return 1; }
+	if (fn == GEMDOS_OP_FGETDTA) { *result = fail_get ? -36 : (int32_t)native_dta; return 1; }
 	if (fn == GEMDOS_OP_FSETDTA) {
-		if (a == DEFAULT_DTA && fail_restore) { *result = -36; return 1; }
+		if ((a == DEFAULT_DTA && fail_restore) || (a != DEFAULT_DTA && fail_select)) { *result = -36; return 1; }
 		native_dta = a; *result = 0; return 1;
 	}
 	switch (fn)
@@ -411,6 +440,45 @@ void test_filesystem(void)
 	assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == 0);
 	ptos_filesystem_cleanup();
 	assert(native_searches() == 0 && filesystem_searches() == 0);
+	/* Completed/failed searches on distinct temporary DTAs must not retain
+	 * allocations or turn list traversal into a history of all past searches. */
+	track_search_allocations = 1;
+	for (unsigned int i = 0; i < 256; i++)
+	{
+		m68k_write_memory_32(bp + BP_DTA, sp + 8192 + i * 64);
+		error = PTOS_ENOSYS;
+		assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == error);
+		assert(live_search_allocations == 0);
+		error = 0;
+		assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == 0);
+		assert(live_search_allocations == 1);
+		assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == 0);
+		assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == PTOS_ENMFIL);
+		assert(live_search_allocations == 0);
+	}
+	/* Errors before selecting the native DTA must release the new record. */
+	fail_get = 1;
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == -36);
+	fail_get = 0;
+	assert(live_search_allocations == 0);
+	fail_select = 1;
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == -36);
+	fail_select = 0;
+	assert(live_search_allocations == 0);
+	/* An inactive buffer selected by a failed restoration stays alive until
+	 * the next search repairs the native pointer and reclaims the record. */
+	error = PTOS_ENOSYS; fail_restore = 1;
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == PTOS_ENOSYS);
+	assert(live_search_allocations == 1 && native_dta != DEFAULT_DTA);
+	error = 0; fail_restore = 0;
+	assert(ptos_search(GEMDOS_OP_FSFIRST, "C:\\SEARCH\\*.TXT", 0) == 0);
+	assert(live_search_allocations == 1 && native_dta == DEFAULT_DTA);
+	assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == 0);
+	assert(ptos_search(GEMDOS_OP_FSNEXT, NULL, 0) == PTOS_ENMFIL);
+	assert(live_search_allocations == 0 && peak_search_allocations == 1);
+	assert(native_searches() == 0 && filesystem_searches() == 0);
+	track_search_allocations = 0;
+	m68k_write_memory_32(bp + BP_DTA, out);
 	ptos_process = previous;
 }
 

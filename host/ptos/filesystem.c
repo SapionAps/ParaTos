@@ -76,6 +76,20 @@ static search *find_search(uint32_t address)
 	return NULL;
 }
 
+/* An inactive context has no native cursor to preserve. If restoration is
+ * still pending, retire it for the restoration-aware cleanup path instead. */
+static int32_t search_error(search *p, int32_t result)
+{
+	if (p && !p->started)
+	{
+		p->owner = 0;
+		if (!pending_restore)
+			for (search **at = &searches; *at; at = &(*at)->next)
+				if (*at == p) { *at = p->next; free(p); break; }
+	}
+	return result;
+}
+
 int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 {
 	uint32_t address = m68k_read_memory_32(ptos_process + BP_DTA);
@@ -100,22 +114,22 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 	if (function == GEMDOS_OP_FSFIRST && p->started)
 	{
 		int32_t cancelled = cancel_search(p);
-		if (cancelled < 0) return cancelled;
+		if (cancelled < 0) return search_error(p, cancelled);
 	}
 	ptos_native_dta *native = p && (function == GEMDOS_OP_FSFIRST || p->started)
 		? &p->native : &empty_dta;
 	int32_t old = ptos_call(GEMDOS_OP_FGETDTA, 0, 0, 0, 0);
-	if (old < 0) return old;
+	if (old < 0) return search_error(p, old);
 	int32_t result = ptos_call(GEMDOS_OP_FSETDTA, (intptr_t)native, 0, 0, 0);
-	if (result < 0) return result;
+	if (result < 0) return search_error(p, result);
 	if (function == GEMDOS_OP_FSFIRST) memset(native, 0, sizeof(*native));
 	result = ptos_call(function, (intptr_t)path, attribute, 0, 0);
 	int32_t restored = restore_native_dta((uint32_t)old);
 	if (p && function == GEMDOS_OP_FSFIRST) p->started = result >= 0;
 	if (p && function == GEMDOS_OP_FSNEXT && result == PTOS_ENMFIL) p->started = 0;
 	/* Preserve the operation's error, including native ENOSYS. */
-	if (result < 0) return result;
-	if (restored < 0) return restored;
+	if (result < 0) return search_error(p, result);
+	if (restored < 0) return search_error(p, restored);
 	/* Native search state stays private and keyed by owner/DTA address.
 	 * The public result is the classic 44-byte 68k layout. */
 	for (unsigned int i = 0; i < 21; i++) m68k_write_memory_8(address + i, 0);
