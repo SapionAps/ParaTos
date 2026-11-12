@@ -7,6 +7,7 @@
 #include "memory.h"
 #include "guest.h"
 #include "filesystem.h"
+#include "vdi.h"
 
 static uint32_t word(uint32_t sp, unsigned int offset) { return m68k_read_memory_16(sp + offset); }
 static uint32_t lng(uint32_t sp, unsigned int offset) { return m68k_read_memory_32(sp + offset); }
@@ -262,6 +263,12 @@ void dispatch_bios_trap(void)
 	}
 	m68k_set_reg(M68K_REG_D0, r);
 }
-void dispatch_gem_trap(void) { m68k_set_reg(M68K_REG_D0, PTOS_ENOSYS); }
+void dispatch_gem_trap(void)
+{
+	int32_t result = PTOS_ENOSYS;
+	if (m68k_get_reg(NULL, M68K_REG_D0) == VDI_TRAP)
+		result = ptos_vdi(m68k_get_reg(NULL, M68K_REG_D1));
+	m68k_set_reg(M68K_REG_D0, (uint32_t)result);
+}
 void dispatch_line_a(void) { ptos_fault(m68k_get_reg(NULL, M68K_REG_PC), "Line-A is not supported"); }
 void dispatch_line_f(void) { ptos_fault(m68k_get_reg(NULL, M68K_REG_PC), "FPU is not supported"); }

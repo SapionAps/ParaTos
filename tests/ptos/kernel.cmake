@@ -33,7 +33,7 @@ ptos_executable(ptos_native_child 0x00400000)
 
 set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
 set(PTOS_GUEST_OUTPUTS)
-foreach(fixture cli semantics overlay fault interpreter filesystem fs_overlay)
+foreach(fixture cli semantics overlay fault interpreter filesystem fs_overlay vdi vdi_overlay)
 	set(output ${PTOS_FIXTURES_DIR}/${fixture}.tos)
 	add_custom_command(OUTPUT ${output}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${PTOS_FIXTURES_DIR}
@@ -43,6 +43,7 @@ foreach(fixture cli semantics overlay fault interpreter filesystem fs_overlay)
 			${PROJECT_SOURCE_DIR}/tests/ptos/${fixture}.c
 			${PTOS_GUEST_LIBCMINI_DIR}/libcmini.a -lgcc -o ${output}
 		DEPENDS ${PROJECT_SOURCE_DIR}/tests/ptos/${fixture}.c
+			${PROJECT_SOURCE_DIR}/tests/ptos/vdi_fixture.h
 			${PTOS_GUEST_LIBCMINI_DIR}/objs/crt0.o ${PTOS_GUEST_LIBCMINI_DIR}/libcmini.a
 		VERBATIM)
 	list(APPEND PTOS_GUEST_OUTPUTS ${output})

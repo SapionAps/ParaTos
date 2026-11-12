@@ -46,12 +46,18 @@ import kconfiglib
 config = kconfiglib.Kconfig()
 config.load_config()
 config.syms["CONF_WITH_MMAP"].set_value(2)
+config.syms["CONF_WITH_X32_VDI"].set_value(2)
 config.syms["CONF_WITH_X86_64_MEMTEST"].set_value(0)
 config.write_config()
 PY
     )
 fi
 make -C "$kernel" CROSS_COMPILE="$prefix" -j4
+vdi_library=
+if [ "$arch" = x32 ]; then
+    make -C "$kernel" CROSS_COMPILE="$prefix" -j4 x32-vdi
+    vdi_library=$kernel/obj/x32/libptos-vdi.a
+fi
 
 case $arch in
     arm) libc_config=ptos_arm_defconfig ;;
@@ -69,6 +75,7 @@ cmake -S "$top" -B "$build/native" \
     -DPTOS_CRT0="$build/libcmini/objs/crt0.o" -DPTOS_KERNEL_DIR="$kernel" \
     -DPTOS_GUEST_LIBCMINI_DIR="$build/guest-libcmini" \
     -DPTOS_M68K_TEST_DISK="$build/m68k-test-hd.img" \
+    -DPTOS_VDI_LIBRARY="$vdi_library" \
     -DPTOS_OVMF_DIR="${OVMF_DIR:-/usr/share/OVMF}" \
     -DPTOS_QEMU_DATA_DIR="${QEMU_DATA_DIR:-}"
 cmake --build "$build/native" -j4
