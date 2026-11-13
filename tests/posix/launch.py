@@ -7,6 +7,7 @@ is required, so Linux and macOS run the same guest code in CTest.
 import os
 from pathlib import Path
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -129,6 +130,34 @@ class LaunchTests(unittest.TestCase):
             if child.poll() is None:
                 child.kill()
             child.communicate()
+
+    def test_bconin_termination_restores_terminal(self):
+        (self.directory / "INPUT.TOS").write_bytes(console_input())
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+            with self.subTest(signal=sig):
+                master, slave = os.openpty()
+                try:
+                    saved = termios.tcgetattr(slave)
+                    proc = subprocess.Popen([str(PARATOS), "INPUT.TOS"],
+                                            cwd=self.directory, stdin=slave,
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    try:
+                        deadline = time.monotonic() + 3
+                        while termios.tcgetattr(slave)[3] & termios.ICANON:
+                            self.assertIsNone(proc.poll())
+                            self.assertLess(time.monotonic(), deadline)
+                            time.sleep(0.01)
+                        proc.send_signal(sig)
+                        proc.communicate(timeout=3)
+                        self.assertEqual(proc.returncode, -sig)
+                        self.assert_terminal_restored(slave, saved)
+                    finally:
+                        if proc.poll() is None:
+                            proc.kill()
+                        proc.communicate()
+                finally:
+                    os.close(master)
+                    os.close(slave)
 
     def test_bconin_preserves_queued_terminal_input(self):
         (self.directory / "INPUT.TOS").write_bytes(console_input())

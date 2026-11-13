@@ -31,6 +31,10 @@ int PosixAdoptFd(int fd);
 void PosixExportStandardHandles(void);
 void PosixTerminalLock(void);
 void PosixTerminalUnlock(void);
+/* Begin returns 1 for a terminal session, 0 for redirected input, or -1.
+ * Only a successful terminal session must be paired with End. */
+int PosixTerminalBegin(int fd);
+int PosixTerminalEnd(void);
 uint64_t PosixTaskOwner(void);
 void PosixRootIdentity(int16_t id, int16_t parent);
 int16_t PosixReservePid(int synchronous);

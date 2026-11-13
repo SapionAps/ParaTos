@@ -1,6 +1,4 @@
 #include <errno.h>
-#include <stdio.h>
-#include <termios.h>
 #include <unistd.h>
 
 #include "common.h"
@@ -12,42 +10,17 @@ static int32_t bconin(uint16_t device)
 	if (device != 2) /* POSIX stdin represents the TOS console. */
 		return TOS_ENOSYS;
 
-	PosixTerminalLock();
-	int fd = PosixHostFd(STDIN_FILENO);
-	int32_t result;
-	struct termios saved, raw;
-	int restore = 0;
-	if (tcgetattr(fd, &saved) == 0)
-	{
-		raw = saved;
-		cfmakeraw(&raw);
-		raw.c_cc[VMIN] = 1;
-		raw.c_cc[VTIME] = 0;
-		/* Do not discard characters already queued by the user. */
-		if (tcsetattr(fd, TCSANOW, &raw) < 0)
-		{
-			result = MapErrno();
-			goto out;
-		}
-		restore = 1;
-	}
-	else if (errno != ENOTTY)
-	{
-		result = MapErrno();
-		goto out;
-	}
+	int session = PosixTerminalBegin(PosixHostFd(STDIN_FILENO));
+	if (session < 0) return MapErrno();
 
 	uint8_t input;
 	ssize_t count;
 	do {
 		count = PosixRead(STDIN_FILENO, &input, 1);
 	} while (count < 0 && errno == EINTR);
-	result = count < 0 ? MapErrno() : (count ? input : 4);
+	int32_t result = count < 0 ? MapErrno() : (count ? input : 4);
 	/* BIOS has no EOF result; expose redirected EOF as console Ctrl-D. */
-	if (restore && tcsetattr(fd, TCSANOW, &saved) < 0)
-		result = MapErrno();
-out:
-	PosixTerminalUnlock();
+	if (session && PosixTerminalEnd() < 0) result = MapErrno();
 	return result;
 }
 

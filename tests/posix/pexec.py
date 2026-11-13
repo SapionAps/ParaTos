@@ -732,6 +732,38 @@ class PexecTests(unittest.TestCase):
     def test_overlapping_bconin_reads_restore_terminal(self):
         self.check_overlapping_console_reads(bios=True)
 
+    def test_redirected_bconin_read_does_not_lock_out_other_input(self):
+        c = Program()
+        # Worker redirects stdin to the empty pipe, announces readiness, then
+        # blocks in Bconin until the root reads its own input and writes it.
+        c.emit("3f39000011003f3c00003f3c00464e415c8f")
+        c.emit("23fc0000000100001004")
+        c.emit("3f3c00023f3c00024e4d588f")
+        c.report()
+        c.finish(37)
+        p = Program()
+        p.shrink()
+        p.emit("4879000011003f3c01004e415c8f")  # Fpipe
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(104, basepage=True)
+        p.emit("2c004ab90000100467f8")
+        # Give the announced worker a chance to enter its blocking read.
+        p.emit("223c000186a0538166fc")  # span multiple CPU scheduling slices
+        p.emit("3f3c00023f3c00024e4d588f")
+        p.emit("23c00000110848790000110b2f3c000000013f39000011023f3c00404e414fef000c")
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        (self.directory / "PARENT.TOS").write_bytes(p.image())
+        (self.directory / "CHILD.TOS").write_bytes(c.image())
+        r = subprocess.run([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                           input=b"Z", capture_output=True, timeout=5)
+        self.assert_words(r, [ord("Z"), 37])
+
     def check_overlapping_console_reads(self, bios):
         c = Program()
         c.emit("3f3c00023f3c00024e4d588f" if bios else "3f3c00074e41548f")

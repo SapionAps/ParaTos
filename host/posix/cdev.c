@@ -248,21 +248,9 @@ int32_t Cprnout ( int16_t c )
  */
 int32_t Crawcin ( void )
 {
-	PosixTerminalLock();
-	struct termios tp, save;
-	int needRestore = 0;
-    uint8_t input = 0;
-
-    /* Retrieve current terminal settings, turn echoing off */
-
-    if (tcgetattr(PosixHostFd(0), &tp) != -1)
-    {
-		save = tp;                          /* So we can restore settings later */
-		cfmakeraw(&tp);
-		tp.c_cc[VMIN] = 1;
-		tp.c_cc[VTIME] = 0;						/* Switch termial to raw mode */
-	    needRestore = (tcsetattr(PosixHostFd(0), TCSANOW, &tp) != -1);
-	}
+	int session = PosixTerminalBegin(PosixHostFd(STDIN_FILENO));
+	if (session < 0) return MapErrno();
+	uint8_t input = 0;
 
 	int retval = TOS_ENOSYS;
 
@@ -274,9 +262,7 @@ int32_t Crawcin ( void )
 	{
 		retval = input;
 	}
-	if (needRestore)
-		tcsetattr(PosixHostFd(STDIN_FILENO), TCSANOW, &save);
-	PosixTerminalUnlock();
+	if (session && PosixTerminalEnd() < 0) retval = MapErrno();
 
 	return retval;
 }
