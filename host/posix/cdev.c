@@ -257,7 +257,9 @@ int32_t Crawcin ( void )
     if (tcgetattr(PosixHostFd(0), &tp) != -1)
     {
 		save = tp;                          /* So we can restore settings later */
-		cfmakeraw(&tp);						/* Switch termial to raw mode */
+		cfmakeraw(&tp);
+		tp.c_cc[VMIN] = 1;
+		tp.c_cc[VTIME] = 0;						/* Switch termial to raw mode */
 	    needRestore = (tcsetattr(PosixHostFd(0), TCSANOW, &tp) != -1);
 	}
 

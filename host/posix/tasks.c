@@ -384,6 +384,7 @@ int PosixRunRoot(emuptr32_t basepage)
 	action.sa_flags = SA_SIGINFO;
 	sigemptyset(&action.sa_mask);
 	sigaction(SIGSEGV, &action, NULL);
+	sigaction(SIGBUS, &action, NULL);
 	pthread_mutex_lock(&cpu_mutex);
 	int status = run_guest(basepage);
 	/* Ending the initial guest must not terminate still-running guest threads. */
