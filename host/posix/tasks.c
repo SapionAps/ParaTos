@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
+#include <stdarg.h>
 
 #include "gemdos.h"
 #include "host.h"
@@ -19,6 +20,7 @@ static pthread_mutex_t terminal_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static _Thread_local sigjmp_buf fault_return;
 static _Thread_local int finished, exit_status;
+static _Thread_local int cpu_locked;
 
 typedef struct task {
 	struct task *next;
@@ -42,12 +44,48 @@ static int reaper_started, reaper_running, reaper_stop;
 
 void PosixPause(void)
 {
+	cpu_locked = 0;
 	pthread_mutex_unlock(&cpu_mutex);
 }
 
 void PosixResume(void)
 {
 	pthread_mutex_lock(&cpu_mutex);
+	cpu_locked = 1;
+}
+
+static void host_output(int fd, const char *buffer, size_t size)
+{
+	int held = cpu_locked;
+	if (held) PosixPause();
+	size_t sent = 0;
+	while (sent < size)
+	{
+		ssize_t n = write(fd, buffer + sent, size - sent);
+		if (n < 0 && errno == EINTR) continue;
+		if (n <= 0) break;
+		sent += (size_t)n;
+	}
+	if (held) PosixResume();
+}
+
+void PosixLog(int fd, const char *format, ...)
+{
+	int saved_errno = errno;
+	va_list args, copy;
+	va_start(args, format);
+	va_copy(copy, args);
+	int length = vsnprintf(NULL, 0, format, copy);
+	va_end(copy);
+	char *text = length < 0 ? NULL : malloc((size_t)length + 1);
+	if (text)
+	{
+		vsnprintf(text, (size_t)length + 1, format, args);
+		host_output(fd, text, (size_t)length);
+		free(text);
+	}
+	va_end(args);
+	errno = saved_errno;
 }
 
 void PosixTerminalLock(void)
@@ -244,8 +282,23 @@ static int run_guest(emuptr32_t basepage)
 		PosixReapOrphans();
 		if (sigsetjmp(fault_return, 1))
 		{
-			/* Disassembly can itself touch inaccessible guest memory. */
-			if (!sigsetjmp(fault_return, 1)) DumpGuestFault();
+			/* Format under the execution lock: CPU/disassembler state and
+			 * guest memory must stay stable. Write only the host-owned snapshot
+			 * after unlocking, so a peer can drain a backpressured output pipe. */
+			char *dump = NULL;
+			size_t dump_size = 0;
+			FILE *out = open_memstream(&dump, &dump_size);
+			if (out)
+			{
+				/* Disassembly can itself touch inaccessible guest memory. */
+				if (!sigsetjmp(fault_return, 1)) DumpGuestFault(out);
+				fclose(out);
+			}
+			if (dump)
+			{
+				host_output(STDOUT_FILENO, dump, dump_size);
+				free(dump);
+			}
 			exit_status = 255;
 			break;
 		}
@@ -316,14 +369,14 @@ static void *thread_main(void *argument)
 {
 	task *t = argument;
 	self = t;
-	pthread_mutex_lock(&cpu_mutex);
+	PosixResume();
 	t->status = run_guest(t->basepage);
 	handoff_children(t->generation);
 	for (int fd = 0; fd < 3; fd++) PosixClose(fd);
 	t->done = 1;
 	reclaim_memory();
 	pthread_cond_broadcast(&changed);
-	pthread_mutex_unlock(&cpu_mutex);
+	PosixPause();
 	return NULL;
 }
 
@@ -448,7 +501,7 @@ int PosixRunRoot(emuptr32_t basepage)
 		perror("installing host SIGPIPE handler");
 		return 1;
 	}
-	pthread_mutex_lock(&cpu_mutex);
+	PosixResume();
 	initial_basepage = basepage;
 	initial_active = 1;
 	int status = run_guest(basepage);
@@ -477,7 +530,7 @@ int PosixRunRoot(emuptr32_t basepage)
 	PosixReapOrphans();
 	reaper_stop = 1;
 	pthread_cond_broadcast(&changed);
-	pthread_mutex_unlock(&cpu_mutex);
+	PosixPause();
 	if (reaper_started) pthread_join(reaper_thread, NULL);
 	return status;
 }

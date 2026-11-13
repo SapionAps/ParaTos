@@ -3,6 +3,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
+#include "common.h"
 
 #include "host.h"
 #include <errno.h>
@@ -222,8 +224,7 @@ int32_t MapErrno(void)
 	case ETOOMANYREFS:
 		return TOS_ETOOMANYREFS;
 	default:
-		fprintf(stderr, "Unmapped errno %d ", errno);
-		perror(NULL);
+		PosixLog(2, "Unmapped errno %d %s\n", errno, strerror(errno));
 		return TOS_ERROR;
 	}
 }

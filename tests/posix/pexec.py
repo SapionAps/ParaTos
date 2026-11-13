@@ -10,6 +10,7 @@ import os
 import termios
 import time
 import signal
+import shutil
 
 PARATOS = Path(sys.argv.pop(1)).resolve()
 
@@ -172,6 +173,101 @@ class PexecTests(unittest.TestCase):
     def test_load_go_retains_image(self):
         self.assert_words(self.run_pair(parent(4), child()),
                           [37, 0x12345678, 0x55aa33cc, 37, 0, 0])
+
+    def test_exec_fifo_probe_does_not_block_peer_guest(self):
+        for mode in (0, 3, 100, 200):
+            with self.subTest(mode=mode):
+                fifo = self.directory / "EXECFIFO"
+                if fifo.exists():
+                    fifo.unlink()
+                os.mkfifo(fifo, 0o700)
+                c = Program()
+                c.emit("3f3c0001")
+                c.push("fifo")
+                c.emit("3f3c003d4e41508f")  # peer blocks opening the writer
+                c.finish(37)
+                c.label("fifo", b"EXECFIFO\0")
+                p = Program()
+                p.shrink()
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(104, basepage=True)
+                p.emit("2c00")
+                p.push("tail")  # Pexec(mode, EXECFIFO, tail, inherited env)
+                p.push("tail")
+                p.push("fifo")
+                p.emit("3f3c" + struct.pack(">H", mode).hex() + "3f3c004b4e414fef0010")
+                p.report()
+                # Only the ordinary file open should rendezvous with the peer.
+                p.emit("4267")
+                p.push("fifo")
+                p.emit("3f3c003d4e41508f")
+                p.wait()
+                p.emit("0280000000ff")
+                p.report()
+                p.finish(23)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("tail", bytes(128))
+                p.label("fifo", b"EXECFIFO\0")
+                self.assert_words(self.run_pair(p.image(), c.image()),
+                                  [-66 if mode == 3 else -36, 37])
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("stdbuf"),
+                         "requires Linux stdbuf to force diagnostic backpressure")
+    def test_fault_diagnostics_allow_peer_to_drain_full_output_pipe(self):
+        reader, writer = os.pipe()
+        self.addCleanup(os.close, reader)
+        os.set_blocking(writer, False)
+        filled = 0
+        while True:
+            try:
+                filled += os.write(writer, b"P" * 4096)
+            except BlockingIOError:
+                break
+        os.set_blocking(writer, True)
+        c = Program()
+        c.emit("4ab900fffffc67f8")  # flag written by the instruction that faults
+        c.emit("4879002000002f3c" + struct.pack(">I", filled).hex())
+        c.emit("3f3c" + struct.pack(">H", reader).hex() + "3f3c003f4e414fef000c")
+        c.emit("2f00204f2f082f3c000000043f3c00023f3c00404e414fef0010")
+        c.finish(37)
+        p = Program()
+        p.shrink()
+        p.pexec(3)
+        p.emit("28402f3c000100002f0c42673f3c004a4e414fef000c42b900fffffc")
+        p.pexec(104, basepage=True)
+        # MOVEM writes D0 to the last mapped longword, then faults writing D1.
+        # No guest scheduling point exists between setting the flag and fault.
+        p.emit("7001720248f9000300fffffc")
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        (self.directory / "PARENT.TOS").write_bytes(p.image())
+        (self.directory / "CHILD.TOS").write_bytes(c.image())
+        proc = subprocess.Popen([shutil.which("stdbuf"), "-o0", str(PARATOS), "PARENT.TOS"],
+                                cwd=self.directory, stdout=writer, stderr=subprocess.PIPE,
+                                pass_fds=(reader,))
+        os.close(writer)
+        try:
+            import select
+            self.assertTrue(select.select([proc.stderr], [], [], 3)[0],
+                            "fault diagnostics held the execution mutex while output blocked")
+            self.assertEqual(proc.stderr.read(4), struct.pack(">I", filled))
+            output = bytearray()
+            deadline = time.monotonic() + 3
+            while True:
+                self.assertLess(time.monotonic(), deadline)
+                if select.select([reader], [], [], 0.05)[0]:
+                    data = os.read(reader, 4096)
+                    if not data:
+                        break
+                    output += data
+            proc.communicate(timeout=3)
+            self.assertEqual(proc.returncode, 255)
+            self.assertIn(b"Caught SEGV", output)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate(timeout=3)
 
     def test_guest_broken_pipe_does_not_terminate_other_guests(self):
         for failed_replace in (False, True):

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "gemdos.h"
 #include "host.h"
@@ -60,8 +62,18 @@ int32_t PosixCreateBasepage(emuptr32_t tail, emuptr32_t env)
 
 int32_t PosixLoadImage(const char *path, emuptr32_t tail, emuptr32_t env)
 {
-	FILE *file = fopen(path, "rb");
-	if (!file) return MapErrno();
+	struct stat info;
+	if (stat(path, &info) < 0) return MapErrno();
+	if (!S_ISREG(info.st_mode)) return TOS_ENOEXEC;
+	int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) return MapErrno();
+	if (fstat(fd, &info) < 0)
+	{
+		int32_t error = MapErrno(); close(fd); return error;
+	}
+	if (!S_ISREG(info.st_mode)) { close(fd); return TOS_ENOEXEC; }
+	FILE *file = fdopen(fd, "rb");
+	if (!file) { int32_t error = MapErrno(); close(fd); return error; }
 	int32_t result = TOS_ENOEXEC;
 	tos_header_t h;
 	if (fread(&h, sizeof(h), 1, file) != 1 || paratos_be16toh(h.PRG_magic) != 0x601a) goto out;
@@ -73,7 +85,6 @@ int32_t PosixLoadImage(const char *path, emuptr32_t tail, emuptr32_t env)
 	if (!text || image_size + bss + sizeof(basepage_t) + 8 > memory_sz) goto out;
 	/* Symbols are part of the declared file even in absolute images, where
 	 * there is no relocation stream to expose a truncated symbol section. */
-	struct stat info;
 	if (fstat(fileno(file), &info) < 0) { result = MapErrno(); goto out; }
 	if (info.st_size < 0 || (uint64_t)info.st_size < sizeof(h) + image_size + symbols) goto out;
 	result = PosixCreateBasepage(tail, env);

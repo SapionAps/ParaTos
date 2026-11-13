@@ -118,6 +118,14 @@ blocking I/O uses host staging buffers so guest RAM is accessed only while the
 execution mutex is held. Environment scans are bounded before argument parsing;
 fault diagnostics have their own recovery point.
 
+Executable probes inspect regular files only, with nonblocking opens and a
+descriptor type check so FIFO/device paths cannot rendezvous under the execution
+mutex. Pause/Psigpause release that mutex while waiting for signals. Host trap,
+warning and debug output is formatted into host-owned buffers before writing
+without the execution mutex. Fault reports are likewise captured in memory while
+CPU/disassembler state is stable, then emitted unlocked; a guest can therefore
+drain a full diagnostic-output pipe while another guest reports a fault.
+
 The initial guest's active basepage is also protected from concurrent restart.
 Its stream mappings are closed before waiting for surviving guest threads, so
 redirected pipe readers can observe EOF. Pending host diagnostics are flushed

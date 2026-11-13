@@ -28,30 +28,42 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
 	prepare_guest_args(&argv, &envp, path, cmdline, env);
 
 	uint16_t magic = 0;
-	FILE* file = fopen(path,"r");
-	if (file)
+	/* Executable sniffing must not rendezvous with FIFO writers or read
+	 * devices under the execution mutex. Inspect regular files only, using
+	 * nonblocking open plus fstat to cover path replacement races. */
+	struct stat info;
+	if (!stat(path, &info) && S_ISREG(info.st_mode))
 	{
-		if (fread(&magic, sizeof(magic), 1, file) != 1) magic = 0;
-		magic = paratos_be16toh(magic);
-		if (magic == 0x601a) // this is another TOS executable - prepend paratos to the command line
+		int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd >= 0)
 		{
-			// Shift argv one element to the right
-			char* prev = argv[0];
-			for(int i=1; true; i++)
+			if (!fstat(fd, &info) && S_ISREG(info.st_mode))
 			{
-				char* next = argv[i];
-				argv[i] = prev;
-				if (prev == 0)
-					break;
-				prev = next;
+				ssize_t count;
+				do { count = read(fd, &magic, sizeof(magic)); } while (count < 0 && errno == EINTR);
+				if (count != sizeof(magic)) magic = 0;
 			}
-
-			// add paratos executable in front of the command line and change the path name to execute
-			// TODO: handle when argv[0] != pathname
-			*pathp = paratos_exe;
-			argv[0] = paratos_exe;
+			close(fd);
 		}
-		fclose(file);
+	}
+	magic = paratos_be16toh(magic);
+	if (magic == 0x601a) // this is another TOS executable - prepend paratos to the command line
+	{
+		// Shift argv one element to the right
+		char* prev = argv[0];
+		for(int i=1; true; i++)
+		{
+			char* next = argv[i];
+			argv[i] = prev;
+			if (prev == 0)
+				break;
+			prev = next;
+		}
+
+		// add paratos executable in front of the command line and change the path name to execute
+		// TODO: handle when argv[0] != pathname
+		*pathp = paratos_exe;
+		argv[0] = paratos_exe;
 	}
 
 	*out_env = envp;

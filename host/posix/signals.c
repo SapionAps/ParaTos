@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <errno.h>
 
 #include "common.h"
 #include "host.h"
 #include "gemdos.h"
+#include "tasks.h"
 
 enum mint_signal
 {
@@ -199,7 +201,11 @@ uint32_t sigset_to_mask(sigset_t* set)
  */
 void Pause ( void )
 {
+	PosixPause();
 	pause();
+	int error = errno;
+	PosixResume();
+	errno = error;
 }
 
 /**
@@ -322,7 +328,11 @@ int32_t Psigpause ( int32_t mask )
 {
 	sigset_t set;
 	mask_to_sigset(&set, mask);
+	PosixPause();
 	sigsuspend(&set);
+	int error = errno;
+	PosixResume();
+	errno = error;
 	return MapErrno();
 }
 

@@ -442,7 +442,7 @@ static uint32_t convert_mode(mode_t st_mode)
 		}
 		default:
 		{
-			fprintf(stderr, "Warning: Unknown S_IFMT %0x\n", (st_mode & S_IFMT));
+			PosixLog(2, "Warning: Unknown S_IFMT %0x\n", (st_mode & S_IFMT));
 			mint_mode |= MINT_S_IFREG;
 		}
 	}

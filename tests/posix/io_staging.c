@@ -3,13 +3,30 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
+#include <errno.h>
 #include "tasks.h"
 #include "gemdos.h"
 
 uint8_t *memory;
 size_t memory_sz;
-static int reads, writes;
-int32_t MapErrno(void) { return TOS_ERROR; }
+static int reads, writes, signal_waits;
+int32_t MapErrno(void) { assert(errno == EINTR); return TOS_ERROR; }
+
+int __wrap_pause(void)
+{
+	PosixResume(); /* A peer must be able to run while this guest is waiting. */
+	signal_waits++;
+	PosixPause();
+	errno = EINTR;
+	return -1;
+}
+
+int __wrap_sigsuspend(const sigset_t *mask)
+{
+	assert(sigismember(mask, SIGPIPE) == 1);
+	return __wrap_pause();
+}
 
 ssize_t __wrap_read(int fd, void *buffer, size_t count)
 {
@@ -54,7 +71,16 @@ int main(void)
 	assert(Fread(0, 4, 15) == TOS_EINVAL);
 	assert(Fwrite(1, 4, 15) == TOS_EINVAL);
 	assert(reads == 2 && writes == 2);
+	errno = ERANGE;
+	PosixLog(1, "%s", "AAAA");
+	assert(errno == ERANGE);
+	assert(writes == 3); /* host diagnostics also let a peer acquire the lock */
+	Pause();
+	assert(Psigpause(1 << 13) == TOS_ERROR);
+	assert(signal_waits == 2);
 	PosixPause();
+	PosixLog(1, "%s", "AAAA"); /* startup diagnostics have no execution lock */
+	assert(writes == 4);
 	free(memory);
 	return 0;
 }
