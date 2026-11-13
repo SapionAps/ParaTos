@@ -131,7 +131,8 @@ int16_t Cconos ( void )
  */
 int32_t Cconout ( int16_t c )
 {
-	return PosixWrite(1, &c, 1);
+	int32_t result = PosixWrite(1, &c, 1);
+	return result < 0 ? MapErrno() : result;
 }
 
 /**

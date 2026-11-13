@@ -72,6 +72,13 @@ by threads. Modes 0/100 remain separate host processes. `Pfork`/`Pvfork` are
 rejected while guest threads exist; duplicating a live threaded runtime through
 fork without exec is unsupported.
 
+The host catches SIGPIPE so a guest write to a pipe with no readers returns
+`TOS_EPIPE` instead of terminating all guests. This also protects host diagnostic
+writes. The disposition is caught rather than ignored: successful native exec
+automatically restores the default disposition, while a failed replacement
+leaves the runtime protected. This is host isolation, not emulation of guest
+SIGPIPE handlers (`Psigaction` remains unimplemented).
+
 `Pwait`, `Pwait3` and `Pwaitpid` can reap mode 100 processes and mode 104 guest
 threads. IDs share a positive 16-bit namespace; nonblocking waits return zero
 while a child is running. Guest-thread rusage currently reports zero.

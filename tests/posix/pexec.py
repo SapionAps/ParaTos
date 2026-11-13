@@ -9,6 +9,7 @@ import unittest
 import os
 import termios
 import time
+import signal
 
 PARATOS = Path(sys.argv.pop(1)).resolve()
 
@@ -171,6 +172,85 @@ class PexecTests(unittest.TestCase):
     def test_load_go_retains_image(self):
         self.assert_words(self.run_pair(parent(4), child()),
                           [37, 0x12345678, 0x55aa33cc, 37, 0, 0])
+
+    def test_guest_broken_pipe_does_not_terminate_other_guests(self):
+        for failed_replace in (False, True):
+            with self.subTest(failed_replace=failed_replace):
+                c = Program()
+                if failed_replace:
+                    c.pexec(200)
+                    c.report()
+                c.emit("4879000011082f3c000000013f39000011023f3c00404e414fef000c")
+                c.report()
+                # Console output must also report a TOS pipe error. Preserve
+                # a reporting stream while redirecting only the child's stdout.
+                c.emit("3f3c00013f3c00454e41588f2800")
+                c.emit("3f39000011023f3c00013f3c00464e415c8f")
+                c.emit("3f3c00413f3c00024e41588f2a00")
+                c.emit("3f043f3c00013f3c00464e415c8f2005")
+                c.report()
+                c.emit("3f043f3c003e4e41588f")
+                c.finish(37)
+                c.label("child", b"MISSING.TOS\0")
+                c.label("tail", bytes(128))
+                p = Program()
+                p.shrink()
+                p.emit("2e3c55aa33cc4879000011003f3c01004e415c8f")
+                p.emit("3f39000011003f3c003e4e41588f")  # close the only reader
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(6, basepage=True)
+                p.report()
+                p.emit("2007")
+                p.report()
+                p.finish(23)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("tail", bytes(128))
+                expected = ([-33] if failed_replace else []) + [-81, -81, 37, 0x55aa33cc]
+                self.assert_words(self.run_pair(p.image(), c.image()), expected)
+
+    def test_broken_host_diagnostic_pipe_does_not_terminate_runtime(self):
+        p = Program()
+        p.emit("4879000011082f3c000000013f3c00003f3c003f4e414fef000c")
+        p.emit("4ef902000000")  # fault diagnostics will write to closed stdout
+        (self.directory / "FAULT.TOS").write_bytes(p.image())
+        proc = subprocess.Popen([str(PARATOS), "FAULT.TOS"], cwd=self.directory,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        try:
+            proc.stdout.close()
+            proc.stdout = None
+            _, stderr = proc.communicate(b"x", timeout=3)
+            self.assertEqual(proc.returncode, 255, stderr)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate(timeout=3)
+
+    def test_native_exec_keeps_default_sigpipe_behavior(self):
+        for mode in (0, 100, 200):
+            with self.subTest(mode=mode):
+                native = self.directory / "NATIVE.SH"
+                native.write_text("#!/bin/sh\nkill -s PIPE $$\nexit 99\n")
+                native.chmod(0o755)
+                p = Program()
+                p.shrink()
+                p.pexec(mode)
+                if mode == 100:
+                    p.emit("2c00")
+                    p.wait()
+                    p.emit("02800000ffff")
+                p.report()
+                p.finish(23)
+                p.label("child", b"NATIVE.SH\0")
+                p.label("tail", bytes(128))
+                (self.directory / "PARENT.TOS").write_bytes(p.image())
+                r = subprocess.run([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                                   capture_output=True, timeout=5)
+                if mode == 200:
+                    self.assertEqual(r.returncode, -signal.SIGPIPE, r.stderr)
+                else:
+                    self.assert_words(r, [signal.SIGPIPE << 8 if mode == 100 else -1])
 
     def test_worker_cannot_restart_the_active_initial_guest(self):
         c = Program()

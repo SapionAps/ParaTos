@@ -224,6 +224,14 @@ static void fault_handler(int signal_number, siginfo_t *info, void *context)
 	siglongjmp(fault_return, signal_number);
 }
 
+static void broken_pipe_handler(int signal_number)
+{
+	(void)signal_number;
+	/* Let the failing write return EPIPE instead of terminating every guest.
+	 * Catch rather than SIG_IGN: exec resets caught dispositions to default,
+	 * preserving native-program behavior without a process-wide reset window. */
+}
+
 /* Called with cpu_mutex held; returns with it held as well. */
 static int run_guest(emuptr32_t basepage)
 {
@@ -432,6 +440,14 @@ int PosixRunRoot(emuptr32_t basepage)
 	sigemptyset(&action.sa_mask);
 	sigaction(SIGSEGV, &action, NULL);
 	sigaction(SIGBUS, &action, NULL);
+	struct sigaction broken_pipe = {0};
+	broken_pipe.sa_handler = broken_pipe_handler;
+	sigemptyset(&broken_pipe.sa_mask);
+	if (sigaction(SIGPIPE, &broken_pipe, NULL) < 0)
+	{
+		perror("installing host SIGPIPE handler");
+		return 1;
+	}
 	pthread_mutex_lock(&cpu_mutex);
 	initial_basepage = basepage;
 	initial_active = 1;
