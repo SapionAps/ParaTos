@@ -5,11 +5,6 @@
 #include <stdatomic.h>
 #include <termios.h>
 #include <unistd.h>
-#ifdef __APPLE__
-#include <sys/ucontext.h>
-#else
-#include <ucontext.h>
-#endif
 
 #include "tasks.h"
 
@@ -19,7 +14,7 @@
 static atomic_flag cleanup_lock = ATOMIC_FLAG_INIT;
 static const int signals[] = { SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGABRT };
 static struct sigaction previous[sizeof(signals) / sizeof(signals[0])];
-static atomic_int reset_handler[sizeof(signals) / sizeof(signals[0])];
+static int replaced[sizeof(signals) / sizeof(signals[0])];
 static size_t installed;
 static int terminal_fd = -1, raw_active;
 static struct termios saved;
@@ -42,54 +37,22 @@ static int restore_session(void)
 	while (installed)
 	{
 		size_t i = --installed;
-		struct sigaction action = previous[i];
-		if (atomic_load_explicit(&reset_handler[i], memory_order_relaxed))
-		{
-			action.sa_handler = SIG_DFL;
-			action.sa_flags = 0;
-		}
-		sigaction(signals[i], &action, NULL);
+		if (replaced[i]) sigaction(signals[i], &previous[i], NULL);
 	}
 	if (result < 0) errno = error;
 	return result;
 }
 
-static void terminate_session(int signal_number, siginfo_t *info, void *context)
+static void terminate_session(int signal_number)
 {
 	int error = errno;
 	lock_cleanup();
-	size_t i = 0;
-	while (signals[i] != signal_number) i++;
-	struct sigaction original = previous[i];
-	if (atomic_load_explicit(&reset_handler[i], memory_order_relaxed))
-	{
-		original.sa_handler = SIG_DFL;
-		original.sa_flags = 0;
-	}
-	if (original.sa_handler == SIG_DFL) restore_session();
-	else if (original.sa_flags & SA_RESETHAND)
-	{
-		/* Keep our wrapper installed, but make subsequent delivery and normal
-		 * session cleanup observe the user's one-shot disposition. */
-		atomic_store_explicit(&reset_handler[i], 1, memory_order_relaxed);
-	}
+	restore_session();
 	atomic_flag_clear_explicit(&cleanup_lock, memory_order_release);
-	if (original.sa_handler == SIG_DFL)
-		/* Only default termination is re-delivered. User handlers receive the
-		 * original siginfo/context, and returning handlers leave the active
-		 * reader protected by its raw session even on another host thread. */
-		raise(signal_number);
-	else if (original.sa_handler != SIG_IGN)
-	{
-		sigset_t mask = ((ucontext_t *)context)->uc_sigmask, wrapper_mask;
-		for (int sig = 1; sig < NSIG; sig++)
-			if (sigismember(&original.sa_mask, sig) == 1) sigaddset(&mask, sig);
-		if (!(original.sa_flags & SA_NODEFER)) sigaddset(&mask, signal_number);
-		sigprocmask(SIG_SETMASK, &mask, &wrapper_mask);
-		if (original.sa_flags & SA_SIGINFO) original.sa_sigaction(signal_number, info, context);
-		else original.sa_handler(signal_number);
-		sigprocmask(SIG_SETMASK, &wrapper_mask, NULL);
-	}
+	/* Only default dispositions are wrapped. Re-delivery retains default
+	 * termination status and core-dump semantics. User handlers stay installed
+	 * with their original siginfo, context, masks, and one-shot behavior. */
+	raise(signal_number);
 	errno = error;
 }
 
@@ -117,17 +80,17 @@ int PosixTerminalBegin(int fd)
 	terminal_fd = fcntl(fd, F_DUPFD_CLOEXEC, 3);
 	if (terminal_fd < 0 || tcgetattr(terminal_fd, &saved) < 0) goto out;
 	struct sigaction action = {0};
-	action.sa_sigaction = terminate_session;
+	action.sa_handler = terminate_session;
+	action.sa_mask = set;
 	for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); i++)
 	{
 		if (sigaction(signals[i], NULL, &previous[i]) < 0) goto out;
-		atomic_store_explicit(&reset_handler[i], 0, memory_order_relaxed);
-		action.sa_flags = SA_SIGINFO | (previous[i].sa_flags & (SA_RESTART | SA_ONSTACK));
-		action.sa_mask = set;
-		for (int sig = 1; sig < NSIG; sig++)
-			if (sigismember(&previous[i].sa_mask, sig) == 1) sigaddset(&action.sa_mask, sig);
-		/* An ignored signal must remain ignored throughout the session. */
-		if (previous[i].sa_handler != SIG_IGN && sigaction(signals[i], &action, NULL) < 0) goto out;
+		/* Preserve user/ignored actions in the kernel. In particular Darwin's
+		 * sigaction query omits SA_RESETHAND, so saving/restoring such an action
+		 * would silently lose its one-shot semantics. Returning handlers leave
+		 * the active reader in its protected raw session. */
+		replaced[i] = previous[i].sa_handler == SIG_DFL;
+		if (replaced[i] && sigaction(signals[i], &action, NULL) < 0) goto out;
 		installed++;
 	}
 	struct termios raw = saved;
