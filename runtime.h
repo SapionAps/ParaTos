@@ -2,4 +2,4 @@
 #include "common.h"
 
 void InitGuestCPU(emuptr32_t basepage);
-void DumpGuestFault(void);
+void DumpGuestFault(FILE *out);

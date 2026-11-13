@@ -25,7 +25,7 @@ void InitGuestCPU(emuptr32_t basepage)
 	m68k_set_reg(M68K_REG_PC, tbase);
 }
 
-void DumpGuestFault(void)
+void DumpGuestFault(FILE *out)
 {
 	static const char* regs[] = {
 		"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7",
@@ -34,20 +34,20 @@ void DumpGuestFault(void)
 		"PREF_ADDR", "PREF_DATA", "PPC", "IR"};
 	for(int i=M68K_REG_D0; i<M68K_REG_CPU_TYPE; i++)
 	{
-		printf("%-4s= %08x  ", regs[i], m68k_get_reg(NULL, i));
-		if ((i%4)==3) printf("\n");
+		fprintf(out, "%-4s= %08x  ", regs[i], m68k_get_reg(NULL, i));
+		if ((i%4)==3) fprintf(out, "\n");
 	}
-	printf("\n");
+	fprintf(out, "\n");
 	emuptr32_t pc =	m68k_get_reg(NULL, M68K_REG_PPC);
 	char buf[128];
-	printf("Caught SEGV while executing instruction at %08x -> %08x\n", pc, m68k_get_reg(NULL, M68K_REG_PC));
+	fprintf(out, "Caught SEGV while executing instruction at %08x -> %08x\n", pc, m68k_get_reg(NULL, M68K_REG_PC));
 	emuptr32_t earlier = pc;
 	for(int i=0; i<20; i++)
 	{
 		bool found = false;
 		for (int j=24; j>0; j-=2)
 		{
-			if(j == m68k_disassemble(buf, earlier-j, M68K_CPU_TYPE_68020) )
+			if((unsigned)j == m68k_disassemble(buf, earlier-j, M68K_CPU_TYPE_68020) )
 			{
 				found = true;
 				earlier -= j;
@@ -61,18 +61,18 @@ void DumpGuestFault(void)
 	for(emuptr32_t address = earlier ; address <= pc+32; address+=width)
 	{
 		width=m68k_disassemble(buf, address, M68K_CPU_TYPE_68020);
-		printf("%s%08x %-32s", address==pc?"-> ":"   ", address, buf);
+		fprintf(out, "%s%08x %-32s", address==pc?"-> ":"   ", address, buf);
 		for(int j=0; j<width; j+=2)
-			printf("%04x ", m68k_read_memory_16(address+j));
+			fprintf(out, "%04x ", m68k_read_memory_16(address+j));
 		if (width == 2)
-			printf("          ");
+			fprintf(out, "          ");
 		if (width == 4)
-			printf("     ");
+			fprintf(out, "     ");
 		for(int j=0; j<width; j+=1)
 		{
 			char c=memory[address+j];
-			printf("%c", (c>' '&&c<='~')?c:'.');
+			fprintf(out, "%c", (c>' '&&c<='~')?c:'.');
 		}
-		printf("\n");
+		fprintf(out, "\n");
 	}
 }

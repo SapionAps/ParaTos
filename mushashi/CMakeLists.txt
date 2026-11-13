@@ -27,6 +27,7 @@ add_custom_command (
   )
 
 add_library (mushashi STATIC ${SOURCE_FILES} ${GEN_SOURCE_FILES})
+target_compile_features(mushashi PUBLIC c_std_11)
 foreach(src ${GEN_SOURCE_FILES})
 	list(APPEND MUSASHI_GENERATED_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/${src})
 endforeach()

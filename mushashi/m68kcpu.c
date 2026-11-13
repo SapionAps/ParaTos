@@ -40,15 +40,18 @@
 
 #include "m68kops.h"
 #include "m68kcpu.h"
+#ifndef PARATOS_PTOS
+#include <pthread.h>
+#endif
 
 /* ======================================================================== */
 /* ================================= DATA ================================= */
 /* ======================================================================== */
 
-int  m68ki_initial_cycles;
-int  m68ki_remaining_cycles = 0;                     /* Number of clocks remaining */
-uint m68ki_tracing = 0;
-uint m68ki_address_space;
+M68K_THREAD_LOCAL int  m68ki_initial_cycles;
+M68K_THREAD_LOCAL int  m68ki_remaining_cycles = 0;                     /* Number of clocks remaining */
+M68K_THREAD_LOCAL uint m68ki_tracing = 0;
+M68K_THREAD_LOCAL uint m68ki_address_space;
 
 #ifdef M68K_LOG_ENABLE
 char* m68ki_cpu_names[9] =
@@ -66,15 +69,15 @@ char* m68ki_cpu_names[9] =
 #endif /* M68K_LOG_ENABLE */
 
 /* The CPU core */
-m68ki_cpu_core m68ki_cpu = {0};
+M68K_THREAD_LOCAL m68ki_cpu_core m68ki_cpu = {0};
 
 #if M68K_EMULATE_ADDRESS_ERROR
-jmp_buf m68ki_aerr_trap;
+M68K_THREAD_LOCAL jmp_buf m68ki_aerr_trap;
 #endif /* M68K_EMULATE_ADDRESS_ERROR */
 
-uint    m68ki_aerr_address;
-uint    m68ki_aerr_write_mode;
-uint    m68ki_aerr_fc;
+M68K_THREAD_LOCAL uint    m68ki_aerr_address;
+M68K_THREAD_LOCAL uint    m68ki_aerr_write_mode;
+M68K_THREAD_LOCAL uint    m68ki_aerr_fc;
 
 /* Used by shift & rotate instructions */
 uint8 m68ki_shift_8_table[65] =
@@ -370,7 +373,7 @@ uint8 m68ki_ea_idx_cycle_table[64] =
  */
 
 /* Interrupt acknowledge */
-static int default_int_ack_callback_data;
+static M68K_THREAD_LOCAL int default_int_ack_callback_data;
 static int default_int_ack_callback(int int_level)
 {
 	default_int_ack_callback_data = int_level;
@@ -379,7 +382,7 @@ static int default_int_ack_callback(int int_level)
 }
 
 /* Breakpoint acknowledge */
-static unsigned int default_bkpt_ack_callback_data;
+static M68K_THREAD_LOCAL unsigned int default_bkpt_ack_callback_data;
 static void default_bkpt_ack_callback(unsigned int data)
 {
 	default_bkpt_ack_callback_data = data;
@@ -391,14 +394,14 @@ static void default_reset_instr_callback(void)
 }
 
 /* Called when the program counter changed by a large value */
-static unsigned int default_pc_changed_callback_data;
+static M68K_THREAD_LOCAL unsigned int default_pc_changed_callback_data;
 static void default_pc_changed_callback(unsigned int new_pc)
 {
 	default_pc_changed_callback_data = new_pc;
 }
 
 /* Called every time there's bus activity (read/write to/from memory */
-static unsigned int default_set_fc_callback_data;
+static M68K_THREAD_LOCAL unsigned int default_set_fc_callback_data;
 static void default_set_fc_callback(unsigned int new_fc)
 {
 	default_set_fc_callback_data = new_fc;
@@ -412,7 +415,7 @@ static void default_instr_hook_callback(void)
 
 #if M68K_EMULATE_ADDRESS_ERROR
 	#include <setjmp.h>
-	jmp_buf m68ki_aerr_trap;
+	M68K_THREAD_LOCAL jmp_buf m68ki_aerr_trap;
 #endif /* M68K_EMULATE_ADDRESS_ERROR */
 
 
@@ -740,6 +743,10 @@ void m68k_set_irq(unsigned int int_level)
 
 void m68k_init(void)
 {
+#ifndef PARATOS_PTOS
+	static pthread_once_t initialized = PTHREAD_ONCE_INIT;
+	pthread_once(&initialized, m68ki_build_opcode_table);
+#else
 	static uint emulation_initialized = 0;
 
 	/* The first call to this function initializes the opcode handler jump table */
@@ -748,6 +755,8 @@ void m68k_init(void)
 		m68ki_build_opcode_table();
 		emulation_initialized = 1;
 	}
+
+#endif
 
 	m68k_set_int_ack_callback(NULL);
 	m68k_set_bkpt_ack_callback(NULL);
