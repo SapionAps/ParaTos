@@ -19,6 +19,7 @@
 static atomic_flag cleanup_lock = ATOMIC_FLAG_INIT;
 static const int signals[] = { SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGABRT };
 static struct sigaction previous[sizeof(signals) / sizeof(signals[0])];
+static atomic_int reset_handler[sizeof(signals) / sizeof(signals[0])];
 static size_t installed;
 static int terminal_fd = -1, raw_active;
 static struct termios saved;
@@ -41,7 +42,13 @@ static int restore_session(void)
 	while (installed)
 	{
 		size_t i = --installed;
-		sigaction(signals[i], &previous[i], NULL);
+		struct sigaction action = previous[i];
+		if (atomic_load_explicit(&reset_handler[i], memory_order_relaxed))
+		{
+			action.sa_handler = SIG_DFL;
+			action.sa_flags = 0;
+		}
+		sigaction(signals[i], &action, NULL);
 	}
 	if (result < 0) errno = error;
 	return result;
@@ -54,13 +61,17 @@ static void terminate_session(int signal_number, siginfo_t *info, void *context)
 	size_t i = 0;
 	while (signals[i] != signal_number) i++;
 	struct sigaction original = previous[i];
+	if (atomic_load_explicit(&reset_handler[i], memory_order_relaxed))
+	{
+		original.sa_handler = SIG_DFL;
+		original.sa_flags = 0;
+	}
 	if (original.sa_handler == SIG_DFL) restore_session();
 	else if (original.sa_flags & SA_RESETHAND)
 	{
 		/* Keep our wrapper installed, but make subsequent delivery and normal
 		 * session cleanup observe the user's one-shot disposition. */
-		previous[i].sa_handler = SIG_DFL;
-		previous[i].sa_flags = 0;
+		atomic_store_explicit(&reset_handler[i], 1, memory_order_relaxed);
 	}
 	atomic_flag_clear_explicit(&cleanup_lock, memory_order_release);
 	if (original.sa_handler == SIG_DFL)
@@ -110,6 +121,7 @@ int PosixTerminalBegin(int fd)
 	for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); i++)
 	{
 		if (sigaction(signals[i], NULL, &previous[i]) < 0) goto out;
+		atomic_store_explicit(&reset_handler[i], 0, memory_order_relaxed);
 		action.sa_flags = SA_SIGINFO | (previous[i].sa_flags & (SA_RESTART | SA_ONSTACK));
 		action.sa_mask = set;
 		for (int sig = 1; sig < NSIG; sig++)
