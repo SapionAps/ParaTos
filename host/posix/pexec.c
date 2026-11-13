@@ -66,6 +66,23 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
  *
  * int32_t Pexec ( uint16_t mode, ... )
  */
+static char **tag_guest_argv(char **argv, int16_t id, int16_t parent,
+	char id_text[16], char parent_text[16])
+{
+	size_t count = 0;
+	while (argv[count]) count++;
+	char **tagged = malloc((count + 4) * sizeof(*tagged));
+	if (!tagged) return NULL;
+	snprintf(id_text, 16, "%d", id);
+	snprintf(parent_text, 16, "%d", parent);
+	tagged[0] = argv[0];
+	tagged[1] = "--paratos-child";
+	tagged[2] = id_text;
+	tagged[3] = parent_text;
+	for (size_t i = 1; i <= count; i++) tagged[i + 3] = argv[i];
+	return tagged;
+}
+
 int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3 )
 {
 	uint16_t operation = mode & 0x7fff;
@@ -95,8 +112,16 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 	char *path = original;
 	char **argv, **envp;
 	prepare_args(&argv, &envp, &path, arg2, arg3);
+	char **tagged = NULL;
+	char id_text[16], parent_text[16];
 	if (operation == 200)
 	{
+		if (path == paratos_exe)
+		{
+			tagged = tag_guest_argv(argv, PosixTaskPid(), PosixTaskParentPid(), id_text, parent_text);
+			if (!tagged) { free(tagged); free(envp); free(original); return TOS_ENSMEM; }
+			argv = tagged;
+		}
 		int saved[3] = {-1, -1, -1};
 		for (int fd = 0; fd < 3; fd++)
 		{
@@ -105,7 +130,7 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 			{
 				int32_t result = MapErrno();
 				for (int i = 0; i < fd; i++) if (saved[i] >= 0) close(saved[i]);
-				free(envp);
+				free(tagged); free(envp);
 				free(original);
 				return result;
 			}
@@ -119,19 +144,25 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 			if (saved[fd] < 0) close(fd);
 			else { dup2(saved[fd], fd); close(saved[fd]); }
 		}
-		free(envp);
+		free(tagged); free(envp);
 		free(original);
 		return result;
 	}
 	/* Reserve identity and ownership before a child can exist. Synchronous
 	 * launches remain invisible to every guest's Pwait until their own join. */
 	int16_t id = PosixReservePid(1);
-	if (id < 0) { free(envp); free(original); return TOS_ENHNDL; }
+	if (id < 0) { free(tagged); free(envp); free(original); return TOS_ENHNDL; }
+	if (path == paratos_exe)
+	{
+		tagged = tag_guest_argv(argv, id, PosixTaskPid(), id_text, parent_text);
+		if (!tagged) { PosixReleasePid(id); free(tagged); free(envp); free(original); return TOS_ENSMEM; }
+		argv = tagged;
+	}
 	int channel[2];
 	if (pipe(channel) < 0)
 	{
 		int32_t error = MapErrno();
-		PosixReleasePid(id); free(envp); free(original);
+		PosixReleasePid(id); free(tagged); free(envp); free(original);
 		return error;
 	}
 	for (int i = 0; i < 2; i++)
@@ -143,7 +174,7 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 			int32_t error = MapErrno();
 			if (channel[0] >= 0) close(channel[0]);
 			if (channel[1] >= 0) close(channel[1]);
-			PosixReleasePid(id); free(envp); free(original);
+			PosixReleasePid(id); free(tagged); free(envp); free(original);
 			return error;
 		}
 	}
@@ -167,7 +198,7 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		_exit(127);
 	}
 	int32_t result = pid < 0 ? MapErrno() : 0;
-	free(envp); free(original);
+	free(tagged); free(envp); free(original);
 	close(channel[1]);
 	if (pid < 0)
 	{

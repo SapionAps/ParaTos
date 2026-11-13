@@ -830,7 +830,13 @@ int32_t Fopen ( emuptr32_t filename, int16_t mode )
 		flags |= O_NONBLOCK;
 	}
 
-	retval = PosixAdoptFd(open(path, flags, 0777));
+	/* FIFO opens may wait for another guest to open the opposite end. */
+	PosixPause();
+	int opened = open(path, flags, 0777);
+	int open_error = errno;
+	PosixResume();
+	errno = open_error;
+	retval = PosixAdoptFd(opened);
 	if (retval < 1)
 		retval = MapErrno();
 

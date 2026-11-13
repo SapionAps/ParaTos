@@ -114,17 +114,8 @@ void PosixExportStandardHandles(void)
 	}
 }
 
-static int valid_io_buffer(const void *buffer, size_t count)
-{
-	uintptr_t at = (uintptr_t)buffer, base = (uintptr_t)memory;
-	if (at >= base && at - base < UINT64_C(0x100000000))
-		return at - base < memory_sz && count <= memory_sz - (at - base);
-	return 1; /* host-owned scalar buffers are also used by console calls */
-}
-
 ssize_t PosixRead(int fd, void *buffer, size_t count)
 {
-	if (!valid_io_buffer(buffer, count)) { errno = EFAULT; return -1; }
 	void *staging = malloc(count ? count : 1);
 	if (!staging) { errno = ENOMEM; return -1; }
 	fd = PosixHostFd(fd);
@@ -141,7 +132,6 @@ ssize_t PosixRead(int fd, void *buffer, size_t count)
 
 ssize_t PosixWrite(int fd, const void *buffer, size_t count)
 {
-	if (!valid_io_buffer(buffer, count)) { errno = EFAULT; return -1; }
 	void *snapshot = malloc(count ? count : 1);
 	if (!snapshot) { errno = ENOMEM; return -1; }
 	memcpy(snapshot, buffer, count);

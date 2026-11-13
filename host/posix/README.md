@@ -91,6 +91,10 @@ children are reserved for their own Pexec caller; guest waits poll only eligible
 native PIDs and never use a host-wide `wait4(-1)`. Registry capacity is reserved
 before fork. A close-on-exec pipe reports native launch errors separately from
 normal exit status 127. Pfork propagates its reserved guest identity to the child.
+Automatically launched ParaTos processes receive their reserved identity through
+internal launcher arguments, consumed before constructing the guest command tail.
+Blocking FIFO opens release the execution mutex so a peer guest can open the
+other end.
 
 Basepage allocations are explicitly tagged. Retired basepages cannot be reused
 until descendants finish. Terminal mode sessions have a separate mutex, and
