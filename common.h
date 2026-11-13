@@ -14,13 +14,20 @@ typedef uint32_t emuptr32_t;
 typedef uint32_t emureg_t;
 
 
+#ifndef PARATOS_PTOS
+void PosixLog(int fd, const char *format, ...);
+#define HOST_TRACE(...) PosixLog(2, __VA_ARGS__)
+#else
+#define HOST_TRACE(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 #ifdef DEBUG
-#define TRACEF(...) fprintf(stderr, __VA_ARGS__);
+#define TRACEF(...) HOST_TRACE(__VA_ARGS__);
 #else
 #define TRACEF(...)
 #endif
 
-#define NOT_IMPLEMENTED(Subsystem, Name, Op) fprintf(stderr, "Unimplemented " #Subsystem " call " #Name "(%d/%x)\n", Op, Op );
+#define NOT_IMPLEMENTED(Subsystem, Name, Op) HOST_TRACE("Unimplemented " #Subsystem " call " #Name "(%d/%x)\n", Op, Op );
 uint64_t m68k_read_memory_64(unsigned int address);
 void m68k_write_memory_64(unsigned int address, uint64_t value);
 uint32_t m68k_write_string(uint32_t address, const char* value, uint32_t maxLen);

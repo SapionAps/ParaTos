@@ -1,59 +1,79 @@
 #include <stdlib.h>
+#include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include "common.h"
 #include "host.h"
 #include "gemdos.h"
+#include "tasks.h"
 
 typedef struct pid_map {
 	int16_t tos_pid;
 	pid_t host_pid;
+	uint64_t owner;
+	int synchronous;
 	struct pid_map *next;
 } pid_map_t;
 
 static pid_map_t *pid_map_head;
 
-static void remember_pid(pid_t host_pid)
+int16_t PosixRegisterPid(int host_pid)
 {
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
+		if (p->host_pid == host_pid) return p->tos_pid;
 	pid_map_t *entry = malloc(sizeof(pid_map_t));
 	if (!entry) {
-		return;
+		return -1;
 	}
-
-	entry->tos_pid = (int16_t)host_pid;
+	int id;
+	for (id = 1; id <= 32767; id++)
+	{
+		if (id == (uint16_t)getpid() || id == (uint16_t)getppid()) continue;
+		if (id == (uint16_t)PosixTaskPid() || id == (uint16_t)PosixTaskParentPid()) continue;
+		if (id == (uint16_t)PosixRuntimeRootPid()) continue;
+		pid_map_t *p;
+		for (p = pid_map_head; p && p->tos_pid != id; p = p->next) {}
+		if (!p) break;
+	}
+	if (id > 32767) { free(entry); return -1; }
+	entry->tos_pid = (int16_t)id;
 	entry->host_pid = host_pid;
+	entry->owner = PosixTaskOwner();
+	entry->synchronous = 0;
 	entry->next = pid_map_head;
 	pid_map_head = entry;
+	return entry->tos_pid;
 }
 
-static pid_t map_tos_pid_to_host(int16_t tos_pid)
+int16_t PosixReservePid(int synchronous)
 {
-	for (pid_map_t *entry = pid_map_head; entry; entry = entry->next) {
-		if (entry->tos_pid == tos_pid) {
-			return entry->host_pid;
-		}
-	}
-
-	return (pid_t)tos_pid;
+	static int token = -2147483647;
+	int16_t id = PosixRegisterPid(token++);
+	if (id > 0)
+		for (pid_map_t *p = pid_map_head; p; p = p->next)
+			if (p->tos_pid == id) p->synchronous = synchronous;
+	return id;
 }
 
-static int16_t map_host_pid_to_tos(pid_t host_pid)
+void PosixBindPid(int16_t id, int native_pid, int synchronous)
 {
-	for (pid_map_t *entry = pid_map_head; entry; entry = entry->next) {
-		if (entry->host_pid == host_pid) {
-			return entry->tos_pid;
-		}
-	}
-
-	return (int16_t)host_pid;
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
+		if (p->tos_pid == id) { p->host_pid = native_pid; p->synchronous = synchronous; return; }
 }
 
-static void forget_pid_by_host(pid_t host_pid)
+void PosixReleasePid(int16_t id)
+{
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
+		if (p->tos_pid == id) { PosixForgetPid(p->host_pid); return; }
+}
+
+void PosixForgetPid(int host_pid)
 {
 	pid_map_t **current = &pid_map_head;
 	while (*current) {
@@ -65,6 +85,43 @@ static void forget_pid_by_host(pid_t host_pid)
 		}
 		current = &(*current)->next;
 	}
+}
+
+/* This owner cannot belong to an executing guest. Only the central reaper
+ * consumes its statuses, retaining IDs until wait4 has collected each child. */
+#define ORPHAN_OWNER UINT64_MAX
+
+int PosixOrphanChildren(uint64_t owner)
+{
+	int found = 0;
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
+		if (p->host_pid > 0 && p->owner == owner)
+		{
+			p->owner = ORPHAN_OWNER;
+			p->synchronous = 0;
+			found = 1;
+		}
+	return found;
+}
+
+int PosixReapOrphans(void)
+{
+	int pending = 0;
+	for (pid_map_t **at = &pid_map_head; *at; )
+	{
+		pid_map_t *p = *at;
+		if (p->owner != ORPHAN_OWNER || p->host_pid <= 0) { at = &p->next; continue; }
+		int status;
+		pid_t result;
+		do { result = wait4(p->host_pid, &status, WNOHANG, NULL); } while (result < 0 && errno == EINTR);
+		if (result == p->host_pid)
+		{
+			*at = p->next;
+			free(p);
+		}
+		else { pending = 1; at = &p->next; }
+	}
+	return pending;
 }
 
 /**
@@ -86,11 +143,22 @@ static void forget_pid_by_host(pid_t host_pid)
  */
 int16_t Pfork ( void )
 {
+	if (PosixHasThreads()) return TOS_ENOSYS;
+	int16_t id = PosixReservePid(0);
+	if (id < 0) return TOS_ENHNDL;
+	int16_t parent = PosixTaskPid();
 	pid_t pid = fork();
-	if (pid > 0) {
-		remember_pid(pid);
+	if (pid < 0)
+	{
+		int32_t error = MapErrno();
+		PosixReleasePid(id);
+		return error;
 	}
-	return (int16_t)pid;
+	if (pid > 0) { PosixBindPid(id, pid, 0); return id; }
+	/* The child inherits the reserved identity but none of its parent's children. */
+	while (pid_map_head) PosixForgetPid(pid_map_head->host_pid);
+	PosixRootIdentity(id, parent);
+	return 0;
 }
 
 /**
@@ -214,7 +282,7 @@ int16_t Pgetpgrp ( void )
  */
 int16_t Pgetpid ( void )
 {
-	return getpid();
+	return PosixTaskPid();
 }
 
 /**
@@ -239,7 +307,7 @@ int16_t Pgetpid ( void )
  */
 int16_t Pgetppid ( void )
 {
-	return getppid();
+	return PosixTaskParentPid();
 }
 
 /**
@@ -587,7 +655,7 @@ int16_t Psetuid ( int16_t id )
  */
 void Pterm ( uint16_t retcode )
 {
-	exit(retcode);
+	PosixTerminate(retcode);
 }
 
 /**
@@ -600,7 +668,7 @@ void Pterm ( uint16_t retcode )
  */
 void Pterm0 ( void )
 {
-	exit(0);
+	PosixTerminate(0);
 }
 
 /**
@@ -747,34 +815,47 @@ int32_t Pwait3 ( int16_t flag, emuptr32_t rusage )
  */
 int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusagep )
 {
+	if (rusagep && (rusagep >= memory_sz || memory_sz - rusagep < 8)) return TOS_EINVAL;
+retry:;
+	int32_t thread_result;
+	int pending = PosixWaitThread(pid, flag | 1, rusagep, &thread_result);
+	if (pending && thread_result) return thread_result;
 	struct rusage usage;
-	int status;
-	int options = 0;
-	pid_t host_pid = -1;
-	if (flag & 1)
-		options |= WNOHANG;
-	if (flag & 2)
-		options |= WUNTRACED;
-	if (pid != -1) {
-		host_pid = map_tos_pid_to_host(pid);
-	}
-
-	pid_t childpid = wait4(host_pid, &status, options, rusagep?&usage:NULL);
-	if (childpid == -1)
+	int status = 0;
+	int16_t tos_childpid = 0;
+	pid_t childpid = 0;
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
 	{
-		return MapErrno();
+		if (p->owner != PosixTaskOwner() || p->synchronous || p->host_pid <= 0 ||
+			(pid != -1 && pid != p->tos_pid)) continue;
+		pending = 1;
+		do {
+			childpid = wait4(p->host_pid, &status, WNOHANG | ((flag & 2) ? WUNTRACED : 0),
+				rusagep ? &usage : NULL);
+		} while (childpid < 0 && errno == EINTR);
+		if (childpid < 0) return MapErrno();
+		if (childpid) { tos_childpid = p->tos_pid; break; }
+	}
+	if (!childpid)
+	{
+		if (!pending) return TOS_ECHILD;
+		if (flag & 1) return 0;
+		const struct timespec delay = {0, 1000000};
+		PosixPause();
+		nanosleep(&delay, NULL);
+		PosixResume();
+		goto retry;
 	}
 
 	if (rusagep)
 	{
-		m68k_write_memory_32(rusagep, (uint32_t)(usage.ru_utime.tv_sec*1000 + usage.ru_utime.tv_usec));
-		m68k_write_memory_32(rusagep+1, (uint32_t)(usage.ru_stime.tv_sec*1000 + usage.ru_stime.tv_usec));
+		m68k_write_memory_32(rusagep, (uint32_t)(usage.ru_utime.tv_sec*1000 + usage.ru_utime.tv_usec/1000));
+		m68k_write_memory_32(rusagep+4, (uint32_t)(usage.ru_stime.tv_sec*1000 + usage.ru_stime.tv_usec/1000));
 	}
 
-	int16_t tos_childpid = map_host_pid_to_tos(childpid);
 	uint32_t retval = (uint32_t)(uint16_t)tos_childpid << 16;
 	if (WIFEXITED(status) || WIFSIGNALED(status)) {
-		forget_pid_by_host(childpid);
+		PosixForgetPid(childpid);
 	}
 	uint32_t signum = 0;
 	uint32_t code = 0;

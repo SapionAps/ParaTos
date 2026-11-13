@@ -111,6 +111,7 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environme
 	TRACEF("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 
 	uint32_t base_tpa = Malloc(Malloc(-1));
+	MarkBasepage(base_tpa);
 
 	WRITE_BASEPAGE(p_lowtpa, base_tpa);
 	WRITE_BASEPAGE(p_hitpa, memory_sz);

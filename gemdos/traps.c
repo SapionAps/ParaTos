@@ -6,14 +6,14 @@
 
 void dispatch_line_f(void)
 {
-	fprintf(stderr, "FPU is not emulated\n");
+	PosixLog(2, "FPU is not emulated\n");
 }
 
 void dispatch_line_a(void)
 {
 	uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
 	uint16_t ins = m68k_get_reg(NULL, M68K_REG_IR);
-	printf("LINE-A %04x pc=0x%08x\n", ins, pc);
+	PosixLog(1,"LINE-A %04x pc=0x%08x\n", ins, pc);
 	m68k_set_reg(M68K_REG_D0, 0);
 	m68k_set_reg(M68K_REG_A0, 0);
 	m68k_set_reg(M68K_REG_A1, 0);
@@ -38,7 +38,7 @@ void dispatch_gem_trap(void)
 			m68k_write_memory_16(ctrl+4, 0);
 			m68k_write_memory_16(ctrl+8, 0);
 			m68k_write_memory_16(ctrl+12, 0);
-			printf("VDI pblock=%08x op=%d,%d handle=%d, #pt=%d, #int=%d\n", pblock, vdiop, subop, handle, ptsinc, intinc);
+			PosixLog(1,"VDI pblock=%08x op=%d,%d handle=%d, #pt=%d, #int=%d\n", pblock, vdiop, subop, handle, ptsinc, intinc);
 			break;
 		}
 		case 0xc8:
@@ -57,20 +57,20 @@ void dispatch_gem_trap(void)
 				m68k_write_memory_16(intout+0, 1);
 				emuptr32_t cmd = m68k_read_memory_32(adrin+0);
 				emuptr32_t cmdln = m68k_read_memory_32(adrin+4);
-				printf("AES pblock=%0x, op=shel_read/%d (%x,%x)\n", pblock, aesop, cmd, cmdln);
+				PosixLog(1,"AES pblock=%0x, op=shel_read/%d (%x,%x)\n", pblock, aesop, cmd, cmdln);
 				m68k_write_memory_32(cmd, m68k_read_field(current_process, basepage_t, p_env));
 				m68k_write_memory_32(cmdln, current_process + offsetof(basepage_t, p_cmdlin));
-				printf("%s %s\n", &memory[m68k_read_memory_32(cmd)], &memory[m68k_read_memory_32(cmdln)]);
+				PosixLog(1,"%s %s\n", &memory[m68k_read_memory_32(cmd)], &memory[m68k_read_memory_32(cmdln)]);
 				break;
 				default:
-				printf("AES pblock=%0x, op=%d\n", pblock, aesop);
+				PosixLog(1,"AES pblock=%0x, op=%d\n", pblock, aesop);
 				break;
 
 			}
 			break;
 		}
 		default:
-		printf("Unknown trap#2 pblock=%0x\n", pblock);
+		PosixLog(1,"Unknown trap#2 pblock=%0x\n", pblock);
 		break;
 	}
 }
@@ -99,7 +99,7 @@ void dispatch_xbios_trap(void)
 			return;
 		}
 		default:
-		printf("XBIOS(0x%02x)\n", num);
+		PosixLog(1,"XBIOS(0x%02x)\n", num);
 	}
 
     m68k_set_reg(M68K_REG_D0, retval);

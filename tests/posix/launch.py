@@ -76,6 +76,16 @@ def parent():
 
 
 class LaunchTests(unittest.TestCase):
+    def assert_terminal_restored(self, fd, saved):
+        restored = termios.tcgetattr(fd)
+        saved = list(saved)
+        # Darwin sets PENDIN when restoring canonical input. This describes
+        # pending queue reprocessing, rather than a changed terminal setting.
+        pending = getattr(termios, "PENDIN", 0)
+        restored[3] &= ~pending
+        saved[3] &= ~pending
+        self.assertEqual(restored, saved)
+
     def test_bconin_pipe_and_eof(self):
         (self.directory / "INPUT.TOS").write_bytes(console_input())
         for data, expected in ((b"A", 65), (b"\xe9", 233), (b"", 4)):
@@ -114,7 +124,7 @@ class LaunchTests(unittest.TestCase):
             self.assertEqual(child.returncode, 0, stderr)
             self.assertEqual(stdout, struct.pack(">I", 233))
             self.assertEqual(stderr, b"")
-            self.assertEqual(termios.tcgetattr(slave), saved)
+            self.assert_terminal_restored(slave, saved)
         finally:
             if child.poll() is None:
                 child.kill()
@@ -131,7 +141,7 @@ class LaunchTests(unittest.TestCase):
                                 stdin=slave, capture_output=True, timeout=3)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, struct.pack(">I", ord("Q")))
-        self.assertEqual(termios.tcgetattr(slave), saved)
+        self.assert_terminal_restored(slave, saved)
 
     def test_seek_errors_use_tos_codes(self):
         for handle, expected in ((1, -6), (32767, -37)):

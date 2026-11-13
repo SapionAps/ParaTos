@@ -30,6 +30,15 @@
 #ifndef M68K__HEADER
 #define M68K__HEADER
 
+/* POSIX guest threads each own a complete CPU instance. */
+#ifdef PARATOS_PTOS
+#define M68K_THREAD_LOCAL
+#elif defined(__cplusplus)
+#define M68K_THREAD_LOCAL thread_local
+#else
+#define M68K_THREAD_LOCAL _Thread_local
+#endif
+
 
 /* ======================================================================== */
 /* ============================= CONFIGURATION ============================ */
