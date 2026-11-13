@@ -79,7 +79,9 @@
 
 /* signed and unsigned int must be at least 32 bits wide */
 #define sint   signed   int
-#define uint   unsigned int
+/* A typedef can coexist with the identical Sys V alias in macOS sys/types.h.
+ * A macro would rewrite that system declaration into invalid C. */
+typedef unsigned int uint;
 
 
 #if M68K_USE_64_BIT
