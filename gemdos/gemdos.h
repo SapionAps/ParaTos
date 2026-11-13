@@ -175,6 +175,7 @@ int32_t Sysconf ( int16_t n );
 
 void InitMemory(void);
 int32_t MemoryBlockSize(emuptr32_t block);
+void MarkBasepage(emuptr32_t block);
 void SetMemoryOwner(emuptr32_t block, emuptr32_t owner);
 void FreeOwnedMemory(emuptr32_t owner);
 

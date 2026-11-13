@@ -14,6 +14,7 @@
 #include "tasks.h"
 
 static pthread_mutex_t cpu_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t terminal_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static _Thread_local sigjmp_buf fault_return;
 static _Thread_local int finished, exit_status;
@@ -22,6 +23,7 @@ typedef struct task {
 	struct task *next;
 	pthread_t thread;
 	emuptr32_t basepage, parent;
+	uint64_t generation, parent_generation;
 	int id, token, parent_id, asynchronous, done, status, cleanup_pending;
 	int streams[3];
 } task;
@@ -29,6 +31,8 @@ static task *tasks, *retired;
 static _Thread_local task *self;
 static _Thread_local int root_streams[3] = {0, 1, 2};
 static int next_host_id = -2;
+static uint64_t next_generation = 1;
+static _Thread_local int16_t root_id, root_parent_id;
 
 void PosixPause(void)
 {
@@ -38,6 +42,29 @@ void PosixPause(void)
 void PosixResume(void)
 {
 	pthread_mutex_lock(&cpu_mutex);
+}
+
+void PosixTerminalLock(void)
+{
+	PosixPause();
+	pthread_mutex_lock(&terminal_mutex);
+	PosixResume();
+}
+
+void PosixTerminalUnlock(void)
+{
+	pthread_mutex_unlock(&terminal_mutex);
+}
+
+uint64_t PosixTaskOwner(void)
+{
+	return self ? self->generation : 0;
+}
+
+void PosixRootIdentity(int16_t id, int16_t parent)
+{
+	root_id = id;
+	root_parent_id = parent;
 }
 
 static int *streams(void)
@@ -87,26 +114,44 @@ void PosixExportStandardHandles(void)
 	}
 }
 
+static int valid_io_buffer(const void *buffer, size_t count)
+{
+	uintptr_t at = (uintptr_t)buffer, base = (uintptr_t)memory;
+	if (at >= base && at - base < UINT64_C(0x100000000))
+		return at - base < memory_sz && count <= memory_sz - (at - base);
+	return 1; /* host-owned scalar buffers are also used by console calls */
+}
+
 ssize_t PosixRead(int fd, void *buffer, size_t count)
 {
+	if (!valid_io_buffer(buffer, count)) { errno = EFAULT; return -1; }
+	void *staging = malloc(count ? count : 1);
+	if (!staging) { errno = ENOMEM; return -1; }
 	fd = PosixHostFd(fd);
 	PosixPause();
 	ssize_t result;
-	do { result = read(fd, buffer, count); } while (result < 0 && errno == EINTR);
+	do { result = read(fd, staging, count); } while (result < 0 && errno == EINTR);
 	int error = errno;
 	PosixResume();
+	if (result > 0) memcpy(buffer, staging, (size_t)result);
+	free(staging);
 	errno = error;
 	return result;
 }
 
 ssize_t PosixWrite(int fd, const void *buffer, size_t count)
 {
+	if (!valid_io_buffer(buffer, count)) { errno = EFAULT; return -1; }
+	void *snapshot = malloc(count ? count : 1);
+	if (!snapshot) { errno = ENOMEM; return -1; }
+	memcpy(snapshot, buffer, count);
 	fd = PosixHostFd(fd);
 	PosixPause();
 	ssize_t result;
-	do { result = write(fd, buffer, count); } while (result < 0 && errno == EINTR);
+	do { result = write(fd, snapshot, count); } while (result < 0 && errno == EINTR);
 	int error = errno;
 	PosixResume();
+	free(snapshot);
 	errno = error;
 	return result;
 }
@@ -148,7 +193,8 @@ static int run_guest(emuptr32_t basepage)
 	{
 		if (sigsetjmp(fault_return, 1))
 		{
-			DumpGuestFault();
+			/* Disassembly can itself touch inaccessible guest memory. */
+			if (!sigsetjmp(fault_return, 1)) DumpGuestFault();
 			exit_status = 255;
 			break;
 		}
@@ -236,12 +282,12 @@ int PosixHasThreads(void)
 
 int16_t PosixTaskPid(void)
 {
-	return self ? (int16_t)self->id : (int16_t)getpid();
+	return self ? (int16_t)self->id : (root_id ? root_id : (int16_t)getpid());
 }
 
 int16_t PosixTaskParentPid(void)
 {
-	return self ? (int16_t)self->parent_id : (int16_t)getppid();
+	return self ? (int16_t)self->parent_id : (root_id ? root_parent_id : (int16_t)getppid());
 }
 
 int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
@@ -254,6 +300,8 @@ int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 		entry < 0x10000 || entry >= memory_sz || (entry & 1)) return TOS_ENOEXEC;
 	for (task *t = tasks; t; t = t->next)
 		if (t->basepage == bp) return TOS_EACCDN;
+	for (task *t = retired; t; t = t->next)
+		if (t->basepage == bp) return TOS_EACCDN;
 	if (bp == current_process) return TOS_EACCDN;
 	task *t = calloc(1, sizeof(*t));
 	if (!t) return TOS_ENSMEM;
@@ -263,6 +311,8 @@ int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 	if (t->id < 0) { free(t); return TOS_ENHNDL; }
 	t->basepage = bp;
 	t->parent = current_process;
+	t->generation = next_generation++;
+	t->parent_generation = PosixTaskOwner();
 	t->parent_id = PosixTaskPid();
 	t->asynchronous = asynchronous;
 	t->cleanup_pending = 1;
@@ -310,7 +360,7 @@ int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *resul
 {
 	task *selected = NULL;
 	for (task *t = tasks; t; t = t->next)
-		if (t->asynchronous && t->parent == current_process && (pid == -1 || pid == t->id))
+		if (t->asynchronous && t->parent_generation == PosixTaskOwner() && (pid == -1 || pid == t->id))
 		{
 			selected = t;
 			if (t->done) break;

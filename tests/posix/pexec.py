@@ -6,6 +6,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import os
+import termios
+import time
 
 PARATOS = Path(sys.argv.pop(1)).resolve()
 
@@ -165,6 +168,97 @@ class PexecTests(unittest.TestCase):
         self.assert_words(self.run_pair(parent(4), child()),
                           [37, 0x12345678, 0x55aa33cc, 37, 0, 0])
 
+    def test_shrink_does_not_treat_application_self_pointer_as_basepage(self):
+        p = Program()
+        p.shrink()
+        p.emit("2f3c000004003f3c00484e415c8f2840288c297c112233440004")
+        p.emit("2f3c000002002f0c42673f3c004a4e414fef000c202c0004")
+        p.report()
+        p.finish(23)
+        self.assert_words(self.run_pair(p.image(), child()), [0x11223344])
+
+    def test_fault_in_diagnostics_does_not_hang_other_guests(self):
+        c = Program()
+        c.emit("4ef902000000")  # inaccessible guest PC, also unsafe to disassemble
+        r = self.run_pair(parent(6), c.image())
+        self.assertEqual(r.returncode, 23, r.stderr)
+        self.assertLess(len(r.stdout), 32768)
+        self.assertIn(struct.pack(">4I", 255, 0, 0x55aa33cc, 0xffffffd8), r.stdout)
+
+    def test_unterminated_explicit_and_inherited_environments(self):
+        for inherited in (False, True):
+            with self.subTest(inherited=inherited):
+                p = Program()
+                p.shrink()
+                p.emit("33fc414100fffffe")
+                if inherited:
+                    p.emit("2b7c00fffffe002c42a7")
+                else:
+                    p.emit("2f3c00fffffe")
+                p.push("tail")
+                p.push("child")
+                p.emit("3f3c00643f3c004b4e414fef0010")
+                p.report()
+                p.finish(23)
+                p.label("child", b"/bin/true\0")
+                p.label("tail", bytes(128))
+                self.assert_words(self.run_pair(p.image(), child()), [-25])
+
+    def test_failed_exec_reports_tos_error_without_child_id(self):
+        for mode in (0, 100):
+            for missing in (False, True):
+                with self.subTest(mode=mode, missing=missing):
+                    p = Program()
+                    p.shrink()
+                    p.pexec(mode)
+                    p.report()
+                    p.wait(any_child=True)
+                    p.report()
+                    p.finish(23)
+                    p.label("child", b"MISSING.TOS\0" if missing else b"CHILD.TOS\0")
+                    p.label("tail", bytes(128))
+                    self.assert_words(self.run_pair(p.image(), b"not executable"),
+                                      [-33 if missing else -36, -21])
+
+    def test_successful_native_exit_127_is_not_launch_failure(self):
+        p = Program()
+        p.shrink()
+        p.pexec(0)
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        native = self.directory / "CHILD.TOS"
+        native.write_bytes(b"#!/bin/sh\nexit 127\n")
+        native.chmod(0o755)
+        (self.directory / "PARENT.TOS").write_bytes(p.image())
+        r = subprocess.run([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                           capture_output=True, timeout=5)
+        self.assert_words(r, [127])
+
+    def test_pfork_propagates_reserved_identity_to_child(self):
+        p = Program()
+        p.shrink()
+        p.emit("3f3c010b4e41548f")
+        p.report()
+        p.emit("3f3c011b4e41548f4a8066064ef9")
+        p.address("fork_child")
+        p.emit("2c00")
+        p.report()
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.finish(23)
+        p.label("fork_child")
+        for opcode in (267, 268):
+            p.emit("3f3c" + struct.pack(">H", opcode).hex() + "4e41548f")
+            p.report()
+        p.finish(37)
+        r = self.run_pair(p.image(), child())
+        self.assertEqual(r.returncode, 23, r.stderr)
+        owner, *words = struct.unpack(">5I", r.stdout)
+        self.assertCountEqual(words, [1, 1, owner, 37])
+
     def test_load_go_free(self):
         self.assert_words(self.run_pair(parent(6), child()),
                           [37, 0x12345678, 0x55aa33cc, -40])
@@ -195,6 +289,55 @@ class PexecTests(unittest.TestCase):
         p.finish(37)
         self.assert_words(self.run_pair(parent(6), p.image()),
                           [37, 0, 0x55aa33cc, -40])
+
+    def test_overlapping_console_reads_restore_terminal(self):
+        c = Program()
+        c.emit("3f3c00074e41548f")
+        c.report()
+        c.finish(37)
+        p = Program()
+        p.shrink()
+        for register in ("2c00", "2a00"):
+            p.pexec(3)
+            p.emit("28402f3c000100002f0c42673f3c004a4e414fef000c")
+            p.pexec(104, basepage=True)
+            p.emit(register)
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.emit("2c05")
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        (self.directory / "PARENT.TOS").write_bytes(p.image())
+        (self.directory / "CHILD.TOS").write_bytes(c.image())
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        saved = termios.tcgetattr(slave)
+        proc = subprocess.Popen([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                                stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 3
+            while termios.tcgetattr(slave)[3] & termios.ICANON:
+                self.assertIsNone(proc.poll())
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+            time.sleep(0.05)  # let the second guest attempt its terminal session
+            os.write(master, b"x")
+            time.sleep(0.05)
+            os.write(master, b"y")
+            stdout, stderr = proc.communicate(timeout=5)
+            self.assertEqual(proc.returncode, 23, stderr)
+            self.assertCountEqual(struct.unpack(">4I", stdout), [ord("x"), ord("y"), 37, 37])
+            self.assertEqual(termios.tcgetattr(slave), saved)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
 
     def test_nonblocking_wait_and_wait_any(self):
         p = Program()
@@ -332,13 +475,15 @@ class PexecTests(unittest.TestCase):
         p.pexec(6, basepage=True)
         # If the worker image was prematurely freed, this allocation reuses
         # and overwrites code still needed by its asynchronous child.
+        p.pexec(4, basepage=True)  # retired basepage must remain unavailable
+        p.report()
         p.emit("2f3c000100003f3c00484e415c8f2040")
         p.emit("323c3fff429851c9fffc")  # clear 64 KiB
         p.emit("23fc0000000100001004")
         p.finish(23)
         p.label("child", b"CHILD.TOS\0")
         p.label("tail", bytes(128))
-        self.assert_words(self.run_pair(p.image(), c.image()), [0x76543210])
+        self.assert_words(self.run_pair(p.image(), c.image()), [-36, 0x76543210])
 
     def test_load_without_wait_native_process(self):
         p = Program()

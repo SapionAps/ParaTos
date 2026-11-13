@@ -86,5 +86,25 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -R '^posix_pexec$' --output-on-failure
 ```
 
+Native child records carry the creating execution's identity. Synchronous
+children are reserved for their own Pexec caller; guest waits poll only eligible
+native PIDs and never use a host-wide `wait4(-1)`. Registry capacity is reserved
+before fork. A close-on-exec pipe reports native launch errors separately from
+normal exit status 127. Pfork propagates its reserved guest identity to the child.
+
+Basepage allocations are explicitly tagged. Retired basepages cannot be reused
+until descendants finish. Terminal mode sessions have a separate mutex, and
+blocking I/O uses host staging buffers so guest RAM is accessed only while the
+execution mutex is held. Environment scans are bounded before argument parsing;
+fault diagnostics have their own recovery point.
+
+Linux additionally runs `posix_pid_registry` (allocation-failure injection and
+child ownership/reservation) and `posix_io_staging` (buffer isolation while I/O
+releases the execution mutex):
+
+```sh
+ctest --test-dir build -R '^posix_(pid_registry|io_staging)$' --output-on-failure
+```
+
 The Linux/macOS CI matrix runs these checks; pTOS ARM/x32 boot tests and the
 existing compiled POSIX syscall regressions remain in the same workflow.

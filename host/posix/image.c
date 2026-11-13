@@ -13,6 +13,14 @@ static int guest_range(uint32_t address, uint32_t size)
 	return address < memory_sz && size <= memory_sz - address;
 }
 
+int32_t PosixEnvironmentSize(uint32_t env)
+{
+	if (env >= memory_sz || memory_sz - env < 2) return TOS_EINVAL;
+	for (uint32_t n = 0; n + 1 < memory_sz - env; n++)
+		if (!memory[env + n] && !memory[env + n + 1]) return (int32_t)(n + 2);
+	return TOS_EINVAL;
+}
+
 int32_t PosixCreateBasepage(emuptr32_t tail, emuptr32_t env)
 {
 	if (tail && !guest_range(tail, 128)) return TOS_EINVAL;
@@ -38,6 +46,7 @@ int32_t PosixCreateBasepage(emuptr32_t tail, emuptr32_t env)
 	if (size < (int32_t)sizeof(basepage_t) + 8) { Mfree(copy); return TOS_ENSMEM; }
 	emuptr32_t bp = Malloc(size);
 	if (!bp) { Mfree(copy); return TOS_ENSMEM; }
+	MarkBasepage(bp);
 	memset(memory + bp, 0, (size_t)size);
 	m68k_write_field(bp, basepage_t, p_lowtpa, bp);
 	m68k_write_field(bp, basepage_t, p_hitpa, bp + size);

@@ -932,6 +932,7 @@ int32_t Fputchar ( int16_t fh, int32_t ch, int16_t mode )
  */
 int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
 {
+	if (count < 0 || address >= memory_sz || (uint32_t)count > memory_sz - address) return TOS_EINVAL;
 	uint8_t* buffer = &memory[address];
 	int32_t bytes_read = PosixRead(handle, buffer, count);
 	if (bytes_read < 0)
@@ -1470,6 +1471,7 @@ int32_t Fsymlink ( emuptr32_t oldname, emuptr32_t newname )
  */
 int32_t Fwrite ( int16_t handle, int32_t count, emuptr32_t address )
 {
+	if (count < 0 || address >= memory_sz || (uint32_t)count > memory_sz - address) return TOS_EINVAL;
 	uint8_t* buffer = &memory[address];
 	int32_t bytes_written = PosixWrite(handle, buffer, count);
 	if (bytes_written < 0)

@@ -91,6 +91,7 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		return TOS_EINVAL;
 	}
 	if (!arg3) arg3 = m68k_read_field(current_process, basepage_t, p_env);
+	if (PosixEnvironmentSize(arg3) < 0) { free(original); return TOS_EINVAL; }
 	char *path = original;
 	char **argv, **envp;
 	prepare_args(&argv, &envp, &path, arg2, arg3);
@@ -122,28 +123,84 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		free(original);
 		return result;
 	}
+	/* Reserve identity and ownership before a child can exist. Synchronous
+	 * launches remain invisible to every guest's Pwait until their own join. */
+	int16_t id = PosixReservePid(1);
+	if (id < 0) { free(envp); free(original); return TOS_ENHNDL; }
+	int channel[2];
+	if (pipe(channel) < 0)
+	{
+		int32_t error = MapErrno();
+		PosixReleasePid(id); free(envp); free(original);
+		return error;
+	}
+	for (int i = 0; i < 2; i++)
+	{
+		int native = channel[i];
+		channel[i] = PosixAdoptFd(native);
+		if (channel[i] < 0 || fcntl(channel[i], F_SETFD, FD_CLOEXEC) < 0)
+		{
+			int32_t error = MapErrno();
+			if (channel[0] >= 0) close(channel[0]);
+			if (channel[1] >= 0) close(channel[1]);
+			PosixReleasePid(id); free(envp); free(original);
+			return error;
+		}
+	}
 	pid_t pid = fork();
 	if (!pid)
 	{
-		/* Only async-signal-safe operations after fork: other guest threads
-		 * may have been active in the parent. */
+		/* Only async-signal-safe operations in the forked child. */
+		close(channel[0]);
 		PosixExportStandardHandles();
 		execve(path, argv, envp);
+		int error = errno;
+		const char *bytes = (const char *)&error;
+		size_t sent = 0;
+		while (sent < sizeof(error))
+		{
+			ssize_t n = write(channel[1], bytes + sent, sizeof(error) - sent);
+			if (n < 0 && errno == EINTR) continue;
+			if (n <= 0) break;
+			sent += (size_t)n;
+		}
 		_exit(127);
 	}
 	int32_t result = pid < 0 ? MapErrno() : 0;
-	free(envp);
-	free(original);
-	if (pid < 0) return result;
-	if (operation == 100) return PosixRegisterPid(pid);
-
+	free(envp); free(original);
+	close(channel[1]);
+	if (pid < 0)
+	{
+		close(channel[0]); PosixReleasePid(id);
+		return result;
+	}
+	PosixBindPid(id, pid, 1);
 	PosixPause();
+	int launch_error = 0;
+	size_t received = 0;
+	while (received < sizeof(launch_error))
+	{
+		ssize_t n = read(channel[0], (char *)&launch_error + received, sizeof(launch_error) - received);
+		if (n < 0 && errno == EINTR) continue;
+		if (n < 0) { launch_error = errno; received = sizeof(launch_error); kill(pid, SIGKILL); break; }
+		if (!n) break;
+		received += (size_t)n;
+	}
+	close(channel[0]);
+	if (received && received != sizeof(launch_error)) { launch_error = EIO; kill(pid, SIGKILL); }
+	if (!received && operation == 100)
+	{
+		PosixResume();
+		PosixBindPid(id, pid, 0);
+		return id;
+	}
 	int status;
 	pid_t waited;
 	do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
-	int saved_errno = errno;
+	int saved_errno = launch_error ? launch_error : errno;
 	PosixResume();
+	PosixReleasePid(id);
 	errno = saved_errno;
-	if (waited < 0) return MapErrno();
+	if (launch_error || waited < 0) return MapErrno();
 	return WIFEXITED(status) ? WEXITSTATUS(status) : TOS_ERROR;
 }
