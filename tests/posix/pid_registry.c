@@ -6,6 +6,7 @@
 
 static int allocation_fails, forks, waits;
 static pid_t fork_result = 1000, last_wait;
+static int child_exited;
 static void *registry_malloc(size_t size)
 {
 	return allocation_fails ? NULL : malloc(size);
@@ -31,6 +32,7 @@ static int16_t reported_id, reported_parent;
 uint64_t PosixTaskOwner(void) { return owner; }
 int16_t PosixTaskPid(void) { return 7; }
 int16_t PosixTaskParentPid(void) { return 8; }
+int16_t PosixRuntimeRootPid(void) { return 1; }
 int PosixHasThreads(void) { return 0; }
 void PosixRootIdentity(int16_t id, int16_t parent) { reported_id = id; reported_parent = parent; }
 int32_t MapErrno(void) { return TOS_ERROR; }
@@ -47,6 +49,7 @@ static pid_t registry_wait(pid_t pid, int *status, int flags, struct rusage *usa
 	assert(pid > 0); /* Never wait for an arbitrary host-process child. */
 	last_wait = pid;
 	waits++;
+	if (child_exited) { *status = 0; return pid; }
 	return 0;
 }
 
@@ -58,6 +61,7 @@ int main(void)
 	assert(forks == 0);
 	allocation_fails = 0;
 	int16_t synchronous = PosixReservePid(1);
+	assert(synchronous != PosixRuntimeRootPid());
 	PosixBindPid(synchronous, 1234, 1);
 	assert(Pwaitpid(-1, 1, 0) == TOS_ECHILD);
 	assert(waits == 0);
@@ -70,6 +74,21 @@ int main(void)
 	assert(Pwaitpid(-1, 1, 0) == 0);
 	assert(waits == 1 && last_wait == 1234);
 	PosixReleasePid(synchronous);
+	/* A terminated owner's native child remains reserved while still running,
+	 * then releases its entry only after the central reaper collects status. */
+	for (int i = 0; i < 50; i++)
+	{
+		child_exited = 0;
+		int16_t orphan = PosixReservePid(0);
+		assert(orphan > 0 && orphan != PosixRuntimeRootPid());
+		PosixBindPid(orphan, 2345, 0);
+		assert(PosixOrphanChildren(owner));
+		assert(PosixReapOrphans() == 1);
+		assert(pid_map_head && pid_map_head->tos_pid == orphan);
+		child_exited = 1;
+		assert(PosixReapOrphans() == 0);
+		assert(pid_map_head == NULL);
+	}
 	fork_result = 0;
 	assert(Pfork() == 0);
 	assert(reported_id > 0 && reported_parent == 7);

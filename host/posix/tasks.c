@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "gemdos.h"
 #include "host.h"
@@ -33,6 +34,9 @@ static _Thread_local int root_streams[3] = {0, 1, 2};
 static int next_host_id = -2;
 static uint64_t next_generation = 1;
 static _Thread_local int16_t root_id, root_parent_id;
+static int16_t runtime_root_id;
+static pthread_t reaper_thread;
+static int reaper_started, reaper_running, reaper_stop;
 
 void PosixPause(void)
 {
@@ -65,6 +69,52 @@ void PosixRootIdentity(int16_t id, int16_t parent)
 {
 	root_id = id;
 	root_parent_id = parent;
+	runtime_root_id = id;
+}
+
+int16_t PosixRuntimeRootPid(void)
+{
+	return runtime_root_id ? runtime_root_id : PosixTaskPid();
+}
+
+static void *reap_children(void *argument)
+{
+	(void)argument;
+	PosixResume();
+	while (PosixReapOrphans() && !reaper_stop)
+	{
+		struct timespec until;
+		clock_gettime(CLOCK_REALTIME, &until);
+		until.tv_nsec += 10000000;
+		if (until.tv_nsec >= 1000000000) { until.tv_sec++; until.tv_nsec -= 1000000000; }
+		pthread_cond_timedwait(&changed, &cpu_mutex, &until);
+	}
+	reaper_running = 0;
+	pthread_cond_broadcast(&changed);
+	PosixPause();
+	return NULL;
+}
+
+static void join_finished_reaper(void)
+{
+	if (reaper_started && !reaper_running)
+	{
+		pthread_join(reaper_thread, NULL);
+		reaper_started = 0;
+	}
+}
+
+static void handoff_children(uint64_t owner)
+{
+	if (!PosixOrphanChildren(owner)) return;
+	join_finished_reaper();
+	if (!reaper_started)
+	{
+		reaper_running = 1;
+		if (!pthread_create(&reaper_thread, NULL, reap_children, NULL)) reaper_started = 1;
+		else reaper_running = 0; /* retain records; scheduler polling retries collection */
+	}
+	pthread_cond_broadcast(&changed);
 }
 
 static int *streams(void)
@@ -181,6 +231,7 @@ static int run_guest(emuptr32_t basepage)
 	exit_status = 0;
 	while (!finished)
 	{
+		PosixReapOrphans();
 		if (sigsetjmp(fault_return, 1))
 		{
 			/* Disassembly can itself touch inaccessible guest memory. */
@@ -257,6 +308,7 @@ static void *thread_main(void *argument)
 	self = t;
 	pthread_mutex_lock(&cpu_mutex);
 	t->status = run_guest(t->basepage);
+	handoff_children(t->generation);
 	for (int fd = 0; fd < 3; fd++) PosixClose(fd);
 	t->done = 1;
 	reclaim_memory();
@@ -267,7 +319,8 @@ static void *thread_main(void *argument)
 
 int PosixHasThreads(void)
 {
-	return tasks != NULL;
+	join_finished_reaper();
+	return tasks != NULL || reaper_started;
 }
 
 int16_t PosixTaskPid(void)
@@ -369,6 +422,7 @@ int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *resul
 
 int PosixRunRoot(emuptr32_t basepage)
 {
+	runtime_root_id = PosixTaskPid();
 	struct sigaction action = {0};
 	action.sa_sigaction = fault_handler;
 	action.sa_flags = SA_SIGINFO;
@@ -377,6 +431,7 @@ int PosixRunRoot(emuptr32_t basepage)
 	sigaction(SIGBUS, &action, NULL);
 	pthread_mutex_lock(&cpu_mutex);
 	int status = run_guest(basepage);
+	handoff_children(0);
 	/* Ending the initial guest must not terminate still-running guest threads. */
 	while (tasks)
 	{
@@ -388,6 +443,12 @@ int PosixRunRoot(emuptr32_t basepage)
 		pthread_join(t->thread, NULL);
 		remove_task(t);
 	}
+	/* Do not wait for still-running detached native children at host shutdown.
+	 * Collect completed ones, then let the OS adopt any that outlive us. */
+	PosixReapOrphans();
+	reaper_stop = 1;
+	pthread_cond_broadcast(&changed);
 	pthread_mutex_unlock(&cpu_mutex);
+	if (reaper_started) pthread_join(reaper_thread, NULL);
 	return status;
 }

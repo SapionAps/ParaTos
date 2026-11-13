@@ -14,6 +14,7 @@ int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *resul
 int PosixHasThreads(void);
 int16_t PosixTaskPid(void);
 int16_t PosixTaskParentPid(void);
+int16_t PosixRuntimeRootPid(void);
 int32_t PosixLoadImage(const char *path, emuptr32_t tail, emuptr32_t env);
 int32_t PosixCreateBasepage(emuptr32_t tail, emuptr32_t env);
 
@@ -36,3 +37,5 @@ int16_t PosixReservePid(int synchronous);
 void PosixReleasePid(int16_t id);
 void PosixBindPid(int16_t id, int native_pid, int synchronous);
 int32_t PosixEnvironmentSize(uint32_t env);
+int PosixOrphanChildren(uint64_t owner);
+int PosixReapOrphans(void);

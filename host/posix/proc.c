@@ -36,6 +36,7 @@ int16_t PosixRegisterPid(int host_pid)
 	{
 		if (id == (uint16_t)getpid() || id == (uint16_t)getppid()) continue;
 		if (id == (uint16_t)PosixTaskPid() || id == (uint16_t)PosixTaskParentPid()) continue;
+		if (id == (uint16_t)PosixRuntimeRootPid()) continue;
 		pid_map_t *p;
 		for (p = pid_map_head; p && p->tos_pid != id; p = p->next) {}
 		if (!p) break;
@@ -84,6 +85,43 @@ void PosixForgetPid(int host_pid)
 		}
 		current = &(*current)->next;
 	}
+}
+
+/* This owner cannot belong to an executing guest. Only the central reaper
+ * consumes its statuses, retaining IDs until wait4 has collected each child. */
+#define ORPHAN_OWNER UINT64_MAX
+
+int PosixOrphanChildren(uint64_t owner)
+{
+	int found = 0;
+	for (pid_map_t *p = pid_map_head; p; p = p->next)
+		if (p->host_pid > 0 && p->owner == owner)
+		{
+			p->owner = ORPHAN_OWNER;
+			p->synchronous = 0;
+			found = 1;
+		}
+	return found;
+}
+
+int PosixReapOrphans(void)
+{
+	int pending = 0;
+	for (pid_map_t **at = &pid_map_head; *at; )
+	{
+		pid_map_t *p = *at;
+		if (p->owner != ORPHAN_OWNER || p->host_pid <= 0) { at = &p->next; continue; }
+		int status;
+		pid_t result;
+		do { result = wait4(p->host_pid, &status, WNOHANG, NULL); } while (result < 0 && errno == EINTR);
+		if (result == p->host_pid)
+		{
+			*at = p->next;
+			free(p);
+		}
+		else { pending = 1; at = &p->next; }
+	}
+	return pending;
 }
 
 /**

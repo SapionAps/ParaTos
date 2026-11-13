@@ -76,6 +76,15 @@ fork without exec is unsupported.
 threads. IDs share a positive 16-bit namespace; nonblocking waits return zero
 while a child is running. Guest-thread rusage currently reports zero.
 
+The root guest's ID stays reserved for the entire runtime lifetime, including
+while nested threads allocate their own identities. When a guest terminates,
+its unclaimed native children transfer to a central reaper. Completed native
+statuses are collected before their registry entries and IDs are released,
+even if every surviving guest is blocked on I/O. Pfork remains unavailable
+while that reaper is active; its finished thread is joined before permitting
+fork again. At host shutdown, still-running native children may outlive the
+emulator and are adopted by the OS rather than delaying mode-100 termination.
+
 The generated `posix_pexec` fixtures cover split execution, shared-memory
 effects, CPU/TLS and DTA/environment isolation, ownership and repeated cleanup,
 nonblocking and wait-any operation, pipe I/O, malformed PRGs and descendant

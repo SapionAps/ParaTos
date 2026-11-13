@@ -48,7 +48,11 @@ class Program:
             self.push("child")
         self.emit("3f3c" + struct.pack(">H", mode).hex() + "3f3c004b4e414fef0010")
 
-    def report(self):
+    def report(self, tag=None):
+        if tag is not None:
+            self.emit("2f002f3c" + struct.pack(">I", tag).hex()
+                      + "204f2f082f3c000000083f3c00013f3c00404e414fef0014")
+            return
         # Fwrite(stdout, 4, &saved_D0), preserving A4/A5.
         self.emit("2f00204f2f082f3c000000043f3c00013f3c00404e414fef0010")
 
@@ -244,26 +248,32 @@ class PexecTests(unittest.TestCase):
         p.emit("3f3c011b4e41548f4a8066064ef9")
         p.address("fork_child")
         p.emit("2c00")
-        p.report()
+        p.report(1)
         p.wait()
         p.emit("0280000000ff")
-        p.report()
+        p.report(4)
         p.finish(23)
         p.label("fork_child")
-        for opcode in (267, 268):
+        for tag, opcode in ((2, 267), (3, 268)):
             p.emit("3f3c" + struct.pack(">H", opcode).hex() + "4e41548f")
-            p.report()
+            p.report(tag)
         p.finish(37)
         r = self.run_pair(p.image(), child())
         self.assertEqual(r.returncode, 23, r.stderr)
-        owner, *words = struct.unpack(">5I", r.stdout)
-        self.assertCountEqual(words, [1, 1, owner, 37])
+        owner = struct.unpack(">I", r.stdout[:4])[0]
+        records = dict(struct.unpack(">II", r.stdout[i:i + 8])
+                       for i in range(4, len(r.stdout), 8))
+        self.assertEqual(set(records), {1, 2, 3, 4})
+        self.assertGreater(records[1], 0)
+        self.assertEqual(records[1], records[2])
+        self.assertEqual(records[3], owner)
+        self.assertEqual(records[4], 37)
 
     def test_exec_child_receives_reserved_identity(self):
         c = Program()
-        for opcode in (267, 268):
+        for tag, opcode in ((2, 267), (3, 268)):
             c.emit("3f3c" + struct.pack(">H", opcode).hex() + "4e41548f")
-            c.report()
+            c.report(tag)
         c.finish(37)
         p = Program()
         p.shrink()
@@ -271,17 +281,98 @@ class PexecTests(unittest.TestCase):
         p.report()
         p.pexec(100)
         p.emit("2c00")
-        p.report()
+        p.report(1)
         p.wait()
         p.emit("0280000000ff")
-        p.report()
+        p.report(4)
         p.finish(23)
         p.label("child", b"CHILD.TOS\0")
         p.label("tail", bytes(128))
         r = self.run_pair(p.image(), c.image())
         self.assertEqual(r.returncode, 23, r.stderr)
-        owner, *words = struct.unpack(">5I", r.stdout)
-        self.assertCountEqual(words, [1, 1, owner, 37])
+        owner = struct.unpack(">I", r.stdout[:4])[0]
+        records = dict(struct.unpack(">II", r.stdout[i:i + 8])
+                       for i in range(4, len(r.stdout), 8))
+        self.assertEqual(set(records), {1, 2, 3, 4})
+        self.assertGreater(records[1], 0)
+        self.assertEqual(records[1], records[2])
+        self.assertEqual(records[3], owner)
+        self.assertEqual(records[4], 37)
+
+    def test_exec_root_identity_stays_reserved_through_nested_threads(self):
+        for depth in range(4):
+            p = Program()
+            p.shrink()
+            p.emit("3f3c010b4e41548f")
+            p.report()
+            if depth < 3:
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(4, basepage=True)
+            p.finish(23 if depth == 0 else 37)
+            p.label("child", ("LEVEL%d.TOS" % (depth + 1)).encode() + b"\0")
+            p.label("tail", bytes(128))
+            (self.directory / ("LEVEL%d.TOS" % depth)).write_bytes(p.image())
+        r = subprocess.run([str(PARATOS), "--paratos-child", "1", "9", "LEVEL0.TOS"],
+                           cwd=self.directory, capture_output=True, timeout=5)
+        self.assertEqual(r.returncode, 23, r.stderr)
+        ids = struct.unpack(">4I", r.stdout)
+        self.assertEqual(ids[0], 1)
+        self.assertEqual(len(set(ids)), 4)
+        self.assertTrue(all(0 < pid <= 32767 for pid in ids))
+
+    def test_orphan_native_child_is_reaped_while_root_blocks_on_input(self):
+        native = self.directory / "ORPHAN.SH"
+        native.write_text("#!/bin/sh\necho $$ > PIDFILE\n"
+                          "while [ ! -e GO ]; do sleep 0.01; done\nexit 0\n")
+        native.chmod(0o755)
+        c = Program()
+        c.pexec(100)
+        c.finish(37)
+        c.label("child", b"ORPHAN.SH\0")
+        c.label("tail", bytes(128))
+        p = Program()
+        p.shrink()
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(6, basepage=True)
+        p.report()
+        p.emit("4879000011002f3c000000013f3c00003f3c003f4e414fef000c")
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        (self.directory / "PARENT.TOS").write_bytes(p.image())
+        (self.directory / "CHILD.TOS").write_bytes(c.image())
+        proc = subprocess.Popen([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        try:
+            import select
+            self.assertTrue(select.select([proc.stdout], [], [], 3)[0])
+            self.assertEqual(proc.stdout.read(4), struct.pack(">I", 37))
+            deadline = time.monotonic() + 3
+            pidfile = self.directory / "PIDFILE"
+            while not pidfile.exists() or not pidfile.read_text().strip():
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+            native_pid = int(pidfile.read_text())
+            (self.directory / "GO").touch()
+            while True:
+                try:
+                    os.kill(native_pid, 0)
+                except ProcessLookupError:
+                    break
+                self.assertLess(time.monotonic(), deadline, "orphan native child was not reaped")
+                time.sleep(0.01)
+            self.assertIsNone(proc.poll(), "root must remain blocked while orphan is collected")
+            stdout, stderr = proc.communicate(b"x", timeout=3)
+            self.assertEqual(proc.returncode, 23, stderr)
+            self.assertEqual(stdout, b"")
+        finally:
+            (self.directory / "GO").touch()
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate(timeout=3)
 
     def test_blocking_fifo_open_allows_peer_guest_to_open_other_end(self):
         os.mkfifo(self.directory / "CHANNEL")
