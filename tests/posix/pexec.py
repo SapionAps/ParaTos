@@ -389,7 +389,14 @@ class PexecTests(unittest.TestCase):
             stdout, stderr = proc.communicate(timeout=5)
             self.assertEqual(proc.returncode, 23, stderr)
             self.assertCountEqual(struct.unpack(">4I", stdout), [ord("x"), ord("y"), 37, 37])
-            self.assertEqual(termios.tcgetattr(slave), saved)
+            restored = termios.tcgetattr(slave)
+            # Darwin marks input for reprocessing when canonical mode is
+            # restored. PENDIN is kernel-maintained queue state, not a raw-mode
+            # setting; all other flags and control characters must match.
+            pending = getattr(termios, "PENDIN", 0)
+            restored[3] &= ~pending
+            saved[3] &= ~pending
+            self.assertEqual(restored, saved)
         finally:
             if proc.poll() is None:
                 proc.kill()
