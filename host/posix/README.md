@@ -111,6 +111,13 @@ blocking I/O uses host staging buffers so guest RAM is accessed only while the
 execution mutex is held. Environment scans are bounded before argument parsing;
 fault diagnostics have their own recovery point.
 
+The initial guest's active basepage is also protected from concurrent restart.
+Its stream mappings are closed before waiting for surviving guest threads, so
+redirected pipe readers can observe EOF. Pending host diagnostics are flushed
+first. PRG loading validates declared symbol bytes for absolute as well as
+relocatable images; negative F_DUPFD minima remain invalid and cannot allocate
+unexpected descriptors.
+
 Linux additionally runs `posix_pid_registry` (allocation-failure injection and
 child ownership/reservation) and `posix_io_staging` (buffer isolation while I/O
 releases the execution mutex):

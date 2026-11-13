@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "gemdos.h"
 #include "host.h"
@@ -70,6 +71,11 @@ int32_t PosixLoadImage(const char *path, emuptr32_t tail, emuptr32_t env)
 	uint32_t symbols = paratos_be32toh(h.PRG_ssize);
 	uint64_t image_size = (uint64_t)text + data;
 	if (!text || image_size + bss + sizeof(basepage_t) + 8 > memory_sz) goto out;
+	/* Symbols are part of the declared file even in absolute images, where
+	 * there is no relocation stream to expose a truncated symbol section. */
+	struct stat info;
+	if (fstat(fileno(file), &info) < 0) { result = MapErrno(); goto out; }
+	if (info.st_size < 0 || (uint64_t)info.st_size < sizeof(h) + image_size + symbols) goto out;
 	result = PosixCreateBasepage(tail, env);
 	if (result < 0) goto out;
 	uint32_t bp = (uint32_t)result, base = bp + sizeof(basepage_t);

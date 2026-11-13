@@ -35,6 +35,8 @@ static int next_host_id = -2;
 static uint64_t next_generation = 1;
 static _Thread_local int16_t root_id, root_parent_id;
 static int16_t runtime_root_id;
+static emuptr32_t initial_basepage;
+static int initial_active;
 static pthread_t reaper_thread;
 static int reaper_started, reaper_running, reaper_stop;
 
@@ -335,6 +337,7 @@ int16_t PosixTaskParentPid(void)
 
 int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 {
+	if (initial_active && bp == initial_basepage) return TOS_EACCDN;
 	int32_t size = MemoryBlockSize(bp);
 	if (size < (int32_t)sizeof(basepage_t) + 8) return TOS_EIMBA;
 	uint32_t high = m68k_read_field(bp, basepage_t, p_hitpa);
@@ -430,7 +433,17 @@ int PosixRunRoot(emuptr32_t basepage)
 	sigaction(SIGSEGV, &action, NULL);
 	sigaction(SIGBUS, &action, NULL);
 	pthread_mutex_lock(&cpu_mutex);
+	initial_basepage = basepage;
+	initial_active = 1;
 	int status = run_guest(basepage);
+	initial_active = 0;
+	/* Flush host diagnostics before releasing root-owned stream mappings.
+	 * Drop the execution mutex in case a surviving guest must drain a pipe. */
+	PosixPause();
+	fflush(stdout);
+	fflush(stderr);
+	PosixResume();
+	for (int fd = 0; fd < 3; fd++) PosixClose(fd);
 	handoff_children(0);
 	/* Ending the initial guest must not terminate still-running guest threads. */
 	while (tasks)

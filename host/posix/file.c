@@ -292,9 +292,12 @@ int16_t Fclose ( int16_t handle )
 int32_t Fcntl ( int16_t fh, int32_t arg, int16_t cmd )
 {
 	int32_t retval;
-	if (cmd == 0 && arg < 3) arg = 3;
+	if (cmd == 0 && arg >= 0 && arg < 3) arg = 3;
 	if (cmd <=7)
+	{
 		retval = fcntl(PosixHostFd(fh), cmd, arg, 0);
+		if (cmd == 0 && retval < 0) return MapErrno();
+	}
 	else {
 		pid_t nativePid;
 		switch (cmd)

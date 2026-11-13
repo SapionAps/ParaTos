@@ -172,6 +172,60 @@ class PexecTests(unittest.TestCase):
         self.assert_words(self.run_pair(parent(4), child()),
                           [37, 0x12345678, 0x55aa33cc, 37, 0, 0])
 
+    def test_worker_cannot_restart_the_active_initial_guest(self):
+        c = Program()
+        c.emit("206f000428680024")  # A4 = initial guest's basepage
+        for mode in (4, 6, 104):
+            c.pexec(mode, basepage=True)
+            c.report()
+        c.finish(37)
+        self.assert_words(self.run_pair(parent(6), c.image()),
+                          [-36, -36, -36, 37, 0, 0x55aa33cc, -40])
+
+    def test_root_exit_closes_redirected_writer_before_waiting_for_child(self):
+        c = Program()
+        # Give the child the read end as stdin, then close its inherited writer.
+        c.emit("3f390000110042673f3c00464e415c8f")
+        c.emit("3f3c00013f3c003e4e41588f")
+        c.emit("4879000011082f3c000000013f3c00003f3c003f4e414fef000c")
+        # Report EOF on stderr: stdout was deliberately closed above.
+        c.emit("2f00204f2f082f3c000000043f3c00023f3c00404e414fef0010")
+        c.finish(37)
+        p = Program()
+        p.shrink()
+        p.emit("4879000011003f3c01004e415c8f")  # Fpipe
+        p.emit("3f39000011023f3c00013f3c00464e415c8f")  # Fforce(stdout, writer)
+        p.emit("3f39000011023f3c003e4e41588f")  # close original writer
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(104, basepage=True)
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        r = self.run_pair(p.image(), c.image())
+        self.assertEqual(r.returncode, 23, r.stderr)
+        self.assertEqual(r.stdout, b"")
+        self.assertEqual(r.stderr, struct.pack(">I", 0))
+
+    def test_negative_fcntl_dupfd_minimum_is_rejected_without_allocating(self):
+        p = Program()
+        p.shrink()
+        p.emit("3f3c00013f3c00454e41588f2c003f063f3c003e4e41588f")
+        p.emit("42672f3cffffffff3f3c00013f3c01044e414fef000a")
+        p.report()
+        p.emit("3f3c00013f3c00454e41588f9086")
+        p.report()
+        p.finish(23)
+        self.assert_words(self.run_pair(p.image(), child()), [-25, 0])
+
+    def test_absolute_prg_accepts_complete_declared_symbols(self):
+        c = Program()
+        c.finish(37)
+        image = (struct.pack(">H6IH", 0x601a, len(c.code), 0, 0, 16, 0, 0, 1)
+                 + c.code + bytes(16))
+        self.assert_words(self.run_pair(parent(6), image),
+                          [37, 0, 0x55aa33cc, -40])
+
     def test_shrink_does_not_treat_application_self_pointer_as_basepage(self):
         p = Program()
         p.shrink()
@@ -514,6 +568,8 @@ class PexecTests(unittest.TestCase):
     def test_bad_images_do_not_consume_guest_memory(self):
         header = lambda text: struct.pack(">H6IH", 0x601a, text, 0, 0, 0, 0, 0, 0)
         for image in (b"\x7fELF", header(8) + b"short", header(0x7fffffff),
+                      struct.pack(">H6IH", 0x601a, 8, 0, 0, 16, 0, 0, 1) + bytes(8),
+                      struct.pack(">H6IH", 0x601a, 8, 0, 0, 16, 0, 0, 1) + bytes(23),
                       header(8) + bytes(8) + struct.pack(">I", 10)):
             with self.subTest(image=image[:32]):
                 p = Program()
