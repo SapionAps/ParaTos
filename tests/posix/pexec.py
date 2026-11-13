@@ -210,7 +210,7 @@ class PexecTests(unittest.TestCase):
                 p.label("tail", bytes(128))
                 p.label("fifo", b"EXECFIFO\0")
                 self.assert_words(self.run_pair(p.image(), c.image()),
-                                  [-66 if mode == 3 else -36, 37])
+                                  [-32 if mode == 200 else -66 if mode == 3 else -36, 37])
 
     @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("stdbuf"),
                          "requires Linux stdbuf to force diagnostic backpressure")
@@ -302,8 +302,67 @@ class PexecTests(unittest.TestCase):
                 p.finish(23)
                 p.label("child", b"CHILD.TOS\0")
                 p.label("tail", bytes(128))
-                expected = ([-33] if failed_replace else []) + [-81, -81, 37, 0x55aa33cc]
+                expected = ([-32] if failed_replace else []) + [-81, -81, 37, 0x55aa33cc]
                 self.assert_words(self.run_pair(p.image(), c.image()), expected)
+
+    def test_replacement_is_rejected_until_guest_threads_are_reaped(self):
+        for caller in ("root", "worker"):
+            for missing in (False, True):
+                with self.subTest(caller=caller, missing=missing):
+                    native = self.directory / "NATIVE.SH"
+                    native.write_text("#!/bin/sh\nprintf 'replacement\\n'\nexit 23\n")
+                    native.chmod(0o755)
+                    target = b"MISSING.TOS\0" if missing else b"NATIVE.SH\0"
+                    c = Program()
+                    if caller == "worker":
+                        # Redirect only the worker. Its failed replacement must
+                        # neither export this mapping nor terminate the root.
+                        c.emit("4267")
+                        c.push("output")
+                        c.emit("3f3c003c4e41508f3f003f3c00013f3c00464e415c8f")
+                        c.pexec(200)
+                        c.report()
+                    else:
+                        c.emit("4ab90000100467f8")  # keep a peer live
+                    c.finish(37)
+                    c.label("output", b"WORKER.OUT\0")
+                    c.label("child", target)
+                    c.label("tail", bytes(128))
+                    p = Program()
+                    p.shrink()
+                    p.pexec(3)
+                    p.emit("2840")
+                    p.pexec(104, basepage=True)
+                    p.emit("2c00")
+                    if caller == "root":
+                        p.emit("42a7")
+                        p.push("tail")
+                        p.push("replace")
+                        p.emit("3f3c00c83f3c004b4e414fef0010")
+                        p.report()
+                        p.emit("23fc0000000100001004")
+                    p.wait()
+                    p.emit("0280000000ff")
+                    p.report()
+                    # Once reaped, the root can replace itself normally.
+                    p.emit("42a7")
+                    p.push("tail")
+                    p.push("native")
+                    p.emit("3f3c00c83f3c004b4e414fef0010")
+                    p.finish(99)
+                    p.label("child", b"CHILD.TOS\0")
+                    p.label("replace", target)
+                    p.label("native", b"NATIVE.SH\0")
+                    p.label("tail", bytes(128))
+                    r = self.run_pair(p.image(), c.image())
+                    self.assertEqual(r.returncode, 23, r.stderr)
+                    self.assertEqual(r.stderr, b"")
+                    words = [-32, 37] if caller == "root" else [37]
+                    self.assertEqual(r.stdout, b"".join(struct.pack(">I", x & 0xffffffff)
+                                                       for x in words) + b"replacement\n")
+                    if caller == "worker":
+                        self.assertEqual((self.directory / "WORKER.OUT").read_bytes(),
+                                         struct.pack(">i", -32))
 
     def test_broken_host_diagnostic_pipe_does_not_terminate_runtime(self):
         p = Program()

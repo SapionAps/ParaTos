@@ -46,7 +46,7 @@ SIGSEGV recovery and guest diagnostics. All test fixtures are temporary.
 | 6 | Run a loaded basepage on a host thread and wait; transfer its image/environment ownership to the child and release them at termination. |
 | 100 | Start as for mode 0 and return a child ID immediately, without waiting. |
 | 104 | Run as for mode 4 and return a guest thread ID immediately. The caller retains the image/environment. |
-| 200 | Replace the host process. |
+| 200 | Replace the host process; return ENOSYS while guest threads or the native-child reaper are registered. |
 
 Modes 3 and 5 allocate a separate environment block and the largest available
 TPA, as on TOS. A caller must shrink its own TPA before loading children. A
@@ -71,6 +71,13 @@ its parent's streams. Other descriptors and the working directory are shared
 by threads. Modes 0/100 remain separate host processes. `Pfork`/`Pvfork` are
 rejected while guest threads exist; duplicating a live threaded runtime through
 fork without exec is unsupported.
+
+Mode 200 also requires a single-threaded runtime. Exporting the caller's stream
+mapping changes host descriptors 0–2, which could redirect peers' in-flight I/O
+even if exec fails. Both root and worker replacement attempts return ENOSYS
+before exporting handles while guest threads or the reaper are registered.
+The root can replace itself after guest threads have been reaped and the reaper
+has finished.
 
 The host catches SIGPIPE so a guest write to a pipe with no readers returns
 `TOS_EPIPE` instead of terminating all guests. This also protects host diagnostic

@@ -103,6 +103,9 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 	if (operation == 5) return PosixCreateBasepage(arg2, arg3);
 	if (operation != 0 && operation != 3 && operation != 100 && operation != 200)
 		return TOS_ENOSYS;
+	/* Exporting this guest's streams changes process-wide descriptors 0-2.
+	 * Peers may already be using those descriptors outside the CPU lock. */
+	if (operation == 200 && PosixHasThreads()) return TOS_ENOSYS;
 	if (!arg1 || arg1 >= memory_sz || !memchr(memory + arg1, 0, memory_sz - arg1))
 		return TOS_EINVAL;
 	char *original = read_path(arg1);
