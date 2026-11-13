@@ -51,6 +51,11 @@ static int start_guardian(void)
 	pid_t pid = fork();
 	if (!pid)
 	{
+		/* This observer must neither run application callbacks nor stop on
+		 * catchable job-control signals sent to the reader's process group. */
+		sigset_t blocked;
+		sigfillset(&blocked);
+		sigprocmask(SIG_SETMASK, &blocked, NULL);
 		/* Do not keep unrelated guest pipes or files alive while observing
 		 * this session. The limit is obtained before fork, outside the child. */
 		for (long fd = 0; fd < descriptor_limit; fd++)
