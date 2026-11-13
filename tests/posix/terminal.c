@@ -6,6 +6,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -108,12 +109,71 @@ static void check_background_cleanup(void)
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
-int main(void)
+static void check_pending_termination(int one_shot)
+{
+	struct termios saved;
+	assert(tcgetattr(slave, &saved) == 0);
+	pid_t reader = fork();
+	assert(reader >= 0);
+	if (!reader)
+	{
+		struct sigaction action = {0};
+		sigemptyset(&action.sa_mask);
+		if (one_shot)
+		{
+			action.sa_sigaction = previous_handler;
+			action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+			sigaddset(&action.sa_mask, SIGUSR1);
+		}
+		else action.sa_handler = SIG_DFL;
+		assert(sigaction(SIGTERM, &action, NULL) == 0);
+		assert(PosixTerminalBegin(slave) == 1);
+		if (one_shot)
+		{
+			assert(raise(SIGTERM) == 0);
+			assert(sigaction(SIGTERM, NULL, &action) == 0 && action.sa_handler == SIG_DFL);
+			/* No End between the native one-shot callback and default death. */
+			raise(SIGTERM);
+		}
+		else
+		{
+			sigset_t mask;
+			sigemptyset(&mask);
+			sigaddset(&mask, SIGTERM);
+			assert(pthread_sigmask(SIG_BLOCK, &mask, NULL) == 0);
+			assert(raise(SIGTERM) == 0); /* pending until sigsuspend unmasks it */
+			sigemptyset(&mask);
+			sigsuspend(&mask);
+		}
+		_exit(99);
+	}
+	int status;
+	assert(waitpid(reader, &status, 0) == reader);
+	assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+	/* The exit observer runs independently after native default termination. */
+	for (int tries = 0; tries < 300; tries++)
+	{
+		struct termios restored;
+		assert(tcgetattr(slave, &restored) == 0);
+		if ((restored.c_lflag & (ICANON | ECHO)) == (saved.c_lflag & (ICANON | ECHO))) return;
+		struct timespec delay = { .tv_nsec = 10000000 };
+		nanosleep(&delay, NULL);
+	}
+	assert(!"terminal was not restored after signal termination");
+}
+
+int main(int argc, char **argv)
 {
 	int master = posix_openpt(O_RDWR | O_NOCTTY);
 	assert(master >= 0 && grantpt(master) == 0 && unlockpt(master) == 0);
 	slave = open(ptsname(master), O_RDWR | O_NOCTTY);
 	assert(slave >= 0);
+	if (argc == 2)
+	{
+		check_pending_termination(strcmp(argv[1], "--oneshot") == 0);
+		close(slave); close(master);
+		return 0;
+	}
 	struct sigaction original = {0}, action, actual;
 	original.sa_sigaction = previous_handler;
 	original.sa_flags = SA_SIGINFO;
@@ -176,6 +236,8 @@ int main(void)
 		fprintf(stderr, "one-shot flags: requested=%x queried=%x restored=%x; handled=%d\n",
 		        original.sa_flags, one_shot_flags, actual.sa_flags, (int)handled);
 	assert(actual.sa_handler == SIG_DFL);
+	check_pending_termination(0);
+	check_pending_termination(1);
 	close(channel[0]); close(channel[1]); close(slave); close(master);
 	check_background_cleanup();
 	return 0;

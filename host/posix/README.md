@@ -31,6 +31,13 @@ remain ignored. Normal completion restores prior dispositions, including any
 one-shot handler reset. SIGTTOU is blocked during cleanup so background jobs can
 restore the terminal before terminating. SIGKILL cannot be caught for cleanup.
 
+Sessions with custom termination handlers also start a short-lived cleanup
+guardian. If a native one-shot handler resets to default and the process dies
+before ending the session, the guardian observes EOF and restores the terminal.
+Normal completion disarms and reaps it. Ordinary sessions with only default or
+ignored dispositions do not create a guardian. The guardian holds only its
+terminal and control descriptors, so it cannot keep unrelated guest pipes open.
+
 The shared PRG loader receives the environment explicitly from native startup.
 Guest memory and endian helpers use no OS headers. Backend-specific includes
 and `_GNU_SOURCE` are local to the POSIX executable; native pTOS builds select
