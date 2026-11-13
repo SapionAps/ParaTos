@@ -13,6 +13,13 @@ queries and errno conversion. They translate between native structures and
 the guest ABI defined in `gemdos/gemdos.h`. Guest arguments and 8.3 names
 are decoded in `gemdos/` before native execution or filesystem traversal.
 
+`bios.c` implements BIOS `Bconin(2)` using standard input. Terminal reads
+wait for one byte without echo, preserve queued input, and restore the terminal
+settings afterward. Redirected input is also supported; EOF is exposed as
+Ctrl-D (ASCII 4), since BIOS has no EOF result. Returned characters are unsigned
+bytes with zero scan-code and modifier bits; Atari special-key scan codes are
+not synthesized. Other Bconin devices return `TOS_ENOSYS`.
+
 The shared PRG loader receives the environment explicitly from native startup.
 Guest memory and endian helpers use no OS headers. Backend-specific includes
 and `_GNU_SOURCE` are local to the POSIX executable; native pTOS builds select

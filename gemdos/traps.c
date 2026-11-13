@@ -75,24 +75,6 @@ void dispatch_gem_trap(void)
 	}
 }
 
-void dispatch_bios_trap(void)
-{
-	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
-	uint16_t num = m68k_read_memory_16(sp);
-
-	if (num == 3)
-	{
-		PosixLog(1,"BCONOUT(%d, %c)\n", m68k_read_memory_16(sp-2), 0x7f&m68k_read_memory_16(sp-4));
-	}
-	else {
-		PosixLog(1,"BIOS(0x%02x)\n", num);
-	}
-
-
-	m68k_set_reg(M68K_REG_D0, -(int)num);
-}
-
-
 void dispatch_xbios_trap(void)
 {
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);

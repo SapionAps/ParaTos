@@ -727,8 +727,14 @@ class PexecTests(unittest.TestCase):
                           [37, 0, 0x55aa33cc, -40])
 
     def test_overlapping_console_reads_restore_terminal(self):
+        self.check_overlapping_console_reads(bios=False)
+
+    def test_overlapping_bconin_reads_restore_terminal(self):
+        self.check_overlapping_console_reads(bios=True)
+
+    def check_overlapping_console_reads(self, bios):
         c = Program()
-        c.emit("3f3c00074e41548f")
+        c.emit("3f3c00023f3c00024e4d588f" if bios else "3f3c00074e41548f")
         c.report()
         c.finish(37)
         p = Program()
