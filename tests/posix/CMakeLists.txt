@@ -8,6 +8,15 @@ target_compile_definitions(posix_memory PRIVATE _GNU_SOURCE)
 target_compile_options(posix_memory PRIVATE -std=c11 -UNDEBUG)
 add_test(NAME posix_memory COMMAND posix_memory)
 
+add_executable(posix_terminal terminal.c ${PROJECT_SOURCE_DIR}/host/posix/terminal.c)
+target_include_directories(posix_terminal PRIVATE ${PROJECT_SOURCE_DIR}
+	${PROJECT_SOURCE_DIR}/mushashi ${PROJECT_SOURCE_DIR}/host/posix)
+target_compile_definitions(posix_terminal PRIVATE _GNU_SOURCE)
+target_compile_options(posix_terminal PRIVATE -std=c11 -UNDEBUG)
+target_link_libraries(posix_terminal PRIVATE Threads::Threads)
+add_test(NAME posix_terminal COMMAND posix_terminal)
+set_tests_properties(posix_terminal PROPERTIES TIMEOUT 10)
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
 	add_test(NAME posix_launch COMMAND ${Python3_EXECUTABLE}
