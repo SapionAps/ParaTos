@@ -5,6 +5,11 @@
 #include <stdatomic.h>
 #include <termios.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <sys/ucontext.h>
+#else
+#include <ucontext.h>
+#endif
 
 #include "tasks.h"
 
@@ -42,15 +47,38 @@ static int restore_session(void)
 	return result;
 }
 
-static void terminate_session(int signal_number)
+static void terminate_session(int signal_number, siginfo_t *info, void *context)
 {
 	int error = errno;
 	lock_cleanup();
-	restore_session();
+	size_t i = 0;
+	while (signals[i] != signal_number) i++;
+	struct sigaction original = previous[i];
+	if (original.sa_handler == SIG_DFL) restore_session();
+	else if (original.sa_flags & SA_RESETHAND)
+	{
+		/* Keep our wrapper installed, but make subsequent delivery and normal
+		 * session cleanup observe the user's one-shot disposition. */
+		previous[i].sa_handler = SIG_DFL;
+		previous[i].sa_flags = 0;
+	}
 	atomic_flag_clear_explicit(&cleanup_lock, memory_order_release);
-	/* Re-deliver on this thread with the original disposition. In particular,
-	 * default termination keeps its signal status and core-dump semantics. */
-	raise(signal_number);
+	if (original.sa_handler == SIG_DFL)
+		/* Only default termination is re-delivered. User handlers receive the
+		 * original siginfo/context, and returning handlers leave the active
+		 * reader protected by its raw session even on another host thread. */
+		raise(signal_number);
+	else if (original.sa_handler != SIG_IGN)
+	{
+		sigset_t mask = ((ucontext_t *)context)->uc_sigmask, wrapper_mask;
+		for (int sig = 1; sig < NSIG; sig++)
+			if (sigismember(&original.sa_mask, sig) == 1) sigaddset(&mask, sig);
+		if (!(original.sa_flags & SA_NODEFER)) sigaddset(&mask, signal_number);
+		sigprocmask(SIG_SETMASK, &mask, &wrapper_mask);
+		if (original.sa_flags & SA_SIGINFO) original.sa_sigaction(signal_number, info, context);
+		else original.sa_handler(signal_number);
+		sigprocmask(SIG_SETMASK, &wrapper_mask, NULL);
+	}
 	errno = error;
 }
 
@@ -59,6 +87,8 @@ static void termination_set(sigset_t *set)
 	sigemptyset(set);
 	for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); i++)
 		sigaddset(set, signals[i]);
+	/* tcsetattr must also work after the process group is backgrounded. */
+	sigaddset(set, SIGTTOU);
 }
 
 int PosixTerminalBegin(int fd)
@@ -76,11 +106,14 @@ int PosixTerminalBegin(int fd)
 	terminal_fd = fcntl(fd, F_DUPFD_CLOEXEC, 3);
 	if (terminal_fd < 0 || tcgetattr(terminal_fd, &saved) < 0) goto out;
 	struct sigaction action = {0};
-	action.sa_handler = terminate_session;
-	action.sa_mask = set;
+	action.sa_sigaction = terminate_session;
 	for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); i++)
 	{
 		if (sigaction(signals[i], NULL, &previous[i]) < 0) goto out;
+		action.sa_flags = SA_SIGINFO | (previous[i].sa_flags & (SA_RESTART | SA_ONSTACK));
+		action.sa_mask = set;
+		for (int sig = 1; sig < NSIG; sig++)
+			if (sigismember(&previous[i].sa_mask, sig) == 1) sigaddset(&action.sa_mask, sig);
 		/* An ignored signal must remain ignored throughout the session. */
 		if (previous[i].sa_handler != SIG_IGN && sigaction(signals[i], &action, NULL) < 0) goto out;
 		installed++;

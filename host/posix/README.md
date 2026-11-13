@@ -23,9 +23,13 @@ not synthesized. Other Bconin devices return `TOS_ENOSYS`.
 BIOS and GEMDOS console reads share terminal-session cleanup. Only terminal
 reads acquire the session lock; redirected reads on independent pipes can
 progress concurrently. During raw terminal input, SIGHUP, SIGINT, SIGQUIT,
-SIGTERM and SIGABRT restore the saved settings before being re-delivered with
-their previous dispositions. Ignored signals remain ignored. Normal completion
-also restores prior dispositions. SIGKILL cannot be caught for cleanup.
+SIGTERM and SIGABRT with default dispositions restore the saved settings before
+being re-delivered. User handlers run with their original signal information,
+context and masks while the reader retains its protected raw session; returning
+from a handler therefore preserves single-byte, non-echoed input. Ignored signals
+remain ignored. Normal completion restores prior dispositions, including any
+one-shot handler reset. SIGTTOU is blocked during cleanup so background jobs can
+restore the terminal before terminating. SIGKILL cannot be caught for cleanup.
 
 The shared PRG loader receives the environment explicitly from native startup.
 Guest memory and endian helpers use no OS headers. Backend-specific includes
