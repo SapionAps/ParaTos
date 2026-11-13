@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -162,11 +163,19 @@ int main(void)
 
 	original.sa_flags |= SA_RESETHAND;
 	assert(sigaction(SIGTERM, &original, NULL) == 0);
+	assert(sigaction(SIGTERM, NULL, &actual) == 0);
+	int one_shot_flags = actual.sa_flags;
 	assert(PosixTerminalBegin(slave) == 1);
+	int before = handled;
 	assert(raise(SIGTERM) == 0);
+	assert(handled == before + 1);
 	assert(tcgetattr(slave, &terminal) == 0 && !(terminal.c_lflag & ICANON));
 	assert(PosixTerminalEnd() == 0 && !locked);
-	assert(sigaction(SIGTERM, NULL, &actual) == 0 && actual.sa_handler == SIG_DFL);
+	assert(sigaction(SIGTERM, NULL, &actual) == 0);
+	if (actual.sa_handler != SIG_DFL)
+		fprintf(stderr, "one-shot flags: requested=%x queried=%x restored=%x; handled=%d\n",
+		        original.sa_flags, one_shot_flags, actual.sa_flags, (int)handled);
+	assert(actual.sa_handler == SIG_DFL);
 	close(channel[0]); close(channel[1]); close(slave); close(master);
 	check_background_cleanup();
 	return 0;
