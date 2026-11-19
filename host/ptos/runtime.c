@@ -9,7 +9,7 @@
 #include "filesystem.h"
 #include "vdi.h"
 #include "../../guest_exec.h"
-#include "../../guest_thread.h"
+#include "../../guest_tasks.h"
 #include "../../tos_errors.h"
 
 /* Pclone shares the address space and native files. There is no native TLS
@@ -18,18 +18,15 @@
 enum { SUPER_STACK_BYTES = 4096, SUPER_SLOTS = PTOS_SUPER_STACK_BYTES / SUPER_STACK_BYTES };
 
 typedef struct task {
-	struct task *next, *parent;
-	guest_thread thread;
+	guest_task guest;
 	void *cpu;
 	ptos_files_state *files;
 	ptos_directories dirs;
 	ptos_super_state super;
 	jmp_buf fault_return;
-	uint32_t bp, env;
-	unsigned super_slot, dependents;
-	int16_t pid, ppid;
-	uint16_t status;
-	int async, started, done, retained, joined, fault_active;
+	uint32_t env;
+	unsigned super_slot;
+	int started, fault_active;
 } task;
 
 typedef struct native_child {
@@ -38,7 +35,8 @@ typedef struct native_child {
 	int16_t pid, native_pid;
 } native_child;
 
-static task *active, *root, *tasks;
+static task *active, *root;
+static guest_tasks guests;
 static native_child *native_children;
 static unsigned cpu_lock;
 static int in_slice;
@@ -78,14 +76,6 @@ int ptos_defer_trap(void (*dispatch)(void))
 	return 1;
 }
 
-static int have_peer(void)
-{
-	if (active != root && !root->done) return 1;
-	for (task *t = tasks; t; t = t->next)
-		if (t != active && !t->done) return 1;
-	return 0;
-}
-
 static int32_t prepare_suspend(void)
 {
 	int32_t result = ptos_save_directories(&active->dirs);
@@ -105,13 +95,13 @@ static void suspend(void)
 static int32_t activate(task *t)
 {
 	active = t;
-	ptos_process = t->bp;
+	ptos_process = t->guest.basepage;
 	ptos_use_super_state(&t->super, PTOS_ALLOC_START - t->super_slot * SUPER_STACK_BYTES);
 	if (t->started) m68k_set_context(t->cpu);
 	int32_t dirs = ptos_restore_directories(&t->dirs);
 	int32_t files = ptos_task_files_resume(t->files);
-	ptos_finished = t->done;
-	ptos_status = t->status;
+	ptos_finished = t->guest.done;
+	ptos_status = t->guest.status;
 	return dirs < 0 ? dirs : files;
 }
 
@@ -124,12 +114,12 @@ static int32_t resume(task *t)
 void ptos_task_yield(void)
 {
 	task *t = active;
-	if (t && have_peer() && !ptos_in_overlay())
+	if (t && guest_task_have_peer(&guests, &active->guest) && !ptos_in_overlay())
 	{
 		if (prepare_suspend() < 0) ptos_fault(ptos_process, "cannot save guest directories or streams");
 		suspend();
 		guest_thread_yield();
-		if (resume(t) < 0) ptos_fault(t->bp, "cannot restore guest directories or streams");
+		if (resume(t) < 0) ptos_fault(t->guest.basepage, "cannot restore guest directories or streams");
 	}
 	else
 		guest_thread_yield();
@@ -137,9 +127,9 @@ void ptos_task_yield(void)
 
 static int pid_used(int16_t pid)
 {
-	if (root->pid == pid) return 1;
-	for (task *t = tasks; t; t = t->next)
-		if (!t->joined && t->pid == pid) return 1;
+	if (root->guest.pid == pid) return 1;
+	for (guest_task *child = guests.children; child; child = child->next)
+		if (!child->joined && child->pid == pid) return 1;
 	for (native_child *c = native_children; c; c = c->next)
 		if (c->pid == pid) return 1;
 	return 0;
@@ -154,64 +144,32 @@ static int16_t allocate_pid(void)
 
 int32_t ptos_task_pid(int parent)
 {
-	if (active && active != root) return parent ? active->ppid : active->pid;
+	if (active && active != root) return parent ? active->guest.parent_pid : active->guest.pid;
 	return ptos_call(parent ? GEMDOS_OP_PGETPPID : GEMDOS_OP_PGETPID, 0, 0, 0, 0);
 }
 
 int ptos_task_active_image(uint32_t bp)
 {
-	if (root && root->retained && root->bp == bp) return 1;
-	for (task *t = tasks; t; t = t->next)
-		if (t->retained && t->bp == bp) return 1;
-	return 0;
+	return guest_task_image_busy(&guests, bp, 0);
 }
 
 int ptos_task_active_environment(uint32_t address)
 {
-	if (root && root->retained && root->env == address) return 1;
-	for (task *t = tasks; t; t = t->next)
-		if (t->retained && t->env == address) return 1;
+	if (root && root->guest.retained && root->env == address) return 1;
+	for (guest_task *child = guests.children; child; child = child->next)
+		if (child->retained && ((task *)child)->env == address) return 1;
 	return 0;
-}
-
-static void sweep_tasks(void)
-{
-	for (task **at = &tasks; *at; )
-	{
-		task *t = *at;
-		if (!t->joined || t->retained) { at = &t->next; continue; }
-		*at = t->next;
-		free(t);
-	}
 }
 
 static void finish(task *t)
 {
-	ptos_vdi_drop(t->bp);
-	ptos_filesystem_drop(t->bp);
+	ptos_vdi_drop(t->guest.basepage);
+	ptos_filesystem_drop(t->guest.basepage);
 	ptos_task_files_destroy(t->files);
 	t->files = NULL;
 	for (native_child *c = native_children; c; c = c->next)
 		if (c->owner == t) c->owner = NULL;
-	/* Completed children remain waitable by a live parent. An exiting
-	 * parent gives up its waits, but its basepage stays until descendants
-	 * can no longer use p_parent or the parent's retained image. */
-	for (task *child = tasks; child; child = child->next)
-		if (child->parent == t && !child->retained) child->parent = NULL;
-	t->done = 1;
-	while (t && t->done && t->retained && !t->dependents)
-	{
-		task *parent = t->parent;
-		t->retained = 0;
-		ptos_free_owned(t->bp);
-		if (parent)
-		{
-			parent->dependents--;
-			if (parent->done) t->parent = NULL;
-		}
-		t = parent;
-	}
-	sweep_tasks();
+	guest_task_finish(&guests, &t->guest, t->guest.status);
 }
 
 static void reap_native_orphans(void)
@@ -237,16 +195,16 @@ static void run(task *t)
 	{
 		in_slice = 0;
 		pending_trap = NULL;
-		t->status = 255;
+		t->guest.status = 255;
 	}
 	else
 	{
 		if (t != root && activate(t) < 0)
-			ptos_fault(t->bp, "cannot start guest with inherited directories or streams");
+			ptos_fault(t->guest.basepage, "cannot start guest with inherited directories or streams");
 		m68k_pulse_reset();
 		for (int i = M68K_REG_D0; i <= M68K_REG_A7; i++)
 			m68k_set_reg(i, 0);
-		ptos_start_cpu(t->bp);
+		ptos_start_cpu(t->guest.basepage);
 		t->started = 1;
 		while (!ptos_finished)
 		{
@@ -260,9 +218,9 @@ static void run(task *t)
 				dispatch();
 			}
 			reap_native_orphans();
-			if (!ptos_finished && have_peer()) ptos_task_yield();
+			if (!ptos_finished && guest_task_have_peer(&guests, &active->guest)) ptos_task_yield();
 		}
-		t->status = ptos_status;
+		t->guest.status = ptos_status;
 	}
 	t->fault_active = 0;
 }
@@ -284,18 +242,17 @@ static int32_t join(task *t, int prepared)
 	int32_t result = prepared ? 0 : prepare_suspend();
 	if (result < 0) return result;
 	suspend();
-	result = guest_thread_join(&t->thread);
+	result = guest_thread_join(&t->guest.thread);
 	int32_t restored = resume(caller);
 	if (result >= 0)
 	{
-		free(t->thread.stack);
+		free(t->guest.thread.stack);
 		free(t->cpu);
 		t->cpu = NULL;
-		t->joined = 1;
-		result = t->done ? t->status : 255;
-		sweep_tasks();
+		result = t->guest.done ? t->guest.status : 255;
+		guest_task_reap(&guests, &t->guest);
 	}
-	if (restored < 0) ptos_fault(caller->bp, "cannot restore guest after Pthjoin");
+	if (restored < 0) ptos_fault(caller->guest.basepage, "cannot restore guest after Pthjoin");
 	return result;
 }
 
@@ -307,8 +264,8 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
 	if (!ptos_image_startable(bp, take_ownership)) return PTOS_EIMBA;
 
 	unsigned slots = 1;
-	for (task *t = tasks; t; t = t->next)
-		if (!t->done) slots |= 1u << t->super_slot;
+	for (guest_task *child = guests.children; child; child = child->next)
+		if (!child->done) slots |= 1u << ((task *)child)->super_slot;
 	unsigned slot = 1;
 	while (slot < SUPER_SLOTS && (slots & (1u << slot))) slot++;
 	int16_t pid = allocate_pid();
@@ -325,7 +282,9 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
 		result = prepare_suspend();
 		prepared = result >= 0;
 	}
-	if (result >= 0) result = guest_thread_start(&t->thread, thread_main, t);
+	if (result >= 0)
+		result = guest_task_start(&guests, &active->guest, &t->guest,
+			bp, pid, asynchronous, thread_main);
 	if (result < 0)
 	{
 		if (prepared) ptos_task_files_cancel_suspend();
@@ -333,28 +292,19 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
 		free(t->cpu);
 		free(t);
 		/* Older kernels keep the synchronous in-place path. */
-		if (result == PTOS_ENOSYS && !asynchronous && active == root && !tasks)
+		if (result == PTOS_ENOSYS && !asynchronous && active == root && !guests.children)
 			return ptos_go(bp, take_ownership);
 		return result;
 	}
-	t->bp = bp;
 	t->env = m68k_read_memory_32(bp + BP_ENV);
-	t->parent = active;
-	t->pid = pid;
-	t->ppid = active->pid;
 	t->super_slot = slot;
-	t->async = asynchronous;
-	t->retained = 1;
-	active->dependents++;
-	t->next = tasks;
-	tasks = t;
 	ptos_task_files_commit(bp, t->files);
 	ptos_drop_process(bp);
 	if (take_ownership) ptos_take_image(bp);
 	m68k_write_memory_32(bp + BP_PARENT, ptos_process);
 	if (asynchronous) return pid;
 	result = join(t, prepared);
-	if (result < 0) t->async = 1;
+	if (result < 0) t->guest.asynchronous = 1;
 	return result;
 }
 
@@ -368,15 +318,12 @@ int32_t ptos_task_wait(int16_t pid, int16_t flags, uint32_t usage)
 	int32_t result;
 	for (;;)
 	{
-		int pending = 0;
-		for (task *t = tasks; t; t = t->next)
+		guest_task *child = guest_task_wait_child(&guests, &active->guest, pid);
+		int pending = child != NULL;
+		if (child && (child->done || (!(flags & 1) && pid != -1)))
 		{
-			if (!t->async || t->joined || t->parent != active || (pid != -1 && pid != t->pid))
-				continue;
-			pending = 1;
-			if (!t->done && ((flags & 1) || pid == -1)) continue;
-			int16_t child_pid = t->pid;
-			result = join(t, 0);
+			int16_t child_pid = child->pid;
+			result = join((task *)child, 0);
 			if (result < 0) return result;
 			result = guest_wait_status(child_pid, result & 255);
 			goto done;
@@ -407,7 +354,7 @@ done:
 int32_t ptos_task_exec(uint16_t mode, const char *path, const char *tail, const char *env)
 {
 	uint16_t operation = mode & 0x7fff;
-	if (active && operation == PTOS_EXEC_REPLACE && (active != root || tasks))
+	if (active && operation == PTOS_EXEC_REPLACE && (active != root || guests.children))
 		return PTOS_ENOSYS;
 	if (!active || operation != PTOS_EXEC_LOAD_GO_ASYNC)
 		return ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)path, (intptr_t)tail, (intptr_t)env);
@@ -438,10 +385,8 @@ int32_t ptos_run_program(uint32_t bp)
 
 	lock_cpu();
 	active = root = &initial;
-	root->bp = bp;
+	guest_tasks_init(&guests, &root->guest, bp, ptos_task_pid(0), ptos_free_owned);
 	root->env = m68k_read_memory_32(bp + BP_ENV);
-	root->pid = ptos_task_pid(0);
-	root->retained = 1;
 	ptos_finished = 0;
 	ptos_status = 0;
 	m68k_init();
@@ -452,15 +397,11 @@ int32_t ptos_run_program(uint32_t bp)
 	run(root);
 	finish(root);
 
-	while (tasks)
-	{
-		task *t = tasks;
-		while (t && t->joined) t = t->next;
-		if (!t) break;
-		int32_t result = join(t, 0);
-		if (result < 0)
+	while (guest_task_have_peer(&guests, &root->guest)) ptos_task_yield();
+	guest_task *child;
+	while ((child = guest_task_next_join(&guests)))
+		if (join((task *)child, 0) < 0)
 			ptos_fault(bp, "cannot join guest at emulator shutdown");
-	}
 	reap_native_orphans();
 	while (native_children)
 	{
@@ -470,8 +411,9 @@ int32_t ptos_run_program(uint32_t bp)
 	}
 	free(root->cpu);
 	active = root = NULL;
+	guests.root = NULL;
 	ptos_use_super_state(NULL, PTOS_ALLOC_START);
 	ptos_process_cleanup();
 	unlock_cpu();
-	return initial.status;
+	return initial.guest.status;
 }

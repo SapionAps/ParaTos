@@ -28,6 +28,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	target_link_options(posix_pid_registry PRIVATE -Wl,--gc-sections)
 	add_test(NAME posix_pid_registry COMMAND posix_pid_registry)
 	add_executable(posix_io_staging io_staging.c ${PROJECT_SOURCE_DIR}/host/posix/tasks.c
+		${PROJECT_SOURCE_DIR}/guest_tasks.c ${PROJECT_SOURCE_DIR}/host/posix/thread.c
 		${PROJECT_SOURCE_DIR}/host/posix/file.c ${PROJECT_SOURCE_DIR}/host/posix/signals.c)
 	target_include_directories(posix_io_staging PRIVATE ${PROJECT_SOURCE_DIR}
 		${PROJECT_SOURCE_DIR}/gemdos ${PROJECT_SOURCE_DIR}/mushashi ${PROJECT_SOURCE_DIR}/host/posix)
