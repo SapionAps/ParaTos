@@ -108,6 +108,7 @@ void PosixRootIdentity(int16_t id, int16_t parent)
 	root_id = id;
 	root_parent_id = parent;
 	runtime_root_id = id;
+	initial.pid = id;
 }
 
 int16_t PosixRuntimeRootPid(void)
