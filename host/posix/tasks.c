@@ -1,5 +1,4 @@
 #include <pthread.h>
-#include <sched.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -14,6 +13,8 @@
 #include "host.h"
 #include "runtime.h"
 #include "tasks.h"
+#include "../../guest_thread.h"
+#include "../../guest_exec.h"
 
 static pthread_mutex_t cpu_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t terminal_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -24,7 +25,7 @@ static _Thread_local int cpu_locked;
 
 typedef struct task {
 	struct task *next;
-	pthread_t thread;
+	guest_thread thread;
 	emuptr32_t basepage, parent;
 	uint64_t generation, parent_generation;
 	int id, token, parent_id, asynchronous, done, status, cleanup_pending;
@@ -306,7 +307,7 @@ static int run_guest(emuptr32_t basepage)
 		if (!finished)
 		{
 			PosixPause();
-			sched_yield();
+			guest_thread_yield();
 			PosixResume();
 		}
 	}
@@ -440,7 +441,7 @@ int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 	t->next = tasks;
 	tasks = t;
 	m68k_write_field(bp, basepage_t, p_parent, current_process);
-	int error = pthread_create(&t->thread, NULL, thread_main, t);
+	int32_t error = guest_thread_start(&t->thread, thread_main, t);
 	if (error)
 	{
 		for (int fd = 0; fd < 3; fd++) if (t->streams[fd] >= 0) close(t->streams[fd]);
@@ -456,7 +457,7 @@ int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 	if (asynchronous) return t->id;
 
 	PosixPause();
-	pthread_join(t->thread, NULL);
+	guest_thread_join(&t->thread);
 	PosixResume();
 	int32_t status = t->status;
 	remove_task(t);
@@ -476,9 +477,9 @@ int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *resul
 	if (!selected->done && (flags & 1)) { *result = 0; return 1; }
 
 	PosixPause();
-	pthread_join(selected->thread, NULL);
+	guest_thread_join(&selected->thread);
 	PosixResume();
-	*result = (int32_t)(((uint32_t)selected->id << 16) | (selected->status & 255));
+	*result = guest_wait_status(selected->id, selected->status & 255);
 	if (usage) memset(memory + usage, 0, 8);
 	remove_task(selected);
 	return 1;
@@ -522,7 +523,7 @@ int PosixRunRoot(emuptr32_t basepage)
 		if (t) { pthread_cond_wait(&changed, &cpu_mutex); continue; }
 		/* No guest is still running or waiting on a join. */
 		t = tasks;
-		pthread_join(t->thread, NULL);
+		guest_thread_join(&t->thread);
 		remove_task(t);
 	}
 	/* Do not wait for still-running detached native children at host shutdown.

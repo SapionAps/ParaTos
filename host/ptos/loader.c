@@ -3,6 +3,7 @@
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "tasks.h"
 
 typedef struct block {
 	struct block *next;
@@ -63,6 +64,7 @@ int32_t ptos_alloc(int32_t size)
 
 int32_t ptos_free(uint32_t address)
 {
+	if (ptos_task_active_image(address) || ptos_task_active_environment(address)) return PTOS_EIMBA;
 	for (block **at = &blocks; *at; at = &(*at)->next)
 	{
 		if ((*at)->start != address) continue;
@@ -90,11 +92,14 @@ void ptos_free_owned(uint32_t owner)
 int32_t ptos_shrink(uint32_t address, int32_t size)
 {
 	if (size == 0) return ptos_free(address);
+	if (ptos_task_active_environment(address)) return PTOS_EIMBA;
 	if (size < 0 || (uint32_t)size > PTOS_RAM_END) return PTOS_EINVAL;
 	uint32_t need = ((uint32_t)size + 3) & ~3u;
 	for (block *b = blocks; b; b = b->next)
 	{
 		if (b->start != address) continue;
+		if (ptos_task_active_image(address) &&
+			(address != ptos_process || need < BP_SIZE + 8)) return PTOS_EIMBA;
 		if (need > b->size) return -67; /* EGSBF */
 		b->size = need;
 		if (b->image) m68k_write_memory_32(address + BP_HIGH, address + need);
@@ -118,6 +123,23 @@ int ptos_image_valid(uint32_t bp)
 			m68k_read_memory_32(bp + BP_HIGH) <= bp + b->size)
 			return 1;
 	return 0;
+}
+
+int ptos_image_startable(uint32_t bp, int take_ownership)
+{
+	if (!ptos_image_valid(bp)) return 0;
+	uint32_t high = m68k_read_memory_32(bp + BP_HIGH);
+	uint32_t entry = m68k_read_memory_32(bp + BP_TEXT);
+	if (high < bp + BP_SIZE + 8 || entry < PTOS_RAM_START ||
+		entry > PTOS_RAM_END - 2 || (entry & 1)) return 0;
+	uint32_t env = m68k_read_memory_32(bp + BP_ENV);
+	int owned = 0, owns_env = !take_ownership;
+	for (block *b = blocks; b; b = b->next)
+	{
+		if (b->start == bp) owned = b->image && b->owner == ptos_process;
+		else if (b->start == env && b->owner == ptos_process && !b->image) owns_env = 1;
+	}
+	return owned && owns_env;
 }
 
 int32_t ptos_basepage(const char *tail, const char *environment)

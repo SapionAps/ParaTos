@@ -1,16 +1,19 @@
 #include <stdlib.h>
 #include "host.h"
 #include "guest.h"
+#include "tasks.h"
 
 /* Keep native handle numbers: a delegated native Pexec must inherit the
  * same numbers the guest passes to its child. References are per guest,
  * so closing an inherited handle does not close the parent's reference. */
 enum { FILE_LIMIT = 256, STANDARD_FILES = 6 };
 typedef struct file_ref { unsigned int count; int owned; } file_ref;
-typedef struct files {
-	struct files *parent;
+typedef struct ptos_files_state {
+	struct ptos_files_state *parent;
 	file_ref *handles[FILE_LIMIT];
 	int32_t saved[STANDARD_FILES];
+	int32_t streams[STANDARD_FILES];
+	int suspended;
 } files;
 static files root;
 static files *current = &root;
@@ -200,7 +203,7 @@ int32_t ptos_files_push(uint32_t bp)
 int32_t ptos_files_pop(void)
 {
 	files *child = current;
-	if (child == &root) return PTOS_EINVAL;
+	if (!child->parent) return PTOS_EINVAL;
 	int32_t result = restore_streams(child->saved);
 	close_streams(child->saved);
 	release(child);
@@ -212,4 +215,67 @@ void ptos_files_cleanup(void)
 {
 	while (current != &root) ptos_files_pop();
 	release(&root);
+}
+
+int32_t ptos_task_files_prepare(uint32_t bp, ptos_files_state **out)
+{
+	files *child = calloc(1, sizeof(*child));
+	if (!child) return PTOS_ENSMEM;
+	loaded_streams *image = loaded;
+	while (image && image->bp != bp) image = image->next;
+	if (!image)
+	{
+		int32_t r = save_streams(child->streams);
+		if (r < 0) { free(child); return r; }
+		child->suspended = 1;
+	}
+	for (int i = STANDARD_FILES; i < FILE_LIMIT; i++)
+		if ((child->handles[i] = current->handles[i])) child->handles[i]->count++;
+	*out = child;
+	return 0;
+}
+
+void ptos_task_files_commit(uint32_t bp, ptos_files_state *child)
+{
+	for (loaded_streams **at = &loaded; *at; at = &(*at)->next)
+	{
+		loaded_streams *image = *at;
+		if (image->bp != bp) continue;
+		for (int i = 0; i < STANDARD_FILES; i++) child->streams[i] = image->handles[i];
+		child->suspended = 1;
+		*at = image->next;
+		free(image);
+		return;
+	}
+}
+
+int32_t ptos_task_files_suspend(void)
+{
+	int32_t r = save_streams(current->streams);
+	if (r >= 0) current->suspended = 1;
+	return r;
+}
+
+void ptos_task_files_cancel_suspend(void)
+{
+	close_streams(current->streams);
+	current->suspended = 0;
+}
+
+int32_t ptos_task_files_resume(ptos_files_state *state)
+{
+	current = state ? state : &root;
+	if (!current->suspended) return 0;
+	int32_t r = restore_streams(current->streams);
+	ptos_task_files_cancel_suspend();
+	return r;
+}
+
+void ptos_task_files_destroy(ptos_files_state *state)
+{
+	if (!state) return;
+	if (state->suspended) close_streams(state->streams);
+	release(state);
+	if (current == state) current = &root;
+	free(state);
 }

@@ -174,18 +174,26 @@ committed only on success. Unknown structure/command ABIs still need explicit
 adapters; directory streams, stat64, signals and networking remain follow-ups.
 Full MiNT libc startup is not yet supported.
 
-Pexec(0) and Pexec(200) delegate to native Pexec even for a 68k target.
-This depends on binfmt registration to select another Paratos instance;
-the pTOS backend does not use /proc/self/exe or a POSIX fork/exec path.
-The current pTOS kernel returns ENOSYS for mode 200. The backend preserves
-that result; it never substitutes a child launch for process replacement.
+Pexec(0/100/200) delegates pathname-based execution to native Pexec.
+For a 68k target, the kernel's binfmt registration selects another ParaTOS
+instance. A guest cannot replace the shared native process while it has
+outstanding cloned guests, or from within a cloned guest.
 
-Guest Pexec(3/4/6) loads/starts 68k overlays internally and distinguishes
-caller-retained images from images whose ownership is transferred. Guest
-Pexec(5/7) creates an emulated basepage. Native load-only images from guest
-code and additional modes/flags remain follow-ups; native and guest
-basepages must not be confused. Native executable dispatch outside modes
-0/200 is not implemented.
+Guest Pexec(3) loads a 68k PRG into guest RAM and Pexec(5/7) creates a
+guest basepage. Modes 4/6 start it and return the child's exit code.
+Modes 104/106 start it and return a guest PID for Pwait, Pwait3 or Pwaitpid.
+Modes 6/106 transfer ownership of the basepage and environment. All four
+start modes share guest RAM, as in the POSIX backend. Native load-only
+images from guest code remain unsupported.
+
+The four start modes use Pclone and Pthjoin from pTOS PR #903. Both
+syscalls and native scheduling are enabled by default in the MMU native
+process profiles. At the current epic head, ParaTOS must itself run in a
+managed scheduler task to use Pclone, for example via native Pexec(100).
+On kernels that report ENOSYS, modes 4/6 can still run in place and modes
+104/106 return the error. Guest CPU slices and native guest state changes
+are serialized. A blocking native operation that uses the current
+process's handles or directories can hold up its guest peers.
 
 Internal children inherit handle references while retaining native handle
 numbers for delegated native Pexec. Pterm closes child-owned files and
@@ -197,6 +205,10 @@ PE_LOAD/PE_BASEPAGE capture the child's standard streams and directories at
 creation time. Starting the child activates that saved context, even if the
 parent changed it in the meantime. Freeing an unstarted image, abandoning it
 at parent termination, or failing a load releases its saved stream references.
+
+When the prepared kernel enables Pclone, Pthjoin and native scheduling,
+CTest adds `ptos_kernel_pclone`. It launches a managed ParaTOS process and
+checks the four start modes with a real 68k guest and a real kernel.
 
 Validation
 ----------

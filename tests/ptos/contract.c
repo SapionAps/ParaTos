@@ -9,10 +9,13 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pthread.h>
+#include <sched.h>
 #include "m68k.h"
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "tasks.h"
 #include "filesystem_contract.h"
 #include "vdi_contract.h"
 
@@ -27,6 +30,10 @@ static int32_t last_mode;
 static uint32_t retained_image;
 static int expect_retained;
 static int fail_dup;
+static int clone_enabled;
+static pthread_t clones[16];
+static int live_clones[16];
+static int32_t clone_error;
 static int current_drive = 2;
 static char directories[2][128] = {"PARENT", "OTHER"};
 static uint16_t bios_function;
@@ -55,6 +62,36 @@ static void capture(const void *data, size_t n)
 	output_size += n; output[output_size] = 0;
 }
 
+static void *run_clone(void *argument)
+{
+	ptos_clone_args *args = argument;
+	void (*entry)(void *) = args->entry;
+	void *entry_arg = args->argument;
+	free(args);
+	entry(entry_arg);
+	return NULL;
+}
+
+static int32_t fake_clone(const ptos_clone_args *args, size_t bytes)
+{
+	if (!clone_enabled) return PTOS_ENOSYS;
+	if (clone_error) return clone_error;
+	assert(bytes == sizeof(*args));
+	assert(args->flags == (PTOS_CLONE_VM | PTOS_CLONE_SAME_PROCESS));
+	assert(args->stack_size >= 256 && !((uintptr_t)args->stack_base & 15));
+	for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
+	{
+		if (live_clones[i]) continue;
+		ptos_clone_args *copy = malloc(sizeof(*copy));
+		assert(copy);
+		*copy = *args;
+		assert(!pthread_create(&clones[i], NULL, run_clone, copy));
+		live_clones[i] = 1;
+		return 100 + (int32_t)i;
+	}
+	return PTOS_ENSMEM;
+}
+
 int32_t ptos_map(uint32_t address, uint32_t length)
 {
 	void *p = mmap((void *)(uintptr_t)address, length, PROT_READ | PROT_WRITE,
@@ -73,6 +110,15 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	if (filesystem_test_native(fn, a, b, c, d, &filesystem_result)) return filesystem_result;
 	switch (fn)
 	{
+	case GEMDOS_OP_PCLONE: return fake_clone((const void *)a, b);
+	case GEMDOS_OP_PTHJOIN:
+		if (!a) return clone_enabled ? -20 : PTOS_ENOSYS;
+		assert(a >= 100 && a < 116 && live_clones[a - 100]);
+		assert(!pthread_join(clones[a - 100], NULL));
+		live_clones[a - 100] = 0;
+		return 0;
+	case GEMDOS_OP_SYIELD: return sched_yield();
+	case GEMDOS_OP_PGETPID: return 42;
 	case 0x154:
 		system_calls++;
 		if (a == SSYSTEM_OP_INQUIRE) return b == unavailable_read ? PTOS_ENOSYS : 0;
@@ -484,6 +530,54 @@ static void test_bad_images(void)
 	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 }
 
+static void test_async_go(int mode, int32_t error)
+{
+	reset();
+	unsigned char caller[] = {
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7, /* env, basepage, path */
+		0x3f,0x3c, 0,0, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,
+		0x23,0xc0, 0,0,0,0,                       /* save guest PID */
+		0x4a,0x80, 0x6b,0x18,                     /* skip waits on launch error */
+		0x42,0xa7, 0x3f,0x3c, 0,0, 0x3f,0x00,    /* usage, flags, pid */
+		0x3f,0x3c, 0x01,0x3a, 0x4e,0x41,          /* Pwaitpid */
+		0x4f,0xef, 0,10,
+		0x23,0xc0, 0,0,0,0,                       /* save wait result */
+		0x42,0x67, 0x4e,0x41                     /* Pterm0 */
+	};
+	unsigned char callee[] = {
+		0x3f,0x3c, 0x01,0x0c, 0x4e,0x41,          /* Pgetppid */
+		0x54,0x8f,
+		0x23,0xc0, 0,0,0,0,
+		0x3f,0x3c, 0,37, 0x3f,0x3c, 0,0x4c, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	uint32_t results = bp + 1024;
+	m68k_write_memory_32(code + 4, child);
+	m68k_write_memory_16(code + 12, mode);
+	m68k_write_memory_32(code + 26, results);
+	m68k_write_memory_32(code + 54, results + 4);
+	m68k_write_memory_32(child + BP_SIZE + 10, results + 8);
+
+	clone_error = error;
+	assert(ptos_run_program(bp) == 0);
+	clone_error = 0;
+	int32_t pid = m68k_read_memory_32(results);
+	if (error) assert(pid == error && !m68k_read_memory_32(results + 4));
+	else
+	{
+		assert(pid > 0 && pid != 42 && (pid < 100 || pid >= 116));
+		assert(m68k_read_memory_32(results + 4) == ((uint32_t)pid << 16 | 37));
+		assert(m68k_read_memory_32(results + 8) == 42);
+	}
+	assert(!ptos_image_valid(bp) && !ptos_image_valid(child));
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
+}
+
 static void test_nested_supervisor_stack(void)
 {
 	reset();
@@ -560,6 +654,12 @@ int main(int argc, char **argv)
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);
+	clone_enabled = 1;
+	test_overlay(4); test_overlay(6);
+	test_async_go(104, 0);
+	test_async_go(106, 0);
+	test_async_go(104, PTOS_ENSMEM);
+	clone_enabled = 0;
 	test_bad_images();
 	test_nested_supervisor_stack();
 	test_loaded_context_cleanup();
