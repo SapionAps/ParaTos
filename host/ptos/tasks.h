@@ -33,6 +33,7 @@ int32_t ptos_task_files_suspend(void);
 void ptos_task_files_cancel_suspend(void);
 int32_t ptos_task_files_resume(ptos_files_state *files);
 void ptos_task_files_destroy(ptos_files_state *files);
+void ptos_task_files_release_root(void);
 
 int32_t ptos_save_directories(ptos_directories *dirs);
 int32_t ptos_restore_directories(const ptos_directories *dirs);

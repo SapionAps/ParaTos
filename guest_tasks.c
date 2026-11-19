@@ -92,12 +92,20 @@ guest_task *guest_task_next_join(const guest_tasks *tasks)
 	return NULL;
 }
 
+guest_task *guest_task_orphan_ready(const guest_tasks *tasks)
+{
+	for (guest_task *task = tasks->children; task; task = task->next)
+		if (task->done && !task->joined && !task->joining && (!task->parent || task->parent->done))
+			return task;
+	return NULL;
+}
+
 guest_task *guest_task_wait_child(const guest_tasks *tasks, const guest_task *parent, int16_t pid)
 {
 	guest_task *pending = NULL;
 	for (guest_task *task = tasks->children; task; task = task->next)
 	{
-		if (task->joined || !task->asynchronous || task->parent != parent ||
+		if (task->joined || task->joining || !task->asynchronous || task->parent != parent ||
 			(pid != -1 && task->pid != pid)) continue;
 		if (task->done) return task;
 		if (!pending) pending = task;

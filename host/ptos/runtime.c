@@ -41,6 +41,7 @@ static native_child *native_children;
 static unsigned cpu_lock;
 static int in_slice;
 static void (*pending_trap)(void);
+static int32_t join(task *t, int prepared);
 
 static void lock_cpu(void)
 {
@@ -165,7 +166,8 @@ static void finish(task *t)
 {
 	ptos_vdi_drop(t->guest.basepage);
 	ptos_filesystem_drop(t->guest.basepage);
-	ptos_task_files_destroy(t->files);
+	if (t == root) ptos_task_files_release_root();
+	else ptos_task_files_destroy(t->files);
 	t->files = NULL;
 	for (native_child *c = native_children; c; c = c->next)
 		if (c->owner == t) c->owner = NULL;
@@ -186,6 +188,15 @@ static void reap_native_orphans(void)
 		*at = c->next;
 		free(c);
 	}
+}
+
+/* A completed guest has dropped the execution lock and is exiting its
+ * native thread. Join outside Musashi and leave a live parent's waits alone. */
+static void reap_guest_orphans(void)
+{
+	guest_task *orphan;
+	while ((orphan = guest_task_orphan_ready(&guests)))
+		if (join((task *)orphan, 0) < 0) break;
 }
 
 static void run(task *t)
@@ -218,7 +229,11 @@ static void run(task *t)
 				dispatch();
 			}
 			reap_native_orphans();
-			if (!ptos_finished && guest_task_have_peer(&guests, &active->guest)) ptos_task_yield();
+			if (!ptos_finished)
+			{
+				reap_guest_orphans();
+				if (guest_task_have_peer(&guests, &active->guest)) ptos_task_yield();
+			}
 		}
 		t->guest.status = ptos_status;
 	}
@@ -241,9 +256,11 @@ static int32_t join(task *t, int prepared)
 	task *caller = active;
 	int32_t result = prepared ? 0 : prepare_suspend();
 	if (result < 0) return result;
+	t->guest.joining = 1;
 	suspend();
 	result = guest_thread_join(&t->guest.thread);
 	int32_t restored = resume(caller);
+	t->guest.joining = 0;
 	if (result >= 0)
 	{
 		free(t->guest.thread.stack);
@@ -397,7 +414,13 @@ int32_t ptos_run_program(uint32_t bp)
 	run(root);
 	finish(root);
 
-	while (guest_task_have_peer(&guests, &root->guest)) ptos_task_yield();
+	/* Live guests may be joining their own children. Reap only completed
+	 * orphans while they run, then collect any remaining shutdown records. */
+	while (guest_task_have_peer(&guests, &root->guest))
+	{
+		reap_guest_orphans();
+		ptos_task_yield();
+	}
 	guest_task *child;
 	while ((child = guest_task_next_join(&guests)))
 		if (join((task *)child, 0) < 0)

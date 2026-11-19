@@ -279,3 +279,8 @@ void ptos_task_files_destroy(ptos_files_state *state)
 	if (current == state) current = &root;
 	free(state);
 }
+
+void ptos_task_files_release_root(void)
+{
+	release(&root);
+}

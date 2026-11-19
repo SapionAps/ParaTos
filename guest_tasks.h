@@ -8,7 +8,7 @@ typedef struct guest_task {
 	unsigned dependents;
 	int16_t pid, parent_pid;
 	uint16_t status;
-	int asynchronous, done, retained, joined;
+	int asynchronous, done, retained, joining, joined;
 } guest_task;
 
 typedef struct guest_tasks {
@@ -30,4 +30,5 @@ void guest_task_reap(guest_tasks *tasks, guest_task *task);
 int guest_task_image_busy(const guest_tasks *tasks, uint32_t bp, int include_unjoined);
 int guest_task_have_peer(const guest_tasks *tasks, const guest_task *current);
 guest_task *guest_task_next_join(const guest_tasks *tasks);
+guest_task *guest_task_orphan_ready(const guest_tasks *tasks);
 guest_task *guest_task_wait_child(const guest_tasks *tasks, const guest_task *parent, int16_t pid);

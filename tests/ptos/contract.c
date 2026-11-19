@@ -34,6 +34,8 @@ static int clone_enabled;
 static pthread_t clones[16];
 static int live_clones[16];
 static int32_t clone_error;
+static uint32_t shutdown_file;
+static int shutdown_fd;
 static int current_drive = 2;
 static char directories[2][128] = {"PARENT", "OTHER"};
 static uint16_t bios_function;
@@ -131,6 +133,14 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case 9: capture((const char *)a, strlen((const char *)a)); return 0;
 	case 2: {
 		char ch = a;
+		if (shutdown_file && ch == '@')
+		{
+			shutdown_fd = ptos_file_open(GEMDOS_OP_FCREATE, "contract-exit.tmp", 0);
+			assert(shutdown_fd >= 6);
+			m68k_write_memory_16(shutdown_file, shutdown_fd);
+		}
+		if (shutdown_file && ch == '!')
+			assert(fcntl(shutdown_fd, F_GETFD) == -1 && errno == EBADF);
 		capture(&ch, 1);
 		if (retained_image) assert(ptos_image_valid(retained_image) == expect_retained);
 		return a;
@@ -578,6 +588,40 @@ static void test_async_go(int mode, int32_t error)
 	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 }
 
+static void test_root_releases_handles(void)
+{
+	reset();
+	unsigned char caller[] = {
+		0x3f,0x3c, 0,'@', 0x3f,0x3c, 0,2, 0x4e,0x41, 0x58,0x8f,
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7,
+		0x3f,0x3c, 0,106, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,
+		0x33,0xfc, 0,1, 0,0,0,0,                 /* allow child to close the handle */
+		0x42,0x67, 0x4e,0x41                     /* Pterm0 */
+	};
+	unsigned char callee[] = {
+		0x4a,0x79, 0,0,0,0, 0x67,0xf8,           /* wait for parent's exit */
+		0x3f,0x39, 0,0,0,0, 0x3f,0x3c, 0,0x3e,
+		0x4e,0x41, 0x58,0x8f,                     /* Fclose inherited handle */
+		0x3f,0x3c, 0,'!', 0x3f,0x3c, 0,2, 0x4e,0x41, 0x58,0x8f,
+		0x42,0x67, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	shutdown_file = bp + 1024;
+	m68k_write_memory_32(code + 16, child);
+	m68k_write_memory_32(code + 40, shutdown_file + 2);
+	m68k_write_memory_32(child + BP_SIZE + 2, shutdown_file + 2);
+	m68k_write_memory_32(child + BP_SIZE + 10, shutdown_file);
+	assert(ptos_run_program(bp) == 0);
+	assert(!strcmp(output, "@!"));
+	shutdown_file = 0;
+	remove("contract-exit.tmp");
+}
+
 static void test_nested_supervisor_stack(void)
 {
 	reset();
@@ -659,6 +703,7 @@ int main(int argc, char **argv)
 	test_async_go(104, 0);
 	test_async_go(106, 0);
 	test_async_go(104, PTOS_ENSMEM);
+	test_root_releases_handles();
 	clone_enabled = 0;
 	test_bad_images();
 	test_nested_supervisor_stack();

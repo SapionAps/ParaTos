@@ -172,8 +172,9 @@ def run(args):
                             if args.test_disk and ("All tests passed." not in body or
                                                   not re.search(r"Summary: [1-9][0-9]* passed, 0 failed", body)):
                                 raise RuntimeError("The 68k runner did not report a successful test summary")
-                            if args.pclone and "Pclone guest modes: PASS" not in body:
-                                raise RuntimeError("The 68k Pclone guest did not report success")
+                            if args.pclone and any(marker not in body for marker in
+                                                   ("Pclone guest modes: PASS", "Pclone shutdown: PASS")):
+                                raise RuntimeError("The 68k Pclone guest or its shutdown child did not report success")
                             print(begin + body[:body.index(passed) + len(passed)])
                             return
                     if process.poll() is not None:

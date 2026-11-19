@@ -10,6 +10,23 @@ static char tail[128];
 static volatile long allow_exit, child_pid, child_parent;
 static short inherited;
 
+static long start(void (*entry)(void), short mode, int compact)
+{
+	long result = Pexec(5, 0L, tail, 0L);
+	if (result < 0) return result;
+	BASEPAGE *bp = (BASEPAGE *)result;
+	void *env = bp->p_env;
+	bp->p_tbase = (void *)entry;
+	result = compact ? Mshrink(bp, 4096) : 0;
+	if (!result) result = Pexec(mode, 0L, bp, 0L);
+	if (result < 0)
+	{
+		Mfree(env);
+		Mfree(bp);
+	}
+	return result;
+}
+
 static void child(void)
 {
 	char dir[128];
@@ -67,6 +84,56 @@ static int check(short mode)
 	return (long)Malloc(-1) == available ? 0 : 7;
 }
 
+static void orphan(void)
+{
+	child_pid = Pgetpid();
+	while (!allow_exit) Syield();
+	Pterm(0);
+}
+
+static void orphan_parent(void)
+{
+	Pterm(start(orphan, 106, 0) > 0 ? 0 : 1);
+}
+
+static int check_orphans(void)
+{
+	const long available = (long)Malloc(-1);
+	long previous = 0;
+	for (int i = 0; i < 3; i++)
+	{
+		allow_exit = child_pid = 0;
+		long parent = start(orphan_parent, 106, 1);
+		if (parent <= 0 || Pwaitpid((short)parent, 0, 0L) != (parent << 16)) return 1;
+		while (!child_pid) Syield();
+		if ((previous && child_pid != previous) || Pwaitpid((short)child_pid, 1, 0L) != -21L)
+			return 2;
+		previous = child_pid;
+		allow_exit = 1;
+		while ((long)Malloc(-1) != available) Syield();
+	}
+	return 0;
+}
+
+static void shutdown_child(void)
+{
+	child_pid = Pgetpid();
+	while (!allow_exit) Syield();
+	Pterm(23);
+}
+
+static void shutdown_parent(void)
+{
+	long result = start(shutdown_child, 6, 0);
+	if (result != 23)
+	{
+		printf("Pclone shutdown child returned %ld\n", result);
+		Pterm(1);
+	}
+	puts("Pclone shutdown: PASS");
+	Pterm(0);
+}
+
 int main(void)
 {
 	static const short modes[] = {4, 6, 104, 106};
@@ -81,6 +148,18 @@ int main(void)
 		}
 	}
 	if (Ddelete("C:\\PCSTATE")) return 12;
+	int orphan_result = check_orphans();
+	if (orphan_result)
+	{
+		printf("Pclone orphan check failed at %d\n", orphan_result);
+		return 13;
+	}
 	puts("Pclone guest modes: PASS");
+
+	allow_exit = child_pid = 0;
+	if (start(shutdown_parent, 106, 1) <= 0) return 15;
+	while (!child_pid) Syield();
+	allow_exit = 1;
+	Pterm(0);
 	return 0;
 }
