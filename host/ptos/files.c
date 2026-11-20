@@ -182,6 +182,12 @@ int32_t ptos_file_force(int16_t standard, int16_t handle)
 	if (standard < 0 || standard >= STANDARD_FILES ||
 		(handle >= 0 && handle < STANDARD_FILES) || ptos_file_handle(handle) == PTOS_EIHNDL)
 		return PTOS_EIHNDL;
+	if (!legacy && handle >= STANDARD_FILES)
+	{
+		char scratch;
+		if (ptos_call(GEMDOS_OP_FREAD, handle, 0, (intptr_t)&scratch, 0) == PTOS_EIHNDL)
+			return PTOS_EIHNDL;
+	}
 	/* Legacy pTOS Fforce does not release the old destination binding. */
 	ptos_call(GEMDOS_OP_FCLOSE, standard, 0, 0, 0);
 	return ptos_call(GEMDOS_OP_FFORCE, standard, handle, 0, 0);

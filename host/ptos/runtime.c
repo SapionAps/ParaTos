@@ -300,7 +300,7 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
 			return ptos_go(bp, take_ownership);
 		return result;
 	}
-	if (pid <= 0 || pid > INT16_MAX)
+	if (!result || pid <= 0 || pid > INT16_MAX)
 		ptos_fault(bp, "Pclone did not return a valid PROCESS PID");
 
 	/* process_main must acquire the lock before reading the published task. */

@@ -79,6 +79,7 @@ static int check(short mode)
 		return 8;
 	}
 	inherited = (short)file;
+	if (Fforce(1, 32767) != -37L) return 8;
 	long observer = mode == 104 ? Fdup(1) : file;
 	if (observer < 0) return 8;
 	if (check_pid)

@@ -170,9 +170,9 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case GEMDOS_OP_PCLONE: return fake_clone((const void *)a, b);
 	case GEMDOS_OP_MALLOC: {
 		stack_bytes = a;
-		void *stack = mmap(NULL, a, PROT_READ | PROT_WRITE,
-			MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
-		return stack == MAP_FAILED ? PTOS_ENSMEM : (int32_t)(uintptr_t)stack;
+		for (uint32_t address = 0x20000000; address < 0x20400000; address += 0x20000)
+			if (ptos_map(address, a) == (int32_t)address) return address;
+		return PTOS_ENSMEM;
 	}
 	case GEMDOS_OP_MFREE:
 		pthread_mutex_lock(&native_lock);
