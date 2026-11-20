@@ -68,11 +68,11 @@ void guest_task_reap(guest_tasks *tasks, guest_task *task)
 	sweep(tasks);
 }
 
-int guest_task_image_busy(const guest_tasks *tasks, uint32_t bp, int include_unjoined)
+int guest_task_image_busy(const guest_tasks *tasks, uint32_t bp)
 {
 	if (tasks->root && tasks->root->retained && tasks->root->basepage == bp) return 1;
 	for (const guest_task *task = tasks->children; task; task = task->next)
-		if (task->basepage == bp && (task->retained || (include_unjoined && !task->joined)))
+		if (task->basepage == bp && (task->retained || !task->joined))
 			return 1;
 	return 0;
 }
@@ -92,20 +92,12 @@ guest_task *guest_task_next_join(const guest_tasks *tasks)
 	return NULL;
 }
 
-guest_task *guest_task_orphan_ready(const guest_tasks *tasks)
-{
-	for (guest_task *task = tasks->children; task; task = task->next)
-		if (task->done && !task->joined && !task->joining && (!task->parent || task->parent->done))
-			return task;
-	return NULL;
-}
-
 guest_task *guest_task_wait_child(const guest_tasks *tasks, const guest_task *parent, int16_t pid)
 {
 	guest_task *pending = NULL;
 	for (guest_task *task = tasks->children; task; task = task->next)
 	{
-		if (task->joined || task->joining || !task->asynchronous || task->parent != parent ||
+		if (task->joined || !task->asynchronous || task->parent != parent ||
 			(pid != -1 && task->pid != pid)) continue;
 		if (task->done) return task;
 		if (!pending) pending = task;

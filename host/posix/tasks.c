@@ -13,7 +13,7 @@
 #include "host.h"
 #include "runtime.h"
 #include "tasks.h"
-#include "../../guest_tasks.h"
+#include "guest_tasks.h"
 #include "../../guest_exec.h"
 
 static pthread_mutex_t cpu_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -369,7 +369,7 @@ int16_t PosixTaskParentPid(void)
 
 int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 {
-	if (bp == current_process || guest_task_image_busy(&guests, bp, 1)) return TOS_EACCDN;
+	if (bp == current_process || guest_task_image_busy(&guests, bp)) return TOS_EACCDN;
 	int32_t size = MemoryBlockSize(bp);
 	if (size < (int32_t)sizeof(basepage_t) + 8) return TOS_EIMBA;
 	uint32_t high = m68k_read_field(bp, basepage_t, p_hitpa);
@@ -423,7 +423,7 @@ int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *resul
 
 	int16_t child_pid = child->pid;
 	int32_t status = join_task(child);
-	*result = status < 0 ? status : guest_wait_status(child_pid, status & 255);
+	*result = status < 0 ? status : (int32_t)(((uint32_t)(uint16_t)child_pid << 16) | (status & 255));
 	if (usage && status >= 0) memset(memory + usage, 0, 8);
 	return 1;
 }

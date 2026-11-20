@@ -1,5 +1,5 @@
 #include <sched.h>
-#include "../../guest_thread.h"
+#include "guest_thread.h"
 #include "../../tos_errors.h"
 
 int32_t guest_thread_start(guest_thread *thread, void *(*entry)(void *), void *argument)
