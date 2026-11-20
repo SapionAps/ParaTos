@@ -15,6 +15,7 @@
 #include "gemdos.h"
 #include "arguments.h"
 #include "tasks.h"
+#include "../../guest_exec.h"
 
 
 /**
@@ -98,8 +99,9 @@ static char **tag_guest_argv(char **argv, int16_t id, int16_t parent,
 int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3 )
 {
 	uint16_t operation = mode & 0x7fff;
-	if (operation == 4 || operation == 6 || operation == 104)
-		return PosixGo(arg2, operation == 6, operation == 104);
+	int release, asynchronous;
+	if (guest_go_mode(operation, &release, &asynchronous))
+		return PosixGo(arg2, release, asynchronous);
 	if (operation == 5) return PosixCreateBasepage(arg2, arg3);
 	if (operation != 0 && operation != 3 && operation != 100 && operation != 200)
 		return TOS_ENOSYS;

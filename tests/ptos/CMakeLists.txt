@@ -1,3 +1,4 @@
+find_package(Threads REQUIRED)
 set_source_files_properties(${MUSASHI_GENERATED_SOURCES} PROPERTIES GENERATED TRUE)
 add_library(mushashi_ptos STATIC
 	${PROJECT_SOURCE_DIR}/mushashi/m68kcpu.c
@@ -22,7 +23,7 @@ target_include_directories(ptos_contract PRIVATE ${PROJECT_SOURCE_DIR}/mushashi 
 target_compile_definitions(ptos_contract PRIVATE PARATOS_PTOS=1)
 target_compile_features(ptos_contract PRIVATE c_std_11)
 target_compile_options(ptos_contract PRIVATE -UNDEBUG -Wall -Wextra -Werror)
-target_link_libraries(ptos_contract PRIVATE mushashi_ptos)
+target_link_libraries(ptos_contract PRIVATE mushashi_ptos Threads::Threads)
 target_link_options(ptos_contract PRIVATE -Wl,--wrap=calloc -Wl,--wrap=free)
 add_test(NAME ptos_contract COMMAND ptos_contract)
 set_tests_properties(ptos_contract PROPERTIES TIMEOUT 20)

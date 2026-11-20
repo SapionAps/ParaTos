@@ -8,6 +8,7 @@
 #include "guest.h"
 #include "filesystem.h"
 #include "vdi.h"
+#include "tasks.h"
 
 static uint32_t word(uint32_t sp, unsigned int offset) { return m68k_read_memory_16(sp + offset); }
 static uint32_t lng(uint32_t sp, unsigned int offset) { return m68k_read_memory_32(sp + offset); }
@@ -71,6 +72,11 @@ void dispatch_gemdos_trap(void)
 {
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t fn = word(sp, 0);
+	/* These handlers can join or suspend the native thread. Finish the
+	 * Musashi timeslice first so peers cannot overwrite its scratch state. */
+	if ((fn == GEMDOS_OP_PEXEC || fn == GEMDOS_OP_SYIELD || fn == GEMDOS_OP_PWAIT ||
+		fn == GEMDOS_OP_PWAIT3 || fn == GEMDOS_OP_PWAITPID) &&
+		ptos_defer_trap(dispatch_gemdos_trap)) return;
 #ifdef PARATOS_TRACE
 	fprintf(stderr, "guest GEMDOS %04x\n", fn);
 #endif
@@ -103,6 +109,10 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_PGETUID:
 	case GEMDOS_OP_PGETGID:
 		r = ptos_call(fn, 0, 0, 0, 0); break;
+	case GEMDOS_OP_SYIELD: ptos_task_yield(); r = 0; break;
+	case GEMDOS_OP_PWAIT: r = ptos_task_wait(-1, 2, 0); break;
+	case GEMDOS_OP_PWAIT3: r = ptos_task_wait(-1, word(sp, 2), lng(sp, 4)); break;
+	case GEMDOS_OP_PWAITPID: r = ptos_task_wait(word(sp, 2), word(sp, 4), lng(sp, 6)); break;
 	case GEMDOS_OP_PNICE:
 	case GEMDOS_OP_PUMASK:
 	case GEMDOS_OP_PSETAUID:
@@ -197,11 +207,12 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_DGETPATH: r = ptos_call(fn, (intptr_t)ptos_guest_buffer(lng(sp, 2), 128), word(sp, 6), 0, 0); break;
 	case GEMDOS_OP_MFREE: r = ptos_free(lng(sp, 2)); break;
 	case GEMDOS_OP_MSHRINK: r = ptos_shrink(lng(sp, 4), (int32_t)lng(sp, 8)); break;
-	case GEMDOS_OP_PEXEC:
+	case GEMDOS_OP_PEXEC: {
+		uint32_t caller = ptos_process;
 		r = ptos_exec(word(sp, 2), lng(sp, 4), lng(sp, 8), lng(sp, 12));
-		if (r == 0 && ((word(sp, 2) & 0x7fff) == PTOS_EXEC_GO ||
-			(word(sp, 2) & 0x7fff) == PTOS_EXEC_GO_FREE)) return;
+		if (ptos_process != caller) return; /* legacy in-place GO */
 		break;
+	}
 	case GEMDOS_OP_FRENAME: r = ptos_call(fn, 0, path(lng(sp, 4), p1), path(lng(sp, 8), p2), 0); break;
 	case GEMDOS_OP_FDATIME: {
 		uint32_t at = lng(sp, 2); int writing = word(sp, 8);

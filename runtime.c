@@ -3,6 +3,7 @@
 #include "common.h"
 #include "gemdos.h"
 #include "runtime.h"
+#include "guest_cpu.h"
 
 void InitGuestCPU(emuptr32_t basepage)
 {
@@ -12,17 +13,7 @@ void InitGuestCPU(emuptr32_t basepage)
 
 	uint32_t hitpa = m68k_read_field(basepage, basepage_t, p_hitpa);
 	uint32_t tbase = m68k_read_field(basepage, basepage_t, p_tbase);
-	uint32_t stack = hitpa;
-
-	stack-=4;
-	m68k_write_memory_32(stack, basepage);
-	stack-=4;
-	m68k_write_memory_32(stack, 0);
-
-	m68k_set_reg(M68K_REG_SP, basepage-4);
-	m68k_set_reg(M68K_REG_SR, 0x0300);
-	m68k_set_reg(M68K_REG_SP, stack);
-	m68k_set_reg(M68K_REG_PC, tbase);
+	guest_cpu_start(basepage, tbase, hitpa, basepage - 4);
 }
 
 void DumpGuestFault(FILE *out)

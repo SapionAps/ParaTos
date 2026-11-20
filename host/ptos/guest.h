@@ -14,6 +14,7 @@ int32_t ptos_free(uint32_t address);
 int32_t ptos_shrink(uint32_t address, int32_t size);
 void ptos_take_image(uint32_t basepage);
 int ptos_image_valid(uint32_t basepage);
+int ptos_image_startable(uint32_t basepage, int take_ownership);
 void ptos_free_owned(uint32_t owner);
 int32_t ptos_load(const char *path, const char *tail, const char *environment);
 int32_t ptos_basepage(const char *tail, const char *environment);

@@ -6,40 +6,47 @@
 #include "guest.h"
 #include "filesystem.h"
 #include "vdi.h"
+#include "tasks.h"
+#include "../../guest_exec.h"
+#include "../../guest_cpu.h"
 
 int ptos_finished;
 uint16_t ptos_status;
-
-typedef struct directories {
-	int32_t drive;
-	uint32_t directories;
-	char cwd[32][129];
-} directories;
 
 typedef struct parent {
 	struct parent *next;
 	void *cpu;
 	uint32_t bp;
 	unsigned int super_depth, super_floor;
-	directories directory;
+	ptos_directories directory;
 } parent;
 static parent *parents;
 static unsigned int parent_depth;
 typedef struct loaded_context {
 	struct loaded_context *next;
 	uint32_t bp;
-	directories directory;
+	ptos_directories directory;
 } loaded_context;
 static loaded_context *loaded;
 
 #define SUPER_RETURN 0x8000u
-static struct { uint32_t pc, sr, sp; } super_frames[16];
-static unsigned int super_depth, super_floor;
+static ptos_super_state root_super;
+static ptos_super_state *super = &root_super;
+static uint32_t super_stack = PTOS_ALLOC_START;
 
-static int32_t save_directories(directories *p)
+void ptos_use_super_state(ptos_super_state *state, uint32_t stack)
+{
+	super = state ? state : &root_super;
+	super_stack = stack;
+}
+
+int ptos_in_overlay(void) { return parents != NULL; }
+
+int32_t ptos_save_directories(ptos_directories *p)
 {
 	p->drive = ptos_call(GEMDOS_OP_DGETDRV, 0, 0, 0, 0);
 	if (p->drive < 0) return p->drive;
+	p->directories = 0;
 	for (unsigned int i = 0; i < 32; i++)
 	{
 		/* Dgetpath returns a drive-relative path; restore it from root. */
@@ -55,7 +62,7 @@ static int32_t save_directories(directories *p)
 	return 0;
 }
 
-static int32_t restore_directories(const directories *p)
+int32_t ptos_restore_directories(const ptos_directories *p)
 {
 	int32_t result = 0;
 	for (unsigned int i = 0; i < 32; i++)
@@ -69,6 +76,13 @@ static int32_t restore_directories(const directories *p)
 	return result;
 }
 
+int32_t ptos_task_directories(uint32_t bp, ptos_directories *dirs)
+{
+	for (loaded_context *child = loaded; child; child = child->next)
+		if (child->bp == bp) { *dirs = child->directory; return 0; }
+	return ptos_save_directories(dirs);
+}
+
 int32_t ptos_capture_process(uint32_t bp)
 {
 	/* The initial native launch already has its inherited host context.
@@ -76,7 +90,7 @@ int32_t ptos_capture_process(uint32_t bp)
 	if (!ptos_process) return 0;
 	loaded_context *p = calloc(1, sizeof(*p));
 	if (!p) return PTOS_ENSMEM;
-	int32_t r = save_directories(&p->directory);
+	int32_t r = ptos_save_directories(&p->directory);
 	if (r >= 0) r = ptos_files_capture(bp);
 	if (r < 0) { free(p); return r; }
 	p->bp = bp; p->next = loaded; loaded = p;
@@ -106,28 +120,19 @@ void ptos_process_cleanup(void)
 	{
 		parent *p = parents;
 		parents = p->next;
-		restore_directories(&p->directory);
+		ptos_restore_directories(&p->directory);
 		free(p->cpu); free(p);
 	}
-	parent_depth = super_depth = super_floor = 0;
+	parent_depth = super->depth = super->floor = 0;
 }
 
 void ptos_start_cpu(uint32_t bp)
 {
 	/* A nested guest inherits the unused top of the emulated supervisor
 	 * stack. Resetting it would overwrite a parent's active Supexec frame. */
-	uint32_t supervisor = parent_depth ? m68k_get_reg(NULL, M68K_REG_ISP) : PTOS_ALLOC_START;
-	uint32_t stack = m68k_read_memory_32(bp + BP_HIGH) & ~3u;
-	stack -= 8;
-	m68k_write_memory_32(stack, 0);
-	m68k_write_memory_32(stack + 4, bp);
-	m68k_set_reg(M68K_REG_SR, 0x0300);
-	m68k_set_reg(M68K_REG_ISP, supervisor);
-	m68k_set_reg(M68K_REG_SP, stack);
-	/* TOS startup uses A0 != 0 to identify an accessory. An ordinary
-	 * overlay must not inherit that register from its parent. */
-	m68k_set_reg(M68K_REG_A0, 0);
-	m68k_set_reg(M68K_REG_PC, m68k_read_memory_32(bp + BP_TEXT));
+	uint32_t supervisor = parent_depth ? m68k_get_reg(NULL, M68K_REG_ISP) : super_stack;
+	guest_cpu_start(bp, m68k_read_memory_32(bp + BP_TEXT),
+		m68k_read_memory_32(bp + BP_HIGH), supervisor);
 }
 
 int32_t ptos_go(uint32_t bp, int take_ownership)
@@ -140,46 +145,45 @@ int32_t ptos_go(uint32_t bp, int take_ownership)
 	if (!p) return PTOS_ENSMEM;
 	p->cpu = malloc(m68k_context_size());
 	if (!p->cpu) { free(p); return PTOS_ENSMEM; }
-	int32_t result = save_directories(&p->directory);
+	int32_t result = ptos_save_directories(&p->directory);
 	if (result < 0) { free(p->cpu); free(p); return result; }
 	for (loaded_context *child = loaded; child; child = child->next)
-		if (child->bp == bp) { result = restore_directories(&child->directory); break; }
+		if (child->bp == bp) { result = ptos_restore_directories(&child->directory); break; }
 	if (result >= 0) result = ptos_files_push(bp);
 	if (result < 0)
 	{
-		int32_t restored = restore_directories(&p->directory);
+		int32_t restored = ptos_restore_directories(&p->directory);
 		free(p->cpu); free(p);
 		if (restored < 0) ptos_fault(ptos_process, "cannot restore overlay parent directory");
 		return result;
 	}
 	ptos_drop_process(bp);
 	m68k_get_context(p->cpu);
-	p->bp = ptos_process; p->super_depth = super_depth;
-	p->super_floor = super_floor;
+	p->bp = ptos_process; p->super_depth = super->depth;
+	p->super_floor = super->floor;
 	p->next = parents; parents = p; parent_depth++;
 	if (take_ownership) ptos_take_image(bp);
 	m68k_write_memory_32(bp + BP_PARENT, ptos_process);
 	ptos_process = bp;
-	super_floor = super_depth;
+	super->floor = super->depth;
 	ptos_start_cpu(bp);
 	return 0;
 }
 
 void ptos_terminate(uint16_t status)
 {
-	ptos_vdi_drop(ptos_process);
-	/* PE_GO retains the image but the terminating guest loses its searches. */
-	ptos_filesystem_drop(ptos_process);
-	ptos_free_owned(ptos_process);
 	if (parents)
 	{
+		ptos_vdi_drop(ptos_process);
+		ptos_filesystem_drop(ptos_process);
+		ptos_free_owned(ptos_process);
 		parent *p = parents;
-		ptos_process = p->bp; super_depth = p->super_depth;
-		super_floor = p->super_floor;
+		ptos_process = p->bp; super->depth = p->super_depth;
+		super->floor = p->super_floor;
 		m68k_set_context(p->cpu);
 		m68k_set_reg(M68K_REG_D0, status);
 		parents = p->next; parent_depth--;
-		int32_t restored = restore_directories(&p->directory);
+		int32_t restored = ptos_restore_directories(&p->directory);
 		int32_t files = ptos_files_pop();
 		free(p->cpu); free(p);
 		if (restored < 0) ptos_fault(ptos_process, "cannot restore overlay parent directory");
@@ -215,11 +219,11 @@ int32_t ptos_super(uint32_t stack)
 int32_t ptos_supexec(uint32_t function)
 {
 	ptos_guest_buffer(function, 2);
-	if (super_depth == sizeof(super_frames) / sizeof(super_frames[0])) return PTOS_ENSMEM;
-	super_frames[super_depth].pc = m68k_get_reg(NULL, M68K_REG_PC);
-	super_frames[super_depth].sr = m68k_get_reg(NULL, M68K_REG_SR);
-	super_frames[super_depth].sp = m68k_get_reg(NULL, M68K_REG_SP);
-	super_depth++;
+	if (super->depth == sizeof(super->frames) / sizeof(super->frames[0])) return PTOS_ENSMEM;
+	super->frames[super->depth].pc = m68k_get_reg(NULL, M68K_REG_PC);
+	super->frames[super->depth].sr = m68k_get_reg(NULL, M68K_REG_SR);
+	super->frames[super->depth].sp = m68k_get_reg(NULL, M68K_REG_SP);
+	super->depth++;
 	m68k_write_memory_16(SUPER_RETURN, 0x4e4e); /* TRAP #14: private return gate */
 	m68k_set_reg(M68K_REG_SR, m68k_get_reg(NULL, M68K_REG_SR) | 0x2000);
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
@@ -232,11 +236,11 @@ int32_t ptos_supexec(uint32_t function)
 
 int ptos_super_return(void)
 {
-	if (m68k_get_reg(NULL, M68K_REG_PC) != SUPER_RETURN + 2 || super_depth == super_floor) return 0;
-	super_depth--;
-	m68k_set_reg(M68K_REG_SR, super_frames[super_depth].sr);
-	m68k_set_reg(M68K_REG_SP, super_frames[super_depth].sp);
-	m68k_set_reg(M68K_REG_PC, super_frames[super_depth].pc);
+	if (m68k_get_reg(NULL, M68K_REG_PC) != SUPER_RETURN + 2 || super->depth == super->floor) return 0;
+	super->depth--;
+	m68k_set_reg(M68K_REG_SR, super->frames[super->depth].sr);
+	m68k_set_reg(M68K_REG_SP, super->frames[super->depth].sp);
+	m68k_set_reg(M68K_REG_PC, super->frames[super->depth].pc);
 	return 1;
 }
 
@@ -253,9 +257,10 @@ static const char *guest_env(uint32_t address)
 int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 {
 	uint16_t operation = mode & 0x7fff;
-	if (operation == PTOS_EXEC_GO || operation == PTOS_EXEC_GO_FREE)
-		return ptos_go(tail, operation == PTOS_EXEC_GO_FREE);
-	if (operation != PTOS_EXEC_LOAD_GO && operation != PTOS_EXEC_REPLACE && operation != PTOS_EXEC_LOAD &&
+	int take, asynchronous;
+	if (guest_go_mode(operation, &take, &asynchronous))
+		return ptos_task_go(tail, take, asynchronous);
+	if (operation != PTOS_EXEC_LOAD_GO && operation != PTOS_EXEC_LOAD_GO_ASYNC && operation != PTOS_EXEC_REPLACE && operation != PTOS_EXEC_LOAD &&
 		operation != PTOS_EXEC_BASEPAGE && operation != PTOS_EXEC_BASEPAGE_FLAGS)
 		return PTOS_ENOSYS;
 	const char *command = ptos_guest_buffer(tail, 128);
@@ -269,5 +274,5 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	if (operation == PTOS_EXEC_LOAD) return ptos_load(filename, command, environment);
 	/* Includes guest-to-guest modes 0 and 200: let native Pexec/binfmt
 	 * select another Paratos instance. Never turn replacement into spawn. */
-	return ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)filename, (intptr_t)command, (intptr_t)environment);
+	return ptos_task_exec(mode, filename, command, environment);
 }

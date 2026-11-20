@@ -34,9 +34,21 @@ ptos_executable(ptos_fs_native 0x00400000)
 add_executable(ptos_native_child ${PROJECT_SOURCE_DIR}/tests/ptos/native_child.c)
 ptos_executable(ptos_native_child 0x00400000)
 
+# New kernels can exercise the cloned path independently of the legacy
+# integration launcher, which itself uses native staged Pexec.
+file(STRINGS "${PTOS_KERNEL_DIR}/obj/autoconf.h" PTOS_CLONE_CONFIG
+	REGEX "^#define CONF_WITH_(PCLONE|PROCESS_FILES|NATIVE_SCHED) 1$")
+list(LENGTH PTOS_CLONE_CONFIG PTOS_CLONE_CONFIG_COUNT)
+set(PTOS_FIXTURES cli semantics overlay fault interpreter filesystem fs_overlay vdi vdi_overlay)
+if(PTOS_CLONE_CONFIG_COUNT EQUAL 3)
+	list(APPEND PTOS_FIXTURES pclone_guest)
+	add_executable(ptos_pclone_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/pclone_launcher.c)
+	ptos_executable(ptos_pclone_launcher 0x00400000)
+endif()
+
 set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
 set(PTOS_GUEST_OUTPUTS)
-foreach(fixture cli semantics overlay fault interpreter filesystem fs_overlay vdi vdi_overlay)
+foreach(fixture IN LISTS PTOS_FIXTURES)
 	set(output ${PTOS_FIXTURES_DIR}/${fixture}.tos)
 	add_custom_command(OUTPUT ${output}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${PTOS_FIXTURES_DIR}
@@ -61,6 +73,17 @@ add_test(NAME ptos_kernel
 		--qemu-data "${PTOS_QEMU_DATA_DIR}"
 		--output ${CMAKE_CURRENT_BINARY_DIR}/kernel-test)
 set_tests_properties(ptos_kernel PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+
+if(TARGET ptos_pclone_launcher)
+	add_test(NAME ptos_kernel_pclone
+		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/ptos/run_kernel.py
+			--arch ${PTOS_TEST_ARCH} --kernel-dir ${PTOS_KERNEL_DIR} --pclone
+			--paratos $<TARGET_FILE:paratos> --launcher $<TARGET_FILE:ptos_pclone_launcher>
+			--native-child $<TARGET_FILE:ptos_native_child> --filesystem-native $<TARGET_FILE:ptos_fs_native>
+			--fixtures ${PTOS_FIXTURES_DIR} --qemu ${PTOS_TEST_QEMU} --ovmf ${PTOS_OVMF_DIR}
+			--qemu-data "${PTOS_QEMU_DATA_DIR}" --output ${CMAKE_CURRENT_BINARY_DIR}/kernel-pclone-test)
+	set_tests_properties(ptos_kernel_pclone PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+endif()
 
 if(PTOS_VDI_LIBRARY)
 	# Exercise the optional no-client build too, using the same VDI-enabled
