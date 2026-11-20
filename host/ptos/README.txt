@@ -188,8 +188,9 @@ images from guest code remain unsupported.
 
 The four start modes use Pclone and Pthjoin from pTOS PR #903. Both
 syscalls and native scheduling are enabled by default in the MMU native
-process profiles. At the current epic head, ParaTOS must itself run in a
-managed scheduler task to use Pclone, for example via native Pexec(100).
+process profiles. ParaTOS needs a managed scheduler task to use Pclone.
+Ordinary native Pexec(0) supplies that task on the scheduling epic,
+including for the first application started from boot (pTOS #1039).
 On kernels that report ENOSYS, modes 4/6 can still run in place and modes
 104/106 return the error. Guest CPU slices and native guest state changes
 are serialized. A blocking native operation that uses the current
