@@ -19,8 +19,17 @@ typedef struct ptos_native_xattr {
 	uint32_t reserved2[2];
 } ptos_native_xattr;
 
+struct ptos_search;
+typedef struct ptos_search_state {
+	struct ptos_search *searches;
+	uint32_t pending_dta;
+	int pending_restore;
+} ptos_search_state;
+
 int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute);
 int32_t ptos_disk_free(uint32_t buffer, uint16_t drive);
 int32_t ptos_xattr(uint16_t flag, const char *path, uint32_t buffer);
 void ptos_filesystem_drop(uint32_t owner);
 void ptos_filesystem_cleanup(void);
+void ptos_filesystem_select(ptos_search_state *state);
+void ptos_filesystem_retire(ptos_search_state *state);

@@ -31,8 +31,20 @@ static uint32_t retained_image;
 static int expect_retained;
 static int fail_dup;
 static int clone_enabled;
-static pthread_t clones[16];
-static int live_clones[16];
+enum { FAKE_FILES = 256, FAKE_PID = 730, FAKE_TID = 200 };
+typedef struct native_process {
+	pthread_t thread;
+	void (*entry)(void *);
+	void *argument;
+	uintptr_t stack;
+	int pid, parent, status, done;
+	int files[FAKE_FILES];
+} native_process;
+static native_process clones[16];
+static _Thread_local native_process *native_self;
+static pthread_mutex_t native_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t native_finished = PTHREAD_COND_INITIALIZER;
+static size_t stack_bytes;
 static int32_t clone_error;
 static uint32_t shutdown_file;
 static int shutdown_fd;
@@ -51,10 +63,23 @@ int32_t ptos_bios_call(uint16_t function, int16_t device, int16_t value)
 static int32_t native_file(int fd)
 {
 	if (fd < 0) return errno == EBADF ? PTOS_EIHNDL : -36;
+	if (native_self)
+	{
+		for (int i = 6; i < FAKE_FILES; i++)
+			if (native_self->files[i] < 0) { native_self->files[i] = fd; return i; }
+		close(fd);
+		return PTOS_ENHNDL;
+	}
 	if (fd >= 6) return fd;
 	int copy = fcntl(fd, F_DUPFD, 6);
 	close(fd);
 	return copy;
+}
+
+static int native_fd(int handle)
+{
+	if (!native_self || handle < 6) return handle;
+	return handle < FAKE_FILES ? native_self->files[handle] : -1;
 }
 
 static void capture(const void *data, size_t n)
@@ -66,11 +91,8 @@ static void capture(const void *data, size_t n)
 
 static void *run_clone(void *argument)
 {
-	ptos_clone_args *args = argument;
-	void (*entry)(void *) = args->entry;
-	void *entry_arg = args->argument;
-	free(args);
-	entry(entry_arg);
+	native_self = argument;
+	native_self->entry(native_self->argument);
 	return NULL;
 }
 
@@ -79,19 +101,52 @@ static int32_t fake_clone(const ptos_clone_args *args, size_t bytes)
 	if (!clone_enabled) return PTOS_ENOSYS;
 	if (clone_error) return clone_error;
 	assert(bytes == sizeof(*args));
-	assert(args->flags == (PTOS_CLONE_VM | PTOS_CLONE_SAME_PROCESS));
+	assert(args->flags == (PTOS_CLONE_VM | PTOS_CLONE_COPY_ALL_HANDLES | PTOS_CLONE_COPY_CWD));
+	assert(args->child_pid && !args->child_tid);
 	assert(args->stack_size >= 256 && !((uintptr_t)args->stack_base & 15));
+	pthread_mutex_lock(&native_lock);
 	for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
 	{
-		if (live_clones[i]) continue;
-		ptos_clone_args *copy = malloc(sizeof(*copy));
-		assert(copy);
-		*copy = *args;
-		assert(!pthread_create(&clones[i], NULL, run_clone, copy));
-		live_clones[i] = 1;
-		return 100 + (int32_t)i;
+		native_process *p = &clones[i];
+		if (p->pid) continue;
+		*p = (native_process){ .entry = args->entry, .argument = args->argument,
+			.stack = (uintptr_t)args->stack_base - (stack_bytes - args->stack_size),
+			.pid = FAKE_PID + (int)i, .parent = native_self ? native_self->pid : 42 };
+		for (int h = 6; h < FAKE_FILES; h++) p->files[h] = fcntl(native_fd(h), F_DUPFD, FAKE_FILES);
+		*args->child_pid = p->pid;
+		assert(!pthread_create(&p->thread, NULL, run_clone, p));
+		pthread_mutex_unlock(&native_lock);
+		return FAKE_TID + (int32_t)i;
 	}
+	pthread_mutex_unlock(&native_lock);
 	return PTOS_ENSMEM;
+}
+
+static int32_t fake_wait(int pid, int flags)
+{
+	pthread_mutex_lock(&native_lock);
+	for (;;)
+	{
+		int pending = 0;
+		for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
+		{
+			native_process *p = &clones[i];
+			if (!p->pid || p->parent != (native_self ? native_self->pid : 42) ||
+				(pid != -1 && p->pid != pid)) continue;
+			if (!p->done) { pending = 1; continue; }
+			int32_t result = (p->pid << 16) | (p->status & 255);
+			assert(!pthread_join(p->thread, NULL));
+			p->pid = 0;
+			pthread_mutex_unlock(&native_lock);
+			return result;
+		}
+		if (!pending || (flags & 1))
+		{
+			pthread_mutex_unlock(&native_lock);
+			return pending ? 0 : -33;
+		}
+		pthread_cond_wait(&native_finished, &native_lock);
+	}
 }
 
 int32_t ptos_map(uint32_t address, uint32_t length)
@@ -113,14 +168,36 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	switch (fn)
 	{
 	case GEMDOS_OP_PCLONE: return fake_clone((const void *)a, b);
-	case GEMDOS_OP_PTHJOIN:
-		if (!a) return clone_enabled ? -20 : PTOS_ENOSYS;
-		assert(a >= 100 && a < 116 && live_clones[a - 100]);
-		assert(!pthread_join(clones[a - 100], NULL));
-		live_clones[a - 100] = 0;
+	case GEMDOS_OP_MALLOC: {
+		stack_bytes = a;
+		void *stack = mmap(NULL, a, PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+		return stack == MAP_FAILED ? PTOS_ENSMEM : (int32_t)(uintptr_t)stack;
+	}
+	case GEMDOS_OP_MFREE:
+		pthread_mutex_lock(&native_lock);
+		for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
+			if (clones[i].pid && clones[i].stack == (uintptr_t)a && !clones[i].done)
+			{
+				pthread_mutex_unlock(&native_lock);
+				return -1;
+			}
+		pthread_mutex_unlock(&native_lock);
+		assert(!munmap((void *)a, stack_bytes));
 		return 0;
+	case GEMDOS_OP_PTERM:
+		assert(native_self);
+		for (int i = 6; i < FAKE_FILES; i++) if (native_self->files[i] >= 0) close(native_self->files[i]);
+		pthread_mutex_lock(&native_lock);
+		native_self->status = a;
+		native_self->done = 1;
+		pthread_cond_broadcast(&native_finished);
+		pthread_mutex_unlock(&native_lock);
+		pthread_exit(NULL);
+	case GEMDOS_OP_PWAITPID: return fake_wait(a, b);
 	case GEMDOS_OP_SYIELD: return sched_yield();
-	case GEMDOS_OP_PGETPID: return 42;
+	case GEMDOS_OP_PGETPID: return native_self ? native_self->pid : 42;
+	case GEMDOS_OP_PGETPPID: return native_self ? native_self->parent : 1;
 	case 0x154:
 		system_calls++;
 		if (a == SSYSTEM_OP_INQUIRE) return b == unavailable_read ? PTOS_ENOSYS : 0;
@@ -140,7 +217,7 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 			m68k_write_memory_16(shutdown_file, shutdown_fd);
 		}
 		if (shutdown_file && ch == '!')
-			assert(fcntl(shutdown_fd, F_GETFD) == -1 && errno == EBADF);
+			assert(fcntl(shutdown_fd, F_GETFD) >= 0);
 		capture(&ch, 1);
 		if (retained_image) assert(ptos_image_valid(retained_image) == expect_retained);
 		return a;
@@ -148,17 +225,21 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case 0x3c: return native_file(open((const char *)a, O_CREAT | O_TRUNC | O_RDWR, 0600));
 	case 0x3a: return -34;
 	case 0x3d: return native_file(open((const char *)a, b == 0 ? O_RDONLY : b == 1 ? O_WRONLY : O_RDWR));
-	case 0x3e: return a >= 6 ? (close(a) < 0 ? PTOS_EIHNDL : 0) : 0;
-	case 0x3f: { ssize_t r = read(a, (void *)c, b); return r < 0 ? (errno == EBADF ? PTOS_EIHNDL : -36) : r; }
+	case 0x3e:
+		if (a < 6) return 0;
+		if (close(native_fd(a)) < 0) return PTOS_EIHNDL;
+		if (native_self) native_self->files[a] = -1;
+		return 0;
+	case 0x3f: { ssize_t r = read(native_fd(a), (void *)c, b); return r < 0 ? (errno == EBADF ? PTOS_EIHNDL : -36) : r; }
 	case GEMDOS_OP_FDUP:
 		if (fail_dup && a == 2) return PTOS_ENHNDL;
 		return a >= 0 && a < 3 ? native_file(fcntl(a, F_DUPFD, 6)) : PTOS_EIHNDL;
 	case GEMDOS_OP_FFORCE: return 0;
 	case 0x40:
 		if (a == 1 || a == 2) { capture((const void *)c, b); return b; }
-		return write(a, (const void *)c, b);
+		return write(native_fd(a), (const void *)c, b);
 	case 0x41: return unlink((const char *)a);
-	case 0x42: { off_t pos = lseek(b, a, c); return pos < 0 ? -64 : (int32_t)pos; }
+	case 0x42: { off_t pos = lseek(native_fd(b), a, c); return pos < 0 ? -64 : (int32_t)pos; }
 	case 0x57: return 0;
 	case 0x4b:
 		exec_calls++; last_mode = a;
@@ -580,7 +661,7 @@ static void test_async_go(int mode, int32_t error)
 	if (error) assert(pid == error && !m68k_read_memory_32(results + 4));
 	else
 	{
-		assert(pid > 0 && pid != 42 && (pid < 100 || pid >= 116));
+		assert(pid >= FAKE_PID && pid < FAKE_PID + (int32_t)(sizeof(clones) / sizeof(clones[0])));
 		assert(m68k_read_memory_32(results + 4) == ((uint32_t)pid << 16 | 37));
 		assert(m68k_read_memory_32(results + 8) == 42);
 	}
@@ -588,7 +669,7 @@ static void test_async_go(int mode, int32_t error)
 	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 }
 
-static void test_root_releases_handles(void)
+static void test_root_and_child_bindings(void)
 {
 	reset();
 	unsigned char caller[] = {
@@ -618,6 +699,8 @@ static void test_root_releases_handles(void)
 	m68k_write_memory_32(child + BP_SIZE + 10, shutdown_file);
 	assert(ptos_run_program(bp) == 0);
 	assert(!strcmp(output, "@!"));
+	assert(!close(shutdown_fd));
+	assert(fake_wait(-1, 1) > 0);
 	shutdown_file = 0;
 	remove("contract-exit.tmp");
 }
@@ -703,7 +786,7 @@ int main(int argc, char **argv)
 	test_async_go(104, 0);
 	test_async_go(106, 0);
 	test_async_go(104, PTOS_ENSMEM);
-	test_root_releases_handles();
+	test_root_and_child_bindings();
 	clone_enabled = 0;
 	test_bad_images();
 	test_nested_supervisor_stack();

@@ -4,9 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <mint/osbind.h>
+#include <mint/mintbind.h>
 
 int main(int argc, char **argv)
 {
+	if (argc == 2 && !strncmp(argv[1], "pid:", 4))
+	{
+		char parent[16];
+		int length = snprintf(parent, sizeof(parent), "%d", Pgetppid());
+		return Fwrite((short)atoi(argv[1] + 4), length, parent) == length ? 0 : 4;
+	}
 	char path[128] = {0};
 	const char *value = getenv("DEMO");
 	if (argc != 2 || !value || strcmp(value, "present"))

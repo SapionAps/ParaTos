@@ -8,45 +8,50 @@
 #include "tasks.h"
 #include "filesystem.h"
 #include "vdi.h"
-#include "../../guest_exec.h"
-#include "../../guest_tasks.h"
 #include "../../tos_errors.h"
 
-/* Pclone shares the address space and native files. There is no native TLS
- * on these targets. Bind the CPU, libcmini and native process state to one
- * guest at a time, and switch only outside m68k_execute(). */
-enum { SUPER_STACK_BYTES = 4096, SUPER_SLOTS = PTOS_SUPER_STACK_BYTES / SUPER_STACK_BYTES };
+#if UINTPTR_MAX == UINT32_MAX
+_Static_assert(sizeof(ptos_clone_args) == 32 && offsetof(ptos_clone_args, child_pid) == 28,
+	"pTOS Pclone v1 layout");
+#endif
+
+/* The clone shares Musashi and the allocator. The kernel owns each PROCESS's
+ * PID, descriptors and directories. Switch the shared emulator only outside
+ * m68k_execute(). */
+enum {
+	SUPER_STACK_BYTES = 4096,
+	SUPER_SLOTS = PTOS_SUPER_STACK_BYTES / SUPER_STACK_BYTES,
+	NATIVE_STACK_BYTES = 64 * 1024,
+	NATIVE_STACK_PREFIX = 64 /* aligned space for the initial native DTA */
+};
+_Static_assert(sizeof(ptos_native_dta) <= NATIVE_STACK_PREFIX, "native DTA prefix");
 
 typedef struct task {
-	guest_task guest;
+	struct task *next, *parent;
 	void *cpu;
-	ptos_files_state *files;
+	ptos_clone_streams *streams;
 	ptos_directories dirs;
+	ptos_search_state search;
 	ptos_super_state super;
 	jmp_buf fault_return;
-	uint32_t env;
-	unsigned super_slot;
-	int started, fault_active;
+	uint32_t bp, env;
+	int32_t stack;
+	unsigned super_slot, dependents;
+	uint16_t status;
+	int done, retained, synchronous, fault_active;
 } task;
 
-typedef struct native_child {
-	struct native_child *next;
-	task *owner;
-	int16_t pid, native_pid;
-} native_child;
-
-static task *active, *root;
-static guest_tasks guests;
-static native_child *native_children;
+/* These records retain shared emulator resources. The kernel tracks and
+ * publishes PID relationships and collects exit status through Pwaitpid. */
+static task *active, *root, *children;
 static unsigned cpu_lock;
 static int in_slice;
 static void (*pending_trap)(void);
-static int32_t join(task *t, int prepared);
 
 static void lock_cpu(void)
 {
 	while (__atomic_exchange_n(&cpu_lock, 1, __ATOMIC_ACQUIRE))
-		guest_thread_yield();
+		ptos_call(GEMDOS_OP_SYIELD, 0, 0, 0, 0);
 }
 
 static void unlock_cpu(void)
@@ -77,126 +82,104 @@ int ptos_defer_trap(void (*dispatch)(void))
 	return 1;
 }
 
-static int32_t prepare_suspend(void)
+static void select_task(task *t)
 {
-	int32_t result = ptos_save_directories(&active->dirs);
-	if (result < 0) return result;
-	result = ptos_task_files_suspend();
-	if (result < 0) return result;
-	m68k_get_context(active->cpu);
-	return 0;
+	active = t;
+	ptos_process = t->bp;
+	ptos_use_super_state(&t->super, PTOS_ALLOC_START - t->super_slot * SUPER_STACK_BYTES);
+	ptos_filesystem_select(t == root ? NULL : &t->search);
+	ptos_finished = t->done;
+	ptos_status = t->status;
 }
 
 static void suspend(void)
 {
+	m68k_get_context(active->cpu);
 	active = NULL;
 	unlock_cpu();
 }
 
-static int32_t activate(task *t)
-{
-	active = t;
-	ptos_process = t->guest.basepage;
-	ptos_use_super_state(&t->super, PTOS_ALLOC_START - t->super_slot * SUPER_STACK_BYTES);
-	if (t->started) m68k_set_context(t->cpu);
-	int32_t dirs = ptos_restore_directories(&t->dirs);
-	int32_t files = ptos_task_files_resume(t->files);
-	ptos_finished = t->guest.done;
-	ptos_status = t->guest.status;
-	return dirs < 0 ? dirs : files;
-}
-
-static int32_t resume(task *t)
+static void resume(task *t)
 {
 	lock_cpu();
-	return activate(t);
+	select_task(t);
+	m68k_set_context(t->cpu);
+}
+
+static int have_peer(void)
+{
+	if (root != active && !root->done) return 1;
+	for (task *t = children; t; t = t->next)
+		if (t != active && !t->done) return 1;
+	return 0;
 }
 
 void ptos_task_yield(void)
 {
 	task *t = active;
-	if (t && guest_task_have_peer(&guests, &active->guest) && !ptos_in_overlay())
-	{
-		if (prepare_suspend() < 0) ptos_fault(ptos_process, "cannot save guest directories or streams");
-		suspend();
-		guest_thread_yield();
-		if (resume(t) < 0) ptos_fault(t->guest.basepage, "cannot restore guest directories or streams");
-	}
-	else
-		guest_thread_yield();
-}
-
-static int pid_used(int16_t pid)
-{
-	if (root->guest.pid == pid) return 1;
-	for (guest_task *child = guests.children; child; child = child->next)
-		if (!child->joined && child->pid == pid) return 1;
-	for (native_child *c = native_children; c; c = c->next)
-		if (c->pid == pid) return 1;
-	return 0;
-}
-
-static int16_t allocate_pid(void)
-{
-	for (int16_t pid = INT16_MAX; pid > 0; pid--)
-		if (!pid_used(pid)) return pid;
-	return 0;
-}
-
-int32_t ptos_task_pid(int parent)
-{
-	if (active && active != root) return parent ? active->guest.parent_pid : active->guest.pid;
-	return ptos_call(parent ? GEMDOS_OP_PGETPPID : GEMDOS_OP_PGETPID, 0, 0, 0, 0);
+	int switch_cpu = t && have_peer() && !ptos_in_overlay();
+	if (switch_cpu) suspend();
+	ptos_call(GEMDOS_OP_SYIELD, 0, 0, 0, 0);
+	if (switch_cpu) resume(t);
 }
 
 int ptos_task_active_image(uint32_t bp)
 {
-	return guest_task_image_busy(&guests, bp, 0);
+	if (root && root->retained && root->bp == bp) return 1;
+	for (task *t = children; t; t = t->next)
+		if (t->retained && t->bp == bp) return 1;
+	return 0;
 }
 
 int ptos_task_active_environment(uint32_t address)
 {
-	if (root && root->guest.retained && root->env == address) return 1;
-	for (guest_task *child = guests.children; child; child = child->next)
-		if (child->retained && ((task *)child)->env == address) return 1;
+	if (root && root->retained && root->env == address) return 1;
+	for (task *t = children; t; t = t->next)
+		if (t->retained && t->env == address) return 1;
 	return 0;
 }
 
 static void finish(task *t)
 {
-	ptos_vdi_drop(t->guest.basepage);
-	ptos_filesystem_drop(t->guest.basepage);
-	if (t == root) ptos_task_files_release_root();
-	else ptos_task_files_destroy(t->files);
-	t->files = NULL;
-	for (native_child *c = native_children; c; c = c->next)
-		if (c->owner == t) c->owner = NULL;
-	guest_task_finish(&guests, &t->guest, t->guest.status);
-}
+	ptos_drop_process(t->bp);
+	t->done = 1;
 
-static void reap_native_orphans(void)
-{
-	for (native_child **at = &native_children; *at; )
+	/* Keep each ancestor's image while a descendant can read p_parent. */
+	while (t && t->done && t->retained && !t->dependents)
 	{
-		native_child *c = *at;
-		int32_t result = c->owner ? 0 : ptos_call(GEMDOS_OP_PWAITPID, c->native_pid, 1, 0, 0);
-		if (result <= 0 && result != TOS_EFILNF)
-		{
-			at = &c->next;
-			continue;
-		}
-		*at = c->next;
-		free(c);
+		task *parent = t->parent;
+		t->retained = 0;
+		t->parent = NULL;
+		ptos_free_owned(t->bp);
+		if (parent) parent->dependents--;
+		t = parent;
 	}
 }
 
-/* A completed guest has dropped the execution lock and is exiting its
- * native thread. Join outside Musashi and leave a live parent's waits alone. */
-static void reap_guest_orphans(void)
+static void reap_finished(void)
 {
-	guest_task *orphan;
-	while ((orphan = guest_task_orphan_ready(&guests)))
-		if (join((task *)orphan, 0) < 0) break;
+	for (task **at = &children; *at; )
+	{
+		task *t = *at;
+		if (t->done && t->stack)
+		{
+			/* A live startup stack is held by the kernel, even after the
+			 * worker unlocks. This also works for kernel-reaped orphans
+			 * whose PROCESS status is unavailable to this caller. */
+			int32_t r = ptos_call(GEMDOS_OP_MFREE, t->stack, 0, 0, 0);
+			if (r == 0) t->stack = 0;
+			else if (r != -1) ptos_fault(t->bp, "cannot release native guest stack");
+		}
+		if (t->stack || t->retained || t->synchronous)
+		{
+			at = &t->next;
+			continue;
+		}
+		*at = t->next;
+		ptos_filesystem_retire(&t->search);
+		free(t->cpu);
+		free(t);
+	}
 }
 
 static void run(task *t)
@@ -206,17 +189,26 @@ static void run(task *t)
 	{
 		in_slice = 0;
 		pending_trap = NULL;
-		t->guest.status = 255;
+		t->status = 255;
 	}
 	else
 	{
-		if (t != root && activate(t) < 0)
-			ptos_fault(t->guest.basepage, "cannot start guest with inherited directories or streams");
+		if (t != root)
+		{
+			/* Descriptor-only Pclone starts without a DTA. Keep an idle
+			 * native DTA available for restoring after guest search calls. */
+			int32_t dta = ptos_call(GEMDOS_OP_FSETDTA, t->stack, 0, 0, 0);
+			int32_t dirs = ptos_restore_directories(&t->dirs);
+			int32_t files = ptos_clone_streams_install(t->streams);
+			free(t->streams);
+			t->streams = NULL;
+			if (dta < 0 || dirs < 0 || files < 0)
+				ptos_fault(t->bp, "cannot initialize native guest resources");
+		}
 		m68k_pulse_reset();
 		for (int i = M68K_REG_D0; i <= M68K_REG_A7; i++)
 			m68k_set_reg(i, 0);
-		ptos_start_cpu(t->guest.basepage);
-		t->started = 1;
+		ptos_start_cpu(t->bp);
 		while (!ptos_finished)
 		{
 			in_slice = 1;
@@ -228,49 +220,36 @@ static void run(task *t)
 				pending_trap = NULL;
 				dispatch();
 			}
-			reap_native_orphans();
-			if (!ptos_finished)
-			{
-				reap_guest_orphans();
-				if (guest_task_have_peer(&guests, &active->guest)) ptos_task_yield();
-			}
+			reap_finished();
+			if (!ptos_finished && have_peer()) ptos_task_yield();
 		}
-		t->guest.status = ptos_status;
+		t->status = ptos_status;
 	}
 	t->fault_active = 0;
 }
 
-static void *thread_main(void *argument)
+static void process_main(void *argument)
 {
 	task *t = argument;
 	lock_cpu();
+	select_task(t);
 	run(t);
 	finish(t);
+	uint16_t status = t->status;
 	active = NULL;
 	unlock_cpu();
-	return NULL;
+	ptos_call(GEMDOS_OP_PTERM, status, 0, 0, 0);
+	__builtin_trap(); /* Pterm cannot return */
 }
 
-static int32_t join(task *t, int prepared)
+static int32_t wait_native(int16_t pid, int16_t flags, uint32_t *usage)
 {
-	task *caller = active;
-	int32_t result = prepared ? 0 : prepare_suspend();
-	if (result < 0) return result;
-	t->guest.joining = 1;
-	suspend();
-	result = guest_thread_join(&t->guest.thread);
-	int32_t restored = resume(caller);
-	t->guest.joining = 0;
-	if (result >= 0)
-	{
-		free(t->guest.thread.stack);
-		free(t->cpu);
-		t->cpu = NULL;
-		result = t->guest.done ? t->guest.status : 255;
-		guest_task_reap(&guests, &t->guest);
-	}
-	if (restored < 0) ptos_fault(caller->guest.basepage, "cannot restore guest after Pthjoin");
-	return result;
+	task *t = active;
+	int blocking = t && !(flags & 1) && !ptos_in_overlay();
+	if (blocking) suspend();
+	int32_t r = ptos_call(GEMDOS_OP_PWAITPID, pid, flags, (intptr_t)usage, 0);
+	if (blocking) resume(t);
+	return r == TOS_EFILNF ? TOS_ECHILD : r;
 }
 
 int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
@@ -281,47 +260,69 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
 	if (!ptos_image_startable(bp, take_ownership)) return PTOS_EIMBA;
 
 	unsigned slots = 1;
-	for (guest_task *child = guests.children; child; child = child->next)
-		if (!child->done) slots |= 1u << ((task *)child)->super_slot;
+	for (task *child = children; child; child = child->next)
+		if (!child->done) slots |= 1u << child->super_slot;
 	unsigned slot = 1;
 	while (slot < SUPER_SLOTS && (slots & (1u << slot))) slot++;
-	int16_t pid = allocate_pid();
-	if (slot == SUPER_SLOTS || !pid) return PTOS_ENSMEM;
+	if (slot == SUPER_SLOTS) return PTOS_ENSMEM;
 
 	task *t = calloc(1, sizeof(*t));
 	if (!t) return PTOS_ENSMEM;
+	t->bp = bp;
 	t->cpu = malloc(m68k_context_size());
 	int32_t result = t->cpu ? ptos_task_directories(bp, &t->dirs) : PTOS_ENSMEM;
-	if (result >= 0) result = ptos_task_files_prepare(bp, &t->files);
-	int prepared = 0;
-	if (result >= 0 && !asynchronous)
-	{
-		result = prepare_suspend();
-		prepared = result >= 0;
-	}
+	if (result >= 0) result = ptos_clone_streams_prepare(bp, &t->streams);
 	if (result >= 0)
-		result = guest_task_start(&guests, &active->guest, &t->guest,
-			bp, pid, asynchronous, thread_main);
+	{
+		result = ptos_call(GEMDOS_OP_MALLOC, NATIVE_STACK_PREFIX + NATIVE_STACK_BYTES, 0, 0, 0);
+		if (result > 0) t->stack = result;
+		else if (!result) result = PTOS_ENSMEM;
+	}
+	int32_t pid = 0;
+	if (result >= 0)
+	{
+		ptos_clone_args clone = {
+			.flags = PTOS_CLONE_VM | PTOS_CLONE_COPY_ALL_HANDLES | PTOS_CLONE_COPY_CWD,
+			.entry = process_main, .argument = t,
+			.stack_base = (void *)(uintptr_t)(t->stack + NATIVE_STACK_PREFIX),
+			.stack_size = NATIVE_STACK_BYTES, .child_pid = &pid
+		};
+		result = ptos_call(GEMDOS_OP_PCLONE, (intptr_t)&clone, sizeof(clone), 0, 0);
+	}
 	if (result < 0)
 	{
-		if (prepared) ptos_task_files_cancel_suspend();
-		ptos_task_files_destroy(t->files);
+		if (t->stack) ptos_call(GEMDOS_OP_MFREE, t->stack, 0, 0, 0);
+		free(t->streams);
 		free(t->cpu);
 		free(t);
-		/* Older kernels keep the synchronous in-place path. */
-		if (result == PTOS_ENOSYS && !asynchronous && active == root && !guests.children)
+		/* Retain synchronous in-place GO for kernels without Pclone. */
+		if (result == PTOS_ENOSYS && !asynchronous && active == root && !children)
 			return ptos_go(bp, take_ownership);
 		return result;
 	}
+	if (pid <= 0 || pid > INT16_MAX)
+		ptos_fault(bp, "Pclone did not return a valid PROCESS PID");
+
+	/* process_main must acquire the lock before reading the published task. */
 	t->env = m68k_read_memory_32(bp + BP_ENV);
 	t->super_slot = slot;
-	ptos_task_files_commit(bp, t->files);
+	t->synchronous = !asynchronous;
+	t->retained = 1;
+	t->parent = active;
+	active->dependents++;
+	t->next = children;
+	children = t;
 	ptos_drop_process(bp);
 	if (take_ownership) ptos_take_image(bp);
 	m68k_write_memory_32(bp + BP_PARENT, ptos_process);
 	if (asynchronous) return pid;
-	result = join(t, prepared);
-	if (result < 0) t->guest.asynchronous = 1;
+
+	result = wait_native(pid, 0, NULL);
+	/* The native public wait packs an eight-bit code and a signal byte.
+	 * Synchronous GEMDOS Pexec returns the child's full Pterm word. */
+	if (result >= 0) result = t->done ? t->status : (uint16_t)result;
+	t->synchronous = 0;
+	reap_finished();
 	return result;
 }
 
@@ -330,40 +331,8 @@ int32_t ptos_task_wait(int16_t pid, int16_t flags, uint32_t usage)
 	uint32_t native_usage[2] = {0};
 	if (usage) ptos_guest_buffer(usage, sizeof(native_usage));
 	if ((flags & ~3) || pid == 0 || pid < -1) return PTOS_EINVAL;
-	if (!active) return PTOS_ENOSYS;
-
-	int32_t result;
-	for (;;)
-	{
-		guest_task *child = guest_task_wait_child(&guests, &active->guest, pid);
-		int pending = child != NULL;
-		if (child && (child->done || (!(flags & 1) && pid != -1)))
-		{
-			int16_t child_pid = child->pid;
-			result = join((task *)child, 0);
-			if (result < 0) return result;
-			result = guest_wait_status(child_pid, result & 255);
-			goto done;
-		}
-		for (native_child **at = &native_children; *at; at = &(*at)->next)
-		{
-			native_child *c = *at;
-			if (c->owner != active || (pid != -1 && pid != c->pid)) continue;
-			int32_t r = ptos_call(GEMDOS_OP_PWAITPID, c->native_pid, flags | 1,
-				usage ? (intptr_t)native_usage : 0, 0);
-			if (!r) { pending = 1; continue; }
-			if (r < 0 && r != TOS_EFILNF) return r;
-			result = r < 0 ? TOS_ECHILD : guest_wait_status(c->pid, (uint16_t)r);
-			*at = c->next;
-			free(c);
-			goto done;
-		}
-		if (!pending) return TOS_ECHILD;
-		if (flags & 1) return 0;
-		ptos_task_yield();
-	}
-done:
-	if (usage && result >= 0)
+	int32_t result = wait_native(pid, flags, usage ? native_usage : NULL);
+	if (usage && result > 0)
 		for (unsigned i = 0; i < 2; i++) m68k_write_memory_32(usage + 4 * i, native_usage[i]);
 	return result;
 }
@@ -371,72 +340,45 @@ done:
 int32_t ptos_task_exec(uint16_t mode, const char *path, const char *tail, const char *env)
 {
 	uint16_t operation = mode & 0x7fff;
-	if (active && operation == PTOS_EXEC_REPLACE && (active != root || guests.children))
+	if (active && operation == PTOS_EXEC_REPLACE && (active != root || children))
 		return PTOS_ENOSYS;
-	if (!active || operation != PTOS_EXEC_LOAD_GO_ASYNC)
-		return ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)path, (intptr_t)tail, (intptr_t)env);
-
-	int16_t spare = allocate_pid();
-	if (!spare) return PTOS_ENSMEM;
-	native_child *child = malloc(sizeof(*child));
-	if (!child) return PTOS_ENSMEM;
-	int32_t result = ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)path, (intptr_t)tail, (intptr_t)env);
-	if (result <= 0) { free(child); return result; }
-	child->owner = active;
-	child->native_pid = result;
-	child->pid = pid_used(result) ? spare : result;
-	child->next = native_children;
-	native_children = child;
-	return child->pid;
+	task *t = active;
+	int blocking = t && operation == PTOS_EXEC_LOAD_GO && !ptos_in_overlay();
+	if (blocking) suspend();
+	int32_t r = ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)path, (intptr_t)tail, (intptr_t)env);
+	if (blocking) resume(t);
+	return r;
 }
 
 int32_t ptos_run_program(uint32_t bp)
 {
 	ptos_process_cleanup();
-	int32_t files = ptos_files_init();
-	if (files < 0) { ptos_process_cleanup(); return files; }
 	static task initial;
-	initial = (task){0};
+	initial = (task){ .bp = bp, .retained = 1 };
 	initial.cpu = malloc(m68k_context_size());
-	if (!initial.cpu) { ptos_process_cleanup(); return PTOS_ENSMEM; }
+	if (!initial.cpu) return PTOS_ENSMEM;
 
 	lock_cpu();
-	active = root = &initial;
-	guest_tasks_init(&guests, &root->guest, bp, ptos_task_pid(0), ptos_free_owned);
+	root = &initial;
+	select_task(root);
 	root->env = m68k_read_memory_32(bp + BP_ENV);
-	ptos_finished = 0;
-	ptos_status = 0;
 	m68k_init();
 	m68k_set_cpu_type(M68K_CPU_TYPE_68020);
-	ptos_process = bp;
 	ptos_take_image(bp);
-	ptos_use_super_state(&root->super, PTOS_ALLOC_START);
 	run(root);
 	finish(root);
 
-	/* Live guests may be joining their own children. Reap only completed
-	 * orphans while they run, then collect any remaining shutdown records. */
-	while (guest_task_have_peer(&guests, &root->guest))
+	/* Keep the shared emulator alive until its last guest leaves. Kernel
+	 * PROCESS lifetime and orphan reaping do not depend on this list. */
+	while (children)
 	{
-		reap_guest_orphans();
-		ptos_task_yield();
-	}
-	guest_task *child;
-	while ((child = guest_task_next_join(&guests)))
-		if (join((task *)child, 0) < 0)
-			ptos_fault(bp, "cannot join guest at emulator shutdown");
-	reap_native_orphans();
-	while (native_children)
-	{
-		native_child *next = native_children->next;
-		free(native_children);
-		native_children = next;
+		reap_finished();
+		if (children) ptos_task_yield();
 	}
 	free(root->cpu);
 	active = root = NULL;
-	guests.root = NULL;
 	ptos_use_super_state(NULL, PTOS_ALLOC_START);
 	ptos_process_cleanup();
 	unlock_cpu();
-	return initial.guest.status;
+	return initial.status;
 }

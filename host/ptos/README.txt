@@ -147,9 +147,10 @@ Search buffers belong to a guest basepage and DTA address, so switching DTAs
 or running an internal overlay preserves the parent's search. Each search
 temporarily selects its native DTA and restores the original native pointer.
 Native search state remains private; guest reserved DTA bytes are not native
-pointers. The emulator shares the kernel's eight native search slots across
-internal guests. A ninth live search returns ENSMEM before starting, so resource
-pressure cannot silently evict an existing parent or child cursor. Restarting an
+pointers. Each native PROCESS has its own eight search slots. In-place
+legacy overlays share that PROCESS's slots. A ninth live search in one
+PROCESS returns ENSMEM before starting, so pressure cannot silently evict
+a live cursor. Restarting an
 existing search reuses its slot; EOF or guest termination releases it.
 Unfinished native searches are exhausted through Fsnext before their buffers are
 freed at guest
@@ -186,30 +187,34 @@ Modes 6/106 transfer ownership of the basepage and environment. All four
 start modes share guest RAM, as in the POSIX backend. Native load-only
 images from guest code remain unsupported.
 
-The four start modes use Pclone and Pthjoin from pTOS PR #903. Both
-syscalls and native scheduling are enabled by default in the MMU native
-process profiles. ParaTOS needs a managed scheduler task to use Pclone.
-Ordinary native Pexec(0) supplies that task on the scheduling epic,
-including for the first application started from boot (pTOS #1039).
-On kernels that report ENOSYS, modes 4/6 can still run in place and modes
-104/106 return the error. Guest CPU slices and native guest state changes
-are serialized. A blocking native operation that uses the current
-process's handles or directories can hold up its guest peers.
+The four start modes need the pTOS scheduling epic and its descriptor-only
+Pclone flag (pTOS #1040, PR #1045). ParaTOS requests CLONE_VM,
+CLONE_COPY_ALL_HANDLES and CLONE_COPY_CWD. Pclone writes the guest's native
+PROCESS ID to child_pid. Pgetpid, Pgetppid and Pwaitpid use the kernel's IDs
+and relationships, including Pexec(100) children. The synchronous GO modes
+return the full Pterm word. Ordinary native Pexec(0) supplies the managed
+caller, including for the first application started from boot (pTOS #1039).
+Kernels without Pclone retain the legacy in-place modes 4/6.
 
-Internal children inherit handle references while retaining native handle
-numbers for delegated native Pexec. Pterm closes child-owned files and
-duplicates, preserves inherited parent handles, and restores the parent's
-standard streams, current drive and per-drive directories. Arguments are
-supplied in both the classic basepage command tail and the ARGV extension;
-empty or long arguments use ARGV for lossless delivery.
+Each cloned PROCESS inherits descriptor numbers and shares the underlying
+open-file positions. Later close, duplicate and rebind operations affect
+that PROCESS. pTOS owns their cleanup at native exit. ParaTOS serializes
+Musashi and the shared guest allocator across CPU slices and releases the
+CPU lock while blocking in Pwaitpid. Shared guest allocations and the native
+startup stack remain valid through orphan and parent-first exit. The initial
+emulator process drains its surviving guests before releasing shared RAM.
+
 PE_LOAD/PE_BASEPAGE capture the child's standard streams and directories at
-creation time. Starting the child activates that saved context, even if the
-parent changed it in the meantime. Freeing an unstarted image, abandoning it
-at parent termination, or failing a load releases its saved stream references.
+creation time. The newly cloned PROCESS installs that context once. Freeing
+an unstarted image, abandoning it at parent termination, or failing a load
+releases its saved references. Staged search cursors are not inherited.
+Arguments use the basepage command tail and the ARGV extension for empty or
+long arguments.
 
-When the prepared kernel enables Pclone, Pthjoin and native scheduling,
-CTest adds `ptos_kernel_pclone`. It launches a managed ParaTOS process and
-checks the four start modes with a real 68k guest and a real kernel.
+With Pclone, PROCESS-local files and native scheduling enabled, CTest adds
+`ptos_kernel_pclone`. Run it against a kernel with #1040 to exercise the four
+start modes, native PIDs and waits, inherited files and independent search
+continuation through a real 68k guest.
 
 Validation
 ----------
@@ -295,8 +300,9 @@ directories, preserve the image, obj/autoconf.h, tools/mkhdisk.sh and an
 optional SOURCE_REVISION file, so changing the source checkout's active
 configuration does not invalidate an earlier architecture's test setup.
 
-GitHub Actions runs Linux/macOS POSIX builds and ARM/x32 real-kernel tests
-against the pinned merged kernel. The pTOS job also runs the ARM bridge test.
+GitHub Actions runs Linux/macOS POSIX builds and ARM/x32 legacy real-kernel
+tests against the pinned merged kernel. The pTOS job also runs the ARM
+bridge test. Use an MMU build of pTOS #1040 for `ptos_kernel_pclone`.
 
 On Linux, the regular CMake build adds a separate Musashi instance using
 the pTOS memory callbacks and an injected native-call backend. This maps

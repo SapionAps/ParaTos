@@ -30,8 +30,7 @@ endfunction()
 set(PTOS_VDI_LIBRARY "" CACHE FILEPATH "Optional pTOS x32 libptos-vdi.a userspace client")
 add_executable(paratos main.c arguments.c native.c ${PTOS_ARCH_SOURCE} ${PTOS_VDI_SOURCE}
 	memory.c loader.c process.c files.c filesystem.c vdi.c
-	${PROJECT_SOURCE_DIR}/vdi/vdi.c dispatch.c runtime.c thread.c
-	${PROJECT_SOURCE_DIR}/guest_tasks.c)
+	${PROJECT_SOURCE_DIR}/vdi/vdi.c dispatch.c runtime.c)
 target_include_directories(paratos PRIVATE ${PROJECT_SOURCE_DIR}/mushashi)
 target_link_libraries(paratos PRIVATE mushashi)
 if(PTOS_VDI_LIBRARY)

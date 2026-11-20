@@ -3,26 +3,31 @@
 #include "guest.h"
 #include "tasks.h"
 
-/* Keep native handle numbers: a delegated native Pexec must inherit the
- * same numbers the guest passes to its child. References are per guest,
- * so closing an inherited handle does not close the parent's reference. */
 enum { FILE_LIMIT = 256, STANDARD_FILES = 6 };
+/* The in-place GO path is only used on legacy kernels. Its overlays share
+ * one native PROCESS, so they need a local reference for each open file. */
 typedef struct file_ref { unsigned int count; int owned; } file_ref;
-typedef struct ptos_files_state {
-	struct ptos_files_state *parent;
+typedef struct files {
+	struct files *parent;
 	file_ref *handles[FILE_LIMIT];
 	int32_t saved[STANDARD_FILES];
-	int32_t streams[STANDARD_FILES];
-	int suspended;
 } files;
 static files root;
 static files *current = &root;
+static int legacy, legacy_auto;
 typedef struct loaded_streams {
 	struct loaded_streams *next;
-	uint32_t bp;
+	uint32_t bp, owner;
 	int32_t handles[STANDARD_FILES];
 } loaded_streams;
 static loaded_streams *loaded;
+
+struct ptos_clone_streams {
+	size_t count;
+	int restore;
+	int32_t streams[STANDARD_FILES];
+	int32_t inherited[];
+};
 
 static void close_streams(const int32_t handles[STANDARD_FILES])
 {
@@ -47,8 +52,7 @@ static int32_t restore_streams(const int32_t handles[STANDARD_FILES])
 	int32_t result = 0;
 	for (int i = 0; i < STANDARD_FILES; i++)
 	{
-		/* Fforce in pTOS does not release the old mapping. */
-		ptos_call(GEMDOS_OP_FCLOSE, i, 0, 0, 0);
+		if (legacy || handles[i] < 0) ptos_call(GEMDOS_OP_FCLOSE, i, 0, 0, 0);
 		if (handles[i] < 0) continue;
 		int32_t r = ptos_call(GEMDOS_OP_FFORCE, i, handles[i], 0, 0);
 		if (r < 0) result = r;
@@ -62,7 +66,7 @@ int32_t ptos_files_capture(uint32_t bp)
 	if (!s) return PTOS_ENSMEM;
 	int32_t r = save_streams(s->handles);
 	if (r < 0) { free(s); return r; }
-	s->bp = bp; s->next = loaded; loaded = s;
+	s->bp = bp; s->owner = ptos_process; s->next = loaded; loaded = s;
 	return 0;
 }
 
@@ -73,7 +77,8 @@ void ptos_files_drop(uint32_t bp)
 		loaded_streams *s = *at;
 		if (s->bp != bp) continue;
 		*at = s->next;
-		close_streams(s->handles); free(s);
+		if (s->owner == ptos_process) close_streams(s->handles);
+		free(s);
 		return;
 	}
 }
@@ -81,8 +86,11 @@ void ptos_files_drop(uint32_t bp)
 static int private_stream(int32_t handle)
 {
 	for (loaded_streams *s = loaded; s; s = s->next)
+	{
+		if (s->owner != ptos_process) continue;
 		for (int i = 0; i < STANDARD_FILES; i++)
 			if (s->handles[i] == handle) return 1;
+	}
 	return 0;
 }
 
@@ -114,33 +122,34 @@ static void release(files *f)
 
 int32_t ptos_files_init(void)
 {
-	/* pTOS has a shared numeric file table. Discover inherited handles
-	 * without consuming data; these are borrowed until explicitly closed,
-	 * rather than owned resources to close on emulator cleanup. */
+	/* Borrow existing bindings for the in-place overlay. */
 	char scratch;
 	for (int i = STANDARD_FILES; i < FILE_LIMIT; i++)
 	{
 		if (private_stream(i)) continue;
 		int32_t r = ptos_call(GEMDOS_OP_FREAD, i, 0, (intptr_t)&scratch, 0);
 		if (r == PTOS_EIHNDL) continue;
-		if (r < 0 && r != -36) return r;
+		if (r < 0 && r != -36) { release(&root); return r; }
 		r = remember(i, 0);
-		if (r < 0) return r;
+		if (r < 0) { release(&root); return r; }
 	}
+	legacy = 1;
 	return 0;
 }
 
 int32_t ptos_file_handle(int16_t handle)
 {
 	if (handle >= -3 && handle < STANDARD_FILES) return handle;
-	if (handle < STANDARD_FILES || handle >= FILE_LIMIT || !current->handles[handle]) return PTOS_EIHNDL;
+	if (handle < STANDARD_FILES || private_stream(handle)) return PTOS_EIHNDL;
+	if (!legacy) return handle;
+	if (handle >= FILE_LIMIT || !current->handles[handle]) return PTOS_EIHNDL;
 	return handle;
 }
 
 int32_t ptos_file_open(uint16_t fn, const char *path, uint16_t mode)
 {
 	int32_t handle = ptos_call(fn, (intptr_t)path, mode, 0, 0);
-	if (handle < 0) return handle;
+	if (handle < 0 || !legacy) return handle;
 	int32_t r = remember(handle, 1);
 	if (r < 0) ptos_call(GEMDOS_OP_FCLOSE, handle, 0, 0, 0);
 	return r;
@@ -148,8 +157,9 @@ int32_t ptos_file_open(uint16_t fn, const char *path, uint16_t mode)
 
 int32_t ptos_file_dup(int16_t handle)
 {
+	if (ptos_file_handle(handle) == PTOS_EIHNDL) return PTOS_EIHNDL;
 	int32_t copy = ptos_call(GEMDOS_OP_FDUP, handle, 0, 0, 0);
-	if (copy < 0) return copy;
+	if (copy < 0 || !legacy) return copy;
 	int32_t r = remember(copy, 1);
 	if (r < 0) ptos_call(GEMDOS_OP_FCLOSE, copy, 0, 0, 0);
 	return r;
@@ -159,7 +169,7 @@ int32_t ptos_file_close(int16_t handle)
 {
 	int32_t r = ptos_file_handle(handle);
 	if (r == PTOS_EIHNDL) return r;
-	if (handle < STANDARD_FILES) return ptos_call(GEMDOS_OP_FCLOSE, handle, 0, 0, 0);
+	if (!legacy || handle < STANDARD_FILES) return ptos_call(GEMDOS_OP_FCLOSE, handle, 0, 0, 0);
 	file_ref *ref = current->handles[handle];
 	current->handles[handle] = NULL;
 	if (--ref->count) return 0;
@@ -172,6 +182,7 @@ int32_t ptos_file_force(int16_t standard, int16_t handle)
 	if (standard < 0 || standard >= STANDARD_FILES ||
 		(handle >= 0 && handle < STANDARD_FILES) || ptos_file_handle(handle) == PTOS_EIHNDL)
 		return PTOS_EIHNDL;
+	/* Legacy pTOS Fforce does not release the old destination binding. */
 	ptos_call(GEMDOS_OP_FCLOSE, standard, 0, 0, 0);
 	return ptos_call(GEMDOS_OP_FFORCE, standard, handle, 0, 0);
 }
@@ -180,16 +191,23 @@ int32_t ptos_files_push(uint32_t bp)
 {
 	files *child = calloc(1, sizeof(*child));
 	if (!child) return PTOS_ENSMEM;
-	int32_t r = save_streams(child->saved);
-	if (r < 0) { free(child); return r; }
+	int32_t r;
+	if (!legacy)
+	{
+		r = ptos_files_init();
+		if (r < 0) { free(child); return r; }
+		legacy_auto = 1;
+	}
+	r = save_streams(child->saved);
+	if (r < 0) goto failed;
 	for (loaded_streams *s = loaded; s; s = s->next)
 	{
-		if (s->bp != bp) continue;
+		if (s->bp != bp || s->owner != ptos_process) continue;
 		r = restore_streams(s->handles);
 		if (r < 0)
 		{
 			restore_streams(child->saved); close_streams(child->saved);
-			free(child); return r;
+			goto failed;
 		}
 		ptos_files_drop(bp);
 		break;
@@ -198,6 +216,14 @@ int32_t ptos_files_push(uint32_t bp)
 		if ((child->handles[i] = current->handles[i])) child->handles[i]->count++;
 	child->parent = current; current = child;
 	return 0;
+failed:
+	free(child);
+	if (legacy_auto && current == &root)
+	{
+		release(&root);
+		legacy = legacy_auto = 0;
+	}
+	return r;
 }
 
 int32_t ptos_files_pop(void)
@@ -208,6 +234,11 @@ int32_t ptos_files_pop(void)
 	close_streams(child->saved);
 	release(child);
 	current = child->parent; free(child);
+	if (legacy_auto && current == &root)
+	{
+		release(&root);
+		legacy = legacy_auto = 0;
+	}
 	return result;
 }
 
@@ -215,72 +246,41 @@ void ptos_files_cleanup(void)
 {
 	while (current != &root) ptos_files_pop();
 	release(&root);
+	legacy = legacy_auto = 0;
 }
 
-int32_t ptos_task_files_prepare(uint32_t bp, ptos_files_state **out)
+/* Native descriptor inheritance also copies the emulator's private staged
+ * stream duplicates. Record their numbers at launch, install just the chosen
+ * image's streams in the child and drop every inherited private duplicate. */
+int32_t ptos_clone_streams_prepare(uint32_t bp, ptos_clone_streams **out)
 {
-	files *child = calloc(1, sizeof(*child));
-	if (!child) return PTOS_ENSMEM;
-	loaded_streams *image = loaded;
-	while (image && image->bp != bp) image = image->next;
-	if (!image)
+	size_t count = 0;
+	for (loaded_streams *s = loaded; s; s = s->next)
+		if (s->owner == ptos_process) count += STANDARD_FILES;
+	if (!count) return 0;
+	ptos_clone_streams *clone = malloc(sizeof(*clone) + count * sizeof(*clone->inherited));
+	if (!clone) return PTOS_ENSMEM;
+	clone->count = 0;
+	clone->restore = 0;
+	for (loaded_streams *s = loaded; s; s = s->next)
 	{
-		int32_t r = save_streams(child->streams);
-		if (r < 0) { free(child); return r; }
-		child->suspended = 1;
+		if (s->owner != ptos_process) continue;
+		for (int i = 0; i < STANDARD_FILES; i++)
+		{
+			if (s->bp == bp) clone->streams[i] = s->handles[i];
+			if (s->handles[i] >= 0) clone->inherited[clone->count++] = s->handles[i];
+		}
+		if (s->bp == bp) clone->restore = 1;
 	}
-	for (int i = STANDARD_FILES; i < FILE_LIMIT; i++)
-		if ((child->handles[i] = current->handles[i])) child->handles[i]->count++;
-	*out = child;
+	*out = clone;
 	return 0;
 }
 
-void ptos_task_files_commit(uint32_t bp, ptos_files_state *child)
+int32_t ptos_clone_streams_install(const ptos_clone_streams *streams)
 {
-	for (loaded_streams **at = &loaded; *at; at = &(*at)->next)
-	{
-		loaded_streams *image = *at;
-		if (image->bp != bp) continue;
-		for (int i = 0; i < STANDARD_FILES; i++) child->streams[i] = image->handles[i];
-		child->suspended = 1;
-		*at = image->next;
-		free(image);
-		return;
-	}
-}
-
-int32_t ptos_task_files_suspend(void)
-{
-	int32_t r = save_streams(current->streams);
-	if (r >= 0) current->suspended = 1;
-	return r;
-}
-
-void ptos_task_files_cancel_suspend(void)
-{
-	close_streams(current->streams);
-	current->suspended = 0;
-}
-
-int32_t ptos_task_files_resume(ptos_files_state *state)
-{
-	current = state ? state : &root;
-	if (!current->suspended) return 0;
-	int32_t r = restore_streams(current->streams);
-	ptos_task_files_cancel_suspend();
-	return r;
-}
-
-void ptos_task_files_destroy(ptos_files_state *state)
-{
-	if (!state) return;
-	if (state->suspended) close_streams(state->streams);
-	release(state);
-	if (current == state) current = &root;
-	free(state);
-}
-
-void ptos_task_files_release_root(void)
-{
-	release(&root);
+	if (!streams) return 0;
+	int32_t result = streams->restore ? restore_streams(streams->streams) : 0;
+	for (size_t i = 0; i < streams->count; i++)
+		ptos_call(GEMDOS_OP_FCLOSE, streams->inherited[i], 0, 0, 0);
+	return result;
 }

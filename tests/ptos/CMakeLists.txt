@@ -18,9 +18,7 @@ add_executable(ptos_contract contract.c filesystem_contract.c vdi_contract.c
 	${PROJECT_SOURCE_DIR}/host/ptos/files.c
 	${PROJECT_SOURCE_DIR}/host/ptos/filesystem.c
 	${PROJECT_SOURCE_DIR}/host/ptos/dispatch.c
-	${PROJECT_SOURCE_DIR}/host/ptos/runtime.c
-	${PROJECT_SOURCE_DIR}/host/ptos/thread.c
-	${PROJECT_SOURCE_DIR}/guest_tasks.c)
+	${PROJECT_SOURCE_DIR}/host/ptos/runtime.c)
 target_include_directories(ptos_contract PRIVATE ${PROJECT_SOURCE_DIR}/mushashi ${PROJECT_SOURCE_DIR}/host/ptos)
 target_compile_definitions(ptos_contract PRIVATE PARATOS_PTOS=1)
 target_compile_features(ptos_contract PRIVATE c_std_11)

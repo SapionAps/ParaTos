@@ -37,7 +37,7 @@ ptos_executable(ptos_native_child 0x00400000)
 # New kernels can exercise the cloned path independently of the legacy
 # integration launcher, which itself uses native staged Pexec.
 file(STRINGS "${PTOS_KERNEL_DIR}/obj/autoconf.h" PTOS_CLONE_CONFIG
-	REGEX "^#define CONF_WITH_(PCLONE|PTHJOIN|NATIVE_SCHED) 1$")
+	REGEX "^#define CONF_WITH_(PCLONE|PROCESS_FILES|NATIVE_SCHED) 1$")
 list(LENGTH PTOS_CLONE_CONFIG PTOS_CLONE_CONFIG_COUNT)
 set(PTOS_FIXTURES cli semantics overlay fault interpreter filesystem fs_overlay vdi vdi_overlay)
 if(PTOS_CLONE_CONFIG_COUNT EQUAL 3)

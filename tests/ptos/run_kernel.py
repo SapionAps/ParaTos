@@ -97,6 +97,7 @@ def run(args):
             if prg.read_bytes()[:2] != b"\x60\x1a":
                 raise ValueError("The Pclone fixture must be a compiled 68k TOS PRG")
             shutil.copyfile(prg, stage / "PCGUEST.TOS")
+            shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
         else:
             shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
             shutil.copyfile(args.filesystem_native, stage / "FSNATIVE.TOS")

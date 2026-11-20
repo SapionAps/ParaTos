@@ -100,6 +100,8 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_TGETTIME:
 	case GEMDOS_OP_SSYNC:
 	case GEMDOS_OP_SVERSION:
+	case GEMDOS_OP_PGETPID:
+	case GEMDOS_OP_PGETPPID:
 	case GEMDOS_OP_PGETPGRP:
 	case GEMDOS_OP_PGETEUID:
 	case GEMDOS_OP_PGETEGID:
@@ -108,8 +110,6 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_PGETGID:
 		r = ptos_call(fn, 0, 0, 0, 0); break;
 	case GEMDOS_OP_SYIELD: ptos_task_yield(); r = 0; break;
-	case GEMDOS_OP_PGETPID:
-	case GEMDOS_OP_PGETPPID: r = ptos_task_pid(fn == GEMDOS_OP_PGETPPID); break;
 	case GEMDOS_OP_PWAIT: r = ptos_task_wait(-1, 2, 0); break;
 	case GEMDOS_OP_PWAIT3: r = ptos_task_wait(-1, word(sp, 2), lng(sp, 4)); break;
 	case GEMDOS_OP_PWAITPID: r = ptos_task_wait(word(sp, 2), word(sp, 4), lng(sp, 6)); break;
