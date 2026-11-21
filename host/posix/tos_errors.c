@@ -19,6 +19,8 @@ int32_t MapErrno(void)
 		return TOS_E_SEEK;
 	case ENOENT:
 		return TOS_EFILNF;
+	case ENOMEM:
+		return TOS_ENSMEM;
 	case ESRCH:
 		return TOS_ESRCH;
 	case EBADF:

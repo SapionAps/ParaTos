@@ -105,9 +105,8 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 	if (operation == 5) return PosixCreateBasepage(arg2, arg3);
 	if (operation != 0 && operation != 3 && operation != 100 && operation != 200)
 		return TOS_ENOSYS;
-	/* Exporting this guest's streams changes process-wide descriptors 0-2.
-	 * Peers may already be using those descriptors outside the CPU lock. */
-	if (operation == 200 && PosixHasThreads()) return TOS_ENOSYS;
+	/* An executing staged family still needs its emulator lifetime records. */
+	if (operation == 200 && PosixStagedActive()) return TOS_ENOSYS;
 	if (!arg1 || arg1 >= memory_sz || !memchr(memory + arg1, 0, memory_sz - arg1))
 		return TOS_EINVAL;
 	char *original = read_path(arg1);
@@ -139,28 +138,8 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 			if (!tagged) { free(tagged); free(envp); free(original); return TOS_ENSMEM; }
 			argv = tagged;
 		}
-		int saved[3] = {-1, -1, -1};
-		for (int fd = 0; fd < 3; fd++)
-		{
-			saved[fd] = fcntl(fd, F_DUPFD_CLOEXEC, 6);
-			if (saved[fd] < 0 && errno != EBADF)
-			{
-				int32_t result = MapErrno();
-				for (int i = 0; i < fd; i++) if (saved[i] >= 0) close(saved[i]);
-				free(tagged); free(envp);
-				free(original);
-				return result;
-			}
-		}
-		PosixExportStandardHandles();
 		execve(path, argv, envp);
 		int32_t result = MapErrno();
-		/* A failed replacement must not redirect other guest threads. */
-		for (int fd = 0; fd < 3; fd++)
-		{
-			if (saved[fd] < 0) close(fd);
-			else { dup2(saved[fd], fd); close(saved[fd]); }
-		}
 		free(tagged); free(envp);
 		free(original);
 		return result;
@@ -200,7 +179,6 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 	{
 		/* Only async-signal-safe operations in the forked child. */
 		close(channel[0]);
-		PosixExportStandardHandles();
 		execve(path, argv, envp);
 		int error = errno;
 		const char *bytes = (const char *)&error;

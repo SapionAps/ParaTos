@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise split PRG execution, shared memory and asynchronous lifetimes."""
 from pathlib import Path
+from itertools import product
 import struct
 import subprocess
 import sys
@@ -70,6 +71,10 @@ class Program:
         self.emit("42a73f3c" + struct.pack(">H", flags).hex())
         self.emit("3f3cffff" if any_child else "3f06")
         self.emit("3f3c013a4e414fef000a")
+
+    def fork(self, destination, vfork=False):
+        self.emit(("3f3c0113" if vfork else "3f3c011b") + "4e41548f4a8066064ef9")
+        self.address(destination)
 
     def free(self, environment=False):
         self.emit("2f2c002c" if environment else "2f0c")
@@ -159,11 +164,17 @@ class PexecTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
 
-    def run_pair(self, parent_image, child_image):
+    def run_pair(self, parent_image, child_image, env=None):
         (self.directory / "PARENT.TOS").write_bytes(parent_image)
         (self.directory / "CHILD.TOS").write_bytes(child_image)
         return subprocess.run([str(PARATOS), "PARENT.TOS"], cwd=self.directory,
-                              capture_output=True, timeout=5)
+                              capture_output=True, timeout=5, env=env)
+
+    def fault_env(self, fault):
+        library = os.environ.get("PARATOS_TEST_INTERPOSER")
+        if not library:
+            self.skipTest("requires the Linux mmap/fork fault interposer")
+        return dict(os.environ, LD_PRELOAD=library, PARATOS_TEST_FAULT=fault)
 
     def assert_words(self, result, expected):
         self.assertEqual(result.returncode, 23, result.stderr)
@@ -569,6 +580,194 @@ class PexecTests(unittest.TestCase):
         self.assertEqual(records[4], 37)
         self.assertEqual(records[5], records[2])
         self.assertEqual(records[6], 42)
+
+    def test_pfork_and_pvfork_after_staged_pexec(self):
+        c = Program()
+        c.emit("4ab90000100467f8")  # parent opens its own mapping's gate
+        c.emit("203900001000")
+        c.report(1)
+        c.emit("23fc0000033300001000")
+        c.finish(37)
+
+        for mode, vfork in product((4, 104, 106), (False, True)):
+            with self.subTest(mode=mode, vfork=vfork):
+                asynchronous = mode >= 100
+                p = Program()
+                p.shrink()
+                p.emit("23fc000001110000100042b900001004")
+                p.pexec(3)
+                p.emit("28402f3c000100002f0c42673f3c004a4e414fef000c")
+                if not asynchronous:
+                    p.emit("23fc0000000100001004")
+                p.pexec(mode, basepage=True)
+                if asynchronous:
+                    p.emit("2c00")
+                else:
+                    p.report(9)
+                p.fork("snapshot", vfork=vfork)
+                p.emit("2a00")  # fork PID in D5, staged PID in D6
+                p.emit("23fc0000022200001000")
+                if asynchronous:
+                    p.emit("23fc0000000100001004")
+                    p.wait()
+                p.emit("203900001000")
+                p.report(2)
+                p.emit("2c05")
+                p.wait()
+                p.emit("0280000000ff")
+                p.report(8)
+                p.emit("203900001000")
+                p.report(10)  # the fork child's final write also stayed private
+                p.finish(23)
+
+                p.label("snapshot")
+                p.emit("203900001000")
+                p.report(3)  # fork copied the memory before the original parent wrote
+                p.emit("23fc0000044400001000")
+                p.fork("cow")
+                p.emit("2c0023fc0000055500001000")
+                p.wait()
+                p.emit("203900001000")
+                p.report(5)  # a subsequent Pfork of this private guest used COW
+                p.emit("23fc0000000100001004")
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(6, basepage=True)
+                p.report(6)
+                p.emit("203900001000")
+                p.report(7)  # staged execution enabled sharing in this new family
+                p.emit("23fc0000077700001000")
+                p.finish(42)
+
+                p.label("cow")
+                p.emit("203900001000")
+                p.report(4)
+                p.emit("23fc0000066600001000")
+                p.finish()
+                p.label("child", b"CHILD.TOS\0")
+                p.label("tail", bytes(128))
+                result = self.run_pair(p.image(), c.image())
+                self.assertEqual(result.returncode, 23, result.stderr)
+                self.assertEqual(result.stderr, b"")
+                parent_value = 0x333 if asynchronous else 0x222
+                expected = [(1, 0x222 if asynchronous else 0x111), (1, 0x555),
+                            (2, parent_value), (3, 0x111 if asynchronous else 0x333),
+                            (4, 0x444), (5, 0x555), (6, 37), (7, 0x333), (8, 42),
+                            (10, parent_value)]
+                if not asynchronous:
+                    expected.append((9, 37))
+                self.assertCountEqual(struct.iter_unpack(">II", result.stdout), expected)
+
+    def test_staged_child_closing_an_explicit_handle_keeps_parents_copy(self):
+        c = Program()
+        c.emit("3f39000011023f3c003e4e41588f")  # close inherited pipe writer
+        c.emit("203900001000528023c000001000")  # increment the parent's value
+        c.finish(37)
+        for mode in (4, 6, 104, 106):
+            with self.subTest(mode=mode):
+                p = Program()
+                p.shrink()
+                p.emit("23fc0000002900001000")
+                p.emit("4879000011003f3c01004e415c8f13fc005a00001104")
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(mode, basepage=True)
+                if mode >= 100:
+                    p.emit("2c00")
+                    p.wait()
+                    p.emit("0280000000ff")
+                p.report()
+                p.emit("203900001000")
+                p.report()
+                p.emit("4879000011042f3c000000013f39000011023f3c00404e414fef000c")
+                p.report()
+                p.finish(23)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("tail", bytes(128))
+                self.assert_words(self.run_pair(p.image(), c.image()), [37, 42, 1])
+
+    def test_staged_launch_rollback_after_mapping_or_fork_failure(self):
+        for fault, error in (("shared-map", -39), ("fork", -326)):
+            with self.subTest(fault=fault):
+                p = Program()
+                p.shrink()
+                p.emit("23fc1122334400001000")
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(6, basepage=True)
+                p.report()
+                p.emit("203900001000")
+                p.report()
+                p.wait(flags=1, any_child=True)
+                p.report()
+                p.pexec(4, basepage=True)
+                p.report()
+                p.free(environment=True)
+                p.free()
+                p.finish(23)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("tail", bytes(128))
+                self.assert_words(self.run_pair(p.image(), child(), self.fault_env(fault)),
+                                  [error, 0x11223344, -21, 37, 0, 0])
+
+    def test_failed_shared_pfork_snapshot_preserves_the_live_family(self):
+        p = Program()
+        p.shrink()
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(106, basepage=True)
+        p.emit("2c00")
+        p.fork("unexpected")
+        p.report()
+        p.emit("23fc0000000100001004")
+        p.wait()
+        p.emit("0280000000ff")
+        p.report()
+        p.wait(flags=1, any_child=True)
+        p.report()
+        p.finish(23)
+        p.label("unexpected")
+        p.finish(99)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        self.assert_words(self.run_pair(p.image(), child(wait_gate=True), self.fault_env("snapshot")),
+                          [-39, 37, -21])
+
+    def test_exec_modes_start_fresh_after_shared_ram(self):
+        c = Program()
+        c.emit("203900001000")
+        c.report()
+        c.finish(23)
+        (self.directory / "FRESH.TOS").write_bytes(c.image())
+        for mode in (0, 100, 200):
+            with self.subTest(mode=mode):
+                p = Program()
+                p.shrink()
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(6, basepage=True)
+                p.report()
+                for operation, label in ((200, "missing"), (mode, "fresh")):
+                    p.emit("42a7")
+                    p.push("tail")
+                    p.push(label)
+                    p.emit("3f3c" + struct.pack(">H", operation).hex() + "3f3c004b4e414fef0010")
+                    if operation == 100:
+                        p.emit("2c00")
+                        p.wait()
+                        p.emit("0280000000ff")
+                    p.report()
+                    p.emit("203900001000")
+                    p.report()
+                p.finish(23)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("fresh", b"FRESH.TOS\0")
+                p.label("missing", b"MISSING.TOS\0")
+                p.label("tail", bytes(128))
+                expected = [37, -33, 0x12345678, 0]
+                if mode != 200:
+                    expected += [23, 0x12345678]
+                self.assert_words(self.run_pair(p.image(), child()), expected)
 
     def test_exec_child_receives_reserved_identity(self):
         c = Program()

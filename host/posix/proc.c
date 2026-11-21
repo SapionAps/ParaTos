@@ -36,13 +36,14 @@ int16_t PosixRegisterPid(int host_pid)
 	{
 		if (id == (uint16_t)getpid() || id == (uint16_t)getppid()) continue;
 		if (id == (uint16_t)PosixTaskPid() || id == (uint16_t)PosixTaskParentPid()) continue;
-		if (id == (uint16_t)PosixRuntimeRootPid()) continue;
+		if (id == (uint16_t)PosixRuntimeRootPid() || PosixFamilyPidUsed(id)) continue;
 		pid_map_t *p;
 		for (p = pid_map_head; p && p->tos_pid != id; p = p->next) {}
 		if (!p) break;
 	}
 	if (id > 32767) { free(entry); return -1; }
 	entry->tos_pid = (int16_t)id;
+	PosixFamilyReservePid(id, 1);
 	entry->host_pid = host_pid;
 	entry->owner = PosixTaskOwner();
 	entry->synchronous = 0;
@@ -80,10 +81,23 @@ void PosixForgetPid(int host_pid)
 		if ((*current)->host_pid == host_pid) {
 			pid_map_t *victim = *current;
 			*current = victim->next;
+			PosixFamilyReservePid(victim->tos_pid, 0);
 			free(victim);
 			return;
 		}
 		current = &(*current)->next;
+	}
+}
+
+/* On fork these are copies of the parent's local entries. Their
+ * reservations still belong to the parent in the original family. */
+void PosixResetPidMap(void)
+{
+	while (pid_map_head)
+	{
+		pid_map_t *next = pid_map_head->next;
+		free(pid_map_head);
+		pid_map_head = next;
 	}
 }
 
@@ -114,9 +128,10 @@ int PosixReapOrphans(void)
 		int status;
 		pid_t result;
 		do { result = wait4(p->host_pid, &status, WNOHANG, NULL); } while (result < 0 && errno == EINTR);
-		if (result == p->host_pid)
+		if (result == p->host_pid || (result < 0 && errno == ECHILD))
 		{
 			*at = p->next;
+			PosixFamilyReservePid(p->tos_pid, 0);
 			free(p);
 		}
 		else { pending = 1; at = &p->next; }
@@ -143,22 +158,11 @@ int PosixReapOrphans(void)
  */
 int16_t Pfork ( void )
 {
-	if (PosixHasThreads()) return TOS_ENOSYS;
 	int16_t id = PosixReservePid(0);
 	if (id < 0) return TOS_ENHNDL;
-	int16_t parent = PosixTaskPid();
-	pid_t pid = fork();
-	if (pid < 0)
-	{
-		int32_t error = MapErrno();
-		PosixReleasePid(id);
-		return error;
-	}
-	if (pid > 0) { PosixBindPid(id, pid, 0); return id; }
-	/* The child inherits the reserved identity but none of its parent's children. */
-	while (pid_map_head) PosixForgetPid(pid_map_head->host_pid);
-	PosixRootIdentity(id, parent);
-	return 0;
+	int32_t result = PosixForkGuest(id, PosixTaskPid());
+	if (result < 0) PosixReleasePid(id);
+	return result;
 }
 
 /**
@@ -817,9 +821,9 @@ int32_t Pwaitpid ( int16_t pid, int16_t flag, emuptr32_t rusagep )
 {
 	if (rusagep && (rusagep >= memory_sz || memory_sz - rusagep < 8)) return TOS_EINVAL;
 retry:;
-	int32_t thread_result;
-	int pending = PosixWaitThread(pid, flag | 1, rusagep, &thread_result);
-	if (pending && thread_result) return thread_result;
+	int32_t staged_result;
+	int pending = PosixWaitStage(pid, rusagep, &staged_result);
+	if (pending && staged_result) return staged_result;
 	struct rusage usage;
 	int status = 0;
 	int16_t tos_childpid = 0;
