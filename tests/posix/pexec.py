@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise split PRG execution, shared memory and asynchronous lifetimes."""
 from pathlib import Path
+from itertools import product
 import struct
 import subprocess
 import sys
@@ -580,7 +581,7 @@ class PexecTests(unittest.TestCase):
         self.assertEqual(records[5], records[2])
         self.assertEqual(records[6], 42)
 
-    def test_pfork_and_pvfork_snapshot_while_a_staged_peer_is_live(self):
+    def test_pfork_and_pvfork_after_staged_pexec(self):
         c = Program()
         c.emit("4ab90000100467f8")  # parent opens its own mapping's gate
         c.emit("203900001000")
@@ -588,25 +589,35 @@ class PexecTests(unittest.TestCase):
         c.emit("23fc0000033300001000")
         c.finish(37)
 
-        for vfork in (False, True):
-            with self.subTest(vfork=vfork):
+        for mode, vfork in product((4, 104, 106), (False, True)):
+            with self.subTest(mode=mode, vfork=vfork):
+                asynchronous = mode >= 100
                 p = Program()
                 p.shrink()
                 p.emit("23fc000001110000100042b900001004")
                 p.pexec(3)
                 p.emit("28402f3c000100002f0c42673f3c004a4e414fef000c")
-                p.pexec(106, basepage=True)
-                p.emit("2c00")
+                if not asynchronous:
+                    p.emit("23fc0000000100001004")
+                p.pexec(mode, basepage=True)
+                if asynchronous:
+                    p.emit("2c00")
+                else:
+                    p.report(9)
                 p.fork("snapshot", vfork=vfork)
                 p.emit("2a00")  # fork PID in D5, staged PID in D6
-                p.emit("23fc000002220000100023fc0000000100001004")
-                p.wait()
+                p.emit("23fc0000022200001000")
+                if asynchronous:
+                    p.emit("23fc0000000100001004")
+                    p.wait()
                 p.emit("203900001000")
                 p.report(2)
                 p.emit("2c05")
                 p.wait()
                 p.emit("0280000000ff")
                 p.report(8)
+                p.emit("203900001000")
+                p.report(10)  # the fork child's final write also stayed private
                 p.finish(23)
 
                 p.label("snapshot")
@@ -625,6 +636,7 @@ class PexecTests(unittest.TestCase):
                 p.report(6)
                 p.emit("203900001000")
                 p.report(7)  # staged execution enabled sharing in this new family
+                p.emit("23fc0000077700001000")
                 p.finish(42)
 
                 p.label("cow")
@@ -637,9 +649,14 @@ class PexecTests(unittest.TestCase):
                 result = self.run_pair(p.image(), c.image())
                 self.assertEqual(result.returncode, 23, result.stderr)
                 self.assertEqual(result.stderr, b"")
-                self.assertCountEqual(struct.iter_unpack(">II", result.stdout),
-                                      [(1, 0x222), (1, 0x555), (2, 0x333), (3, 0x111),
-                                       (4, 0x444), (5, 0x555), (6, 37), (7, 0x333), (8, 42)])
+                parent_value = 0x333 if asynchronous else 0x222
+                expected = [(1, 0x222 if asynchronous else 0x111), (1, 0x555),
+                            (2, parent_value), (3, 0x111 if asynchronous else 0x333),
+                            (4, 0x444), (5, 0x555), (6, 37), (7, 0x333), (8, 42),
+                            (10, parent_value)]
+                if not asynchronous:
+                    expected.append((9, 37))
+                self.assertCountEqual(struct.iter_unpack(">II", result.stdout), expected)
 
     def test_staged_child_closing_an_explicit_handle_keeps_parents_copy(self):
         c = Program()
