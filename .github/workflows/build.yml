@@ -42,11 +42,11 @@ jobs:
     steps:
       # Keep pTOS at the workspace root so its local setup actions resolve
       # there. The tested Paratos revision is a separate nested checkout.
-      - name: Check out the kernel with binfmt and shebang support
+      - name: Check out the pTOS kernel with native scheduling
         uses: actions/checkout@v4
         with:
           repository: kelihlodversson/pTOS
-          ref: fc3148179494f1b507ed38ee4c328ad52624fecf
+          ref: 63b472bbba969aab7ace64ff132dcdfe88a2e89b
           submodules: recursive
       - name: Check out Paratos
         uses: actions/checkout@v4
