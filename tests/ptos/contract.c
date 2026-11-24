@@ -50,6 +50,7 @@ static int32_t clone_error;
 static uint32_t shutdown_file;
 static int shutdown_fd;
 static int console_test;
+static int terminate_on_input;
 static int console_pipe[2];
 static int console_waiting;
 static int current_drive = 2;
@@ -212,6 +213,7 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 		if (b == 0x466) return frclock;
 		return 0;
 	case GEMDOS_OP_CCONIN: {
+		if (terminate_on_input) return ptos_call(GEMDOS_OP_PTERM, -32, 0, 0, 0);
 		assert(console_test);
 		__atomic_store_n(&console_waiting, 1, __ATOMIC_RELEASE);
 		struct pollfd input = { .fd = console_pipe[0], .events = POLLIN };
@@ -721,6 +723,42 @@ static void test_blocking_console(void)
 	close(console_pipe[1]);
 }
 
+static void test_native_console_exit(int asynchronous)
+{
+	reset();
+	unsigned char caller[] = {
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7,
+		0x3f,0x3c, 0,6, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,
+		0x3f,0x00, 0x3f,0x3c, 0,0x4c, 0x4e,0x41  /* Pterm(result) */
+	};
+	unsigned char callee[] = {
+		0x3f,0x3c, 0,1, 0x4e,0x41, 0x54,0x8f,     /* Native Cconin exits */
+		0x42,0x67, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	m68k_write_memory_32(code + 4, child);
+	if (asynchronous) m68k_write_memory_16(code + 12, 106);
+
+	terminate_on_input = 1;
+	alarm(5);
+	int32_t result = ptos_run_program(bp);
+	alarm(0);
+	terminate_on_input = 0;
+	if (asynchronous)
+	{
+		assert(result >= FAKE_PID);
+		assert((uint8_t)fake_wait(result, 0) == (uint8_t)-32);
+	}
+	else assert(result == (uint8_t)-32);
+	assert(!ptos_image_valid(bp) && !ptos_image_valid(child));
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
+}
+
 static void test_root_and_child_bindings(void)
 {
 	reset();
@@ -839,6 +877,8 @@ int main(int argc, char **argv)
 	test_async_go(106, 0);
 	test_async_go(104, PTOS_ENSMEM);
 	test_blocking_console();
+	test_native_console_exit(0);
+	test_native_console_exit(1);
 	test_root_and_child_bindings();
 	clone_enabled = 0;
 	test_bad_images();

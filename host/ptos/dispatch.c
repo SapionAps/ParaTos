@@ -105,7 +105,7 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_CAUXIN:
 	case GEMDOS_OP_CRAWCIN:
 	case GEMDOS_OP_CNECIN:
-		r = ptos_task_io(fn, 0, 0, 0); break;
+		r = ptos_task_io(fn, 0, 0, 0, NULL); break;
 	case GEMDOS_OP_CCONIS:
 	case GEMDOS_OP_CCONOS:
 	case GEMDOS_OP_CPRNOS:
@@ -140,7 +140,7 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_CAUXOUT:
 	case GEMDOS_OP_CPRNOUT:
 	case GEMDOS_OP_CRAWIO:
-		r = ptos_task_io(fn, (int16_t)word(sp, 2), 0, 0); break;
+		r = ptos_task_io(fn, (int16_t)word(sp, 2), 0, 0, NULL); break;
 	case GEMDOS_OP_FCLOSE: r = ptos_file_close(word(sp, 2)); break;
 	case GEMDOS_OP_FDUP: r = ptos_file_dup(word(sp, 2)); break;
 	case GEMDOS_OP_CCONWS: {
@@ -149,7 +149,7 @@ void dispatch_gemdos_trap(void)
 		char *buffer = malloc(length);
 		if (!buffer) { r = PTOS_ENSMEM; break; }
 		memcpy(buffer, guest, length);
-		r = ptos_task_io(fn, (intptr_t)buffer, 0, 0);
+		r = ptos_task_io(fn, (intptr_t)buffer, 0, 0, buffer);
 		free(buffer);
 		break;
 	}
@@ -159,7 +159,7 @@ void dispatch_gemdos_trap(void)
 		void *guest = ptos_guest_buffer(address, size);
 		unsigned char buffer[257];
 		memcpy(buffer, guest, size);
-		r = ptos_task_io(fn, (intptr_t)buffer, 0, 0);
+		r = ptos_task_io(fn, (intptr_t)buffer, 0, 0, NULL);
 		if (r >= 0)
 		{
 			unsigned int length = buffer[1];
@@ -190,11 +190,16 @@ void dispatch_gemdos_trap(void)
 		int32_t handle = ptos_file_handle(word(sp, 2));
 		if (handle == PTOS_EIHNDL) { r = handle; break; }
 		void *guest = ptos_guest_buffer(lng(sp, 8), (uint32_t)count);
-		if (!count) { r = ptos_task_io(fn, handle, 0, 0); break; }
+		if (!count)
+		{
+			char scratch;
+			r = ptos_task_io(fn, handle, 0, (intptr_t)&scratch, NULL);
+			break;
+		}
 		void *buffer = malloc((uint32_t)count);
 		if (!buffer) { r = PTOS_ENSMEM; break; }
 		if (fn == GEMDOS_OP_FWRITE) memcpy(buffer, guest, (uint32_t)count);
-		r = ptos_task_io(fn, handle, count, (intptr_t)buffer);
+		r = ptos_task_io(fn, handle, count, (intptr_t)buffer, buffer);
 		if (fn == GEMDOS_OP_FREAD && r > 0 && r <= count)
 			memcpy(guest, buffer, (uint32_t)r);
 		free(buffer);
