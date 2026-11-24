@@ -12,18 +12,18 @@ int main(void)
 	 * sharing the parent's two active cursors. Fill the available budget
 	 * and leave it occupied so the parent can check its cursors on exit. */
 #ifdef PTOS_TEST_MANAGED_KERNEL
-	enum { minimum = 7 };
+	enum { capacity = 8 };
 #else
-	enum { minimum = 6 };
+	enum { capacity = 6 };
 #endif
-	_DTA unfinished[9];
+	_DTA unfinished[capacity + 1];
 	for (unsigned int i = 0; i < sizeof(unfinished) / sizeof(*unfinished); i++)
 	{
 		memset(&unfinished[i], 0x5a, sizeof(unfinished[i]));
 		Fsetdta(&unfinished[i]);
 		long result = Fsfirst("C:/FSCOMP/*.TXT", 0);
-		if (!result) continue;
-		if (i < minimum || result != -39L)
+		if (i < capacity && !result) continue;
+		if (i < capacity || result != -39L)
 		{
 			printf("filesystem cursor %u: %ld\n", i + 1, result);
 			return 3;
