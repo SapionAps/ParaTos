@@ -9,9 +9,13 @@ if(NOT EXISTS "${PTOS_GUEST_LIBCMINI_DIR}/libcmini.a" OR
 	message(FATAL_ERROR "Set PTOS_GUEST_LIBCMINI_DIR to a built m68k libcmini; see host/ptos/README.txt")
 endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-find_program(PTOS_M68K_CC NAMES m68k-atari-mintelf-gcc)
+find_program(PTOS_M68K_CC NAMES m68k-atari-mintelf-gcc m68k-unknown-ptos-prgelf-gcc)
 if(NOT PTOS_M68K_CC)
-	message(FATAL_ERROR "The real-kernel fixtures need m68k-atari-mintelf-gcc")
+	message(FATAL_ERROR "The real-kernel fixtures need a MiNT ELF or pTOS m68k compiler")
+endif()
+get_filename_component(PTOS_M68K_CC_NAME "${PTOS_M68K_CC}" NAME)
+if(PTOS_M68K_CC_NAME STREQUAL "m68k-unknown-ptos-prgelf-gcc")
+	set(PTOS_M68K_LINK_FORMAT -mmintelf)
 endif()
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
 	set(PTOS_TEST_ARCH arm)
@@ -53,7 +57,7 @@ foreach(fixture IN LISTS PTOS_FIXTURES)
 	add_custom_command(OUTPUT ${output}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${PTOS_FIXTURES_DIR}
 		COMMAND ${PTOS_M68K_CC} -std=c11 -m68000 -Os -fno-builtin
-			-Wall -Wextra -Werror -nostdlib -I${PTOS_LIBCMINI_ROOT}/include
+			-Wall -Wextra -Werror -nostdlib ${PTOS_M68K_LINK_FORMAT} -I${PTOS_LIBCMINI_ROOT}/include
 			${PTOS_GUEST_LIBCMINI_DIR}/objs/crt0.o
 			${PROJECT_SOURCE_DIR}/tests/ptos/${fixture}.c
 			${PTOS_GUEST_LIBCMINI_DIR}/libcmini.a -lgcc -o ${output}
