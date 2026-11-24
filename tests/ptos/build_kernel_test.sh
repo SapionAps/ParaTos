@@ -47,15 +47,23 @@ make -C "$kernel" CROSS_COMPILE="$guest_prefix" \
 cp "$kernel/test-hd.img" "$build/m68k-test-hd.img"
 
 make -C "$kernel" "${config}_defconfig"
-if [ "$arch" = x32 ]; then
+if [ "$arch" = x32 ] || [ "${PTOS_USE_SDK:-0}" = 1 ]; then
     (cd "$kernel"
-     CONFIG_= python3 - <<'PY'
+     CONFIG_= python3 - "$arch" "${PTOS_USE_SDK:-0}" <<'PY'
+import sys
+
 import kconfiglib
+
 config = kconfiglib.Kconfig()
 config.load_config()
-config.syms["CONF_WITH_MMAP"].set_value(2)
-config.syms["CONF_WITH_X32_VDI"].set_value(2)
-config.syms["CONF_WITH_X86_64_MEMTEST"].set_value(0)
+if sys.argv[1] == "x32":
+    config.syms["CONF_WITH_MMAP"].set_value(2)
+    config.syms["CONF_WITH_X32_VDI"].set_value(2)
+    config.syms["CONF_WITH_X86_64_MEMTEST"].set_value(0)
+if sys.argv[2] == "1" and config.syms["CONF_WITH_PLUGGABLE_FS"].tri_value:
+    # The filesystem fixture holds two parent cursors while exercising
+    # the child's full eight-slot budget. PFS has a separate global pool.
+    config.syms["CONF_PFS_MAX_SEARCHES"].set_value("16")
 config.write_config()
 PY
     )
