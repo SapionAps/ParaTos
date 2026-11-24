@@ -43,5 +43,5 @@ int ptos_task_active_environment(uint32_t address);
 int32_t ptos_task_wait(int16_t pid, int16_t flags, uint32_t usage);
 int32_t ptos_task_exec(uint16_t mode, const char *path, const char *tail, const char *env);
 void ptos_task_yield(void);
-int32_t ptos_task_io(uint16_t fn, intptr_t a, intptr_t b, intptr_t c);
+int32_t ptos_task_io(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, void *buffer);
 int32_t ptos_task_bios_io(uint16_t fn, uint16_t device, uint16_t value);

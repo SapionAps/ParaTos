@@ -11,7 +11,7 @@ int main(void)
 	/* A cloned PROCESS can start more searches than an in-place overlay
 	 * sharing the parent's two active cursors. Fill the available budget
 	 * and leave it occupied so the parent can check its cursors on exit. */
-#ifdef PTOS_TEST_MANAGED_KERNEL
+#ifdef PTOS_TEST_CLONED_GUESTS
 	enum { capacity = 8 };
 #else
 	enum { capacity = 6 };

@@ -38,18 +38,27 @@ ptos_executable(ptos_fs_native 0x00400000)
 add_executable(ptos_native_child ${PROJECT_SOURCE_DIR}/tests/ptos/native_child.c)
 ptos_executable(ptos_native_child 0x00400000)
 
-# New kernels can exercise the cloned path independently of the legacy
-# integration launcher, which itself uses native staged Pexec.
-file(STRINGS "${PTOS_KERNEL_DIR}/obj/autoconf.h" PTOS_MANAGED_CONFIG
-	REGEX "^#define CONF_WITH_MULTITHREADING 1$")
-if(PTOS_MANAGED_CONFIG)
-	target_compile_definitions(ptos_kernel_launcher PRIVATE PTOS_TEST_MANAGED_KERNEL=1)
+# Kernel options independently control the native launcher, the Pexec(200)
+# fixture, and the guest's staged PROCESSes.
+file(STRINGS "${PTOS_KERNEL_DIR}/obj/autoconf.h" PTOS_KERNEL_OPTIONS
+	REGEX "^#define CONF_WITH_(MULTITHREADING|LEGACY_PEXEC|EXEC_REPLACE|PEXEC200|PCLONE|PROCESS_FILES|NATIVE_SCHED) [01]$")
+if("#define CONF_WITH_LEGACY_PEXEC 0" IN_LIST PTOS_KERNEL_OPTIONS)
+	set(PTOS_NATIVE_MODE_ZERO_ONLY ON)
+	target_compile_definitions(ptos_kernel_launcher PRIVATE PTOS_TEST_NATIVE_MODE_ZERO_ONLY=1)
 endif()
-file(STRINGS "${PTOS_KERNEL_DIR}/obj/autoconf.h" PTOS_CLONE_CONFIG
-	REGEX "^#define CONF_WITH_(PCLONE|PROCESS_FILES|NATIVE_SCHED) 1$")
-list(LENGTH PTOS_CLONE_CONFIG PTOS_CLONE_CONFIG_COUNT)
+if("#define CONF_WITH_EXEC_REPLACE 1" IN_LIST PTOS_KERNEL_OPTIONS AND
+	NOT "#define CONF_WITH_PEXEC200 0" IN_LIST PTOS_KERNEL_OPTIONS)
+	set(PTOS_EXEC_REPLACEMENT ON)
+	target_compile_definitions(ptos_kernel_launcher PRIVATE PTOS_TEST_EXEC_REPLACEMENT=1)
+endif()
+if("#define CONF_WITH_PROCESS_FILES 1" IN_LIST PTOS_KERNEL_OPTIONS AND
+	("#define CONF_WITH_MULTITHREADING 1" IN_LIST PTOS_KERNEL_OPTIONS OR
+	 ("#define CONF_WITH_PCLONE 1" IN_LIST PTOS_KERNEL_OPTIONS AND
+	  "#define CONF_WITH_NATIVE_SCHED 1" IN_LIST PTOS_KERNEL_OPTIONS)))
+	set(PTOS_CLONED_GUESTS ON)
+endif()
 set(PTOS_FIXTURES cli semantics overlay fault interpreter filesystem fs_overlay vdi vdi_overlay)
-if(PTOS_MANAGED_CONFIG OR PTOS_CLONE_CONFIG_COUNT EQUAL 3)
+if(PTOS_CLONED_GUESTS)
 	list(APPEND PTOS_FIXTURES pclone_guest)
 	add_executable(ptos_pclone_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/pclone_launcher.c)
 	ptos_executable(ptos_pclone_launcher 0x00400000)
@@ -59,8 +68,10 @@ set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
 set(PTOS_GUEST_OUTPUTS)
 foreach(fixture IN LISTS PTOS_FIXTURES)
 	set(fixture_definitions)
-	if(PTOS_MANAGED_CONFIG AND (fixture STREQUAL "semantics" OR fixture STREQUAL "fs_overlay"))
-		set(fixture_definitions -DPTOS_TEST_MANAGED_KERNEL=1)
+	if(PTOS_EXEC_REPLACEMENT AND fixture STREQUAL "semantics")
+		set(fixture_definitions -DPTOS_TEST_EXEC_REPLACEMENT=1)
+	elseif(PTOS_CLONED_GUESTS AND fixture STREQUAL "fs_overlay")
+		set(fixture_definitions -DPTOS_TEST_CLONED_GUESTS=1)
 	endif()
 	set(output ${PTOS_FIXTURES_DIR}/${fixture}.tos)
 	add_custom_command(OUTPUT ${output}
@@ -108,8 +119,8 @@ if(PTOS_VDI_LIBRARY)
 	ptos_executable(ptos_no_vdi 0x41000000)
 	add_executable(ptos_no_vdi_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/kernel_launcher.c)
 	target_compile_definitions(ptos_no_vdi_launcher PRIVATE PTOS_TEST_VDI_ONLY=1)
-	if(PTOS_MANAGED_CONFIG)
-		target_compile_definitions(ptos_no_vdi_launcher PRIVATE PTOS_TEST_MANAGED_KERNEL=1)
+	if(PTOS_NATIVE_MODE_ZERO_ONLY)
+		target_compile_definitions(ptos_no_vdi_launcher PRIVATE PTOS_TEST_NATIVE_MODE_ZERO_ONLY=1)
 	endif()
 	ptos_executable(ptos_no_vdi_launcher 0x00400000)
 	add_test(NAME ptos_kernel_no_vdi

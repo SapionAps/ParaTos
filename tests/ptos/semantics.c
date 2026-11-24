@@ -75,7 +75,7 @@ static int native_launch(void)
 	if (launched != 37) { printf("guest Pexec result: %ld\n", launched); return 9; }
 	launched = Pexec(0, "C:/SCRIPT.SH", tail, 0);
 	if (launched != 42) { printf("guest shebang Pexec result: %ld\n", launched); return 10; }
-#ifndef PTOS_TEST_MANAGED_KERNEL
+#ifndef PTOS_TEST_EXEC_REPLACEMENT
 	/* Older kernels must reject replacement without spawning a child. */
 	if (Pexec(200, "C:/NATIVE.TOS", tail, 0) != -32L) return 4;
 #endif
@@ -123,7 +123,7 @@ int main(void)
 	int native = native_launch();
 	if (native) { printf("native launch check: %d\n", native); return 13; }
 	puts("pTOS guest semantics: PASS");
-#ifdef PTOS_TEST_MANAGED_KERNEL
+#ifdef PTOS_TEST_EXEC_REPLACEMENT
 	/* The native replacement exits with 24. The guest must never resume. */
 	static const char replacement_env[] = "PARATOS_REPLACE_TEST=yes\0";
 	long replacement = Pexec(200, "C:/NATIVE.TOS", empty_tail, replacement_env);

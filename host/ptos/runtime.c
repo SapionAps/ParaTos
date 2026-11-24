@@ -29,6 +29,7 @@ _Static_assert(sizeof(ptos_native_dta) <= NATIVE_STACK_PREFIX, "native DTA prefi
 typedef struct task {
 	struct task *next, *parent;
 	void *cpu;
+	void *io_buffer;
 	ptos_clone_streams *streams;
 	ptos_directories dirs;
 	ptos_search_state search;
@@ -38,7 +39,7 @@ typedef struct task {
 	int32_t stack;
 	unsigned super_slot, dependents;
 	uint16_t status;
-	int done, retained, synchronous, fault_active;
+	int done, retained, synchronous, fault_active, native_io, native_exit;
 } task;
 
 /* These records retain shared emulator resources. The kernel tracks and
@@ -123,23 +124,39 @@ void ptos_task_yield(void)
 	if (switch_cpu) resume(t);
 }
 
-int32_t ptos_task_io(uint16_t fn, intptr_t a, intptr_t b, intptr_t c)
+static task *begin_io(void *buffer)
 {
 	task *t = active;
-	int blocking = t && have_peer() && !ptos_in_overlay();
-	if (blocking) suspend();
+	if (!t || ptos_in_overlay()) return NULL;
+	/* Some native console calls can Pterm on Ctrl-C. Let the other
+	 * guests acquire the CPU lock even if this call never returns. */
+	t->native_io = 1;
+	t->io_buffer = buffer;
+	suspend();
+	return t;
+}
+
+static void end_io(task *t)
+{
+	if (!t) return;
+	resume(t);
+	t->native_io = 0;
+	t->io_buffer = NULL;
+}
+
+int32_t ptos_task_io(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, void *buffer)
+{
+	task *t = begin_io(buffer);
 	int32_t result = ptos_call(fn, a, b, c, 0);
-	if (blocking) resume(t);
+	end_io(t);
 	return result;
 }
 
 int32_t ptos_task_bios_io(uint16_t fn, uint16_t device, uint16_t value)
 {
-	task *t = active;
-	int blocking = t && have_peer() && !ptos_in_overlay();
-	if (blocking) suspend();
+	task *t = begin_io(NULL);
 	int32_t result = ptos_bios_call(fn, device, value);
-	if (blocking) resume(t);
+	end_io(t);
 	return result;
 }
 
@@ -181,13 +198,27 @@ static void reap_finished(void)
 	for (task **at = &children; *at; )
 	{
 		task *t = *at;
-		if (t->done && t->stack)
+		if (t->stack && (t->done || t->native_io))
 		{
 			/* A live startup stack is held by the kernel, even after the
 			 * worker unlocks. This also works for kernel-reaped orphans
 			 * whose PROCESS status is unavailable to this caller. */
 			int32_t r = ptos_call(GEMDOS_OP_MFREE, t->stack, 0, 0, 0);
-			if (r == 0) t->stack = 0;
+			if (r == 0)
+			{
+				t->stack = 0;
+				if (!t->done)
+				{
+					/* The kernel has released the startup stack, so the
+					 * suspended PROCESS cannot resume. Its native resources
+					 * have already been closed in that PROCESS. */
+					t->native_exit = 1;
+					free(t->io_buffer);
+					t->io_buffer = NULL;
+					ptos_vdi_forget(t->bp);
+					finish(t);
+				}
+			}
 			else if (r != -1) ptos_fault(t->bp, "cannot release native guest stack");
 		}
 		if (t->stack || t->retained || t->synchronous)
@@ -340,7 +371,7 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous)
 	result = wait_native(pid, 0, NULL);
 	/* The native public wait packs an eight-bit code and a signal byte.
 	 * Synchronous GEMDOS Pexec returns the child's full Pterm word. */
-	if (result >= 0) result = t->done ? t->status : (uint16_t)result;
+	if (result >= 0) result = t->done && !t->native_exit ? t->status : (uint16_t)result;
 	t->synchronous = 0;
 	reap_finished();
 	return result;
