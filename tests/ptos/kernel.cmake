@@ -58,10 +58,14 @@ endif()
 set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
 set(PTOS_GUEST_OUTPUTS)
 foreach(fixture IN LISTS PTOS_FIXTURES)
+	set(fixture_definitions)
+	if(PTOS_MANAGED_CONFIG AND fixture STREQUAL "semantics")
+		set(fixture_definitions -DPTOS_TEST_MANAGED_KERNEL=1)
+	endif()
 	set(output ${PTOS_FIXTURES_DIR}/${fixture}.tos)
 	add_custom_command(OUTPUT ${output}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${PTOS_FIXTURES_DIR}
-		COMMAND ${PTOS_M68K_CC} -std=c11 -m68000 -Os -fno-builtin
+		COMMAND ${PTOS_M68K_CC} -std=c11 -m68000 -Os -fno-builtin ${fixture_definitions}
 			-Wall -Wextra -Werror -nostdlib ${PTOS_M68K_LINK_FORMAT} -I${PTOS_LIBCMINI_ROOT}/include
 			${PTOS_GUEST_LIBCMINI_DIR}/objs/crt0.o
 			${PROJECT_SOURCE_DIR}/tests/ptos/${fixture}.c

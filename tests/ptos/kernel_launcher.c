@@ -61,9 +61,14 @@ static long launch(int mode, const char *path, const char *environment)
 
 int main(void)
 {
+#ifdef PTOS_TEST_MANAGED_KERNEL
+	enum { semantics_status = 23 };
+#else
+	enum { semantics_status = 0 };
+#endif
 	static const struct { const char *name, *path, *env; long status; } cases[] = {
 		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_env, 37},
-		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, 0},
+		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, semantics_status},
 		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_env, 0},
 		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_env, 0},
 		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_env, 255},

@@ -75,8 +75,10 @@ static int native_launch(void)
 	if (launched != 37) { printf("guest Pexec result: %ld\n", launched); return 9; }
 	launched = Pexec(0, "C:/SCRIPT.SH", tail, 0);
 	if (launched != 42) { printf("guest shebang Pexec result: %ld\n", launched); return 10; }
-	/* Replacement is currently unavailable. It must not spawn another child. */
+#ifndef PTOS_TEST_MANAGED_KERNEL
+	/* Older kernels must reject replacement without spawning a child. */
 	if (Pexec(200, "C:/NATIVE.TOS", tail, 0) != -32L) return 4;
+#endif
 	if (Fseek(0, (short)fd, 0) != 0) return 5;
 	char bytes[16] = {0};
 	if (Fread((short)fd, sizeof(bytes), bytes) != 11 || strcmp(bytes, "guestnative")) return 6;
@@ -121,5 +123,12 @@ int main(void)
 	int native = native_launch();
 	if (native) { printf("native launch check: %d\n", native); return 13; }
 	puts("pTOS guest semantics: PASS");
+#ifdef PTOS_TEST_MANAGED_KERNEL
+	/* The native replacement exits with 23. The guest must never resume. */
+	long replacement = Pexec(200, "C:/NATIVE.TOS", empty_tail, 0);
+	printf("native Pexec(200) unexpectedly returned: %ld\n", replacement);
+	return 18;
+#else
 	return 0;
+#endif
 }
