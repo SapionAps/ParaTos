@@ -123,6 +123,26 @@ void ptos_task_yield(void)
 	if (switch_cpu) resume(t);
 }
 
+int32_t ptos_task_io(uint16_t fn, intptr_t a, intptr_t b, intptr_t c)
+{
+	task *t = active;
+	int blocking = t && have_peer() && !ptos_in_overlay();
+	if (blocking) suspend();
+	int32_t result = ptos_call(fn, a, b, c, 0);
+	if (blocking) resume(t);
+	return result;
+}
+
+int32_t ptos_task_bios_io(uint16_t fn, uint16_t device, uint16_t value)
+{
+	task *t = active;
+	int blocking = t && have_peer() && !ptos_in_overlay();
+	if (blocking) suspend();
+	int32_t result = ptos_bios_call(fn, device, value);
+	if (blocking) resume(t);
+	return result;
+}
+
 int ptos_task_active_image(uint32_t bp)
 {
 	if (root && root->retained && root->bp == bp) return 1;
