@@ -7,15 +7,20 @@ int main(void)
 	Fsetdta(&dta);
 	if (Fsfirst("C:/FSCOMP/A.TXT", 0) || strcmp(dta.dta_name, "A.TXT") || dta.dta_size != 7) return 1;
 	if (Fsnext() != -49L) return 2;
-	/* The parent holds two native cursors. Fill the remaining slots with
-	 * unfinished searches, then verify that pressure cannot evict them. */
-	_DTA unfinished[7];
-	for (unsigned int i = 0; i < 7; i++)
+	/* A cloned PROCESS has its own eight slots. The legacy in-place
+	 * overlay shares the table with the parent's two active searches. */
+#ifdef PTOS_TEST_MANAGED_KERNEL
+	enum { available = 8 };
+#else
+	enum { available = 6 };
+#endif
+	_DTA unfinished[available + 1];
+	for (unsigned int i = 0; i <= available; i++)
 	{
 		memset(&unfinished[i], 0x5a, sizeof(unfinished[i]));
 		Fsetdta(&unfinished[i]);
 		long result = Fsfirst("C:/FSCOMP/*.TXT", 0);
-		if (i < 6) { if (result) return 3; }
+		if (i < available) { if (result) return 3; }
 		else
 		{
 			if (result != -39L) return 4;
