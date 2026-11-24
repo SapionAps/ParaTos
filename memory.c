@@ -15,27 +15,22 @@ unsigned int m68k_read_disassembler_16 (unsigned int address)
 
 unsigned int m68k_read_disassembler_32 (unsigned int address)
 {
-	return paratos_be64toh(MEM64(address));
+	return m68k_read_memory_32(address);
 }
 
 uint32_t m68k_write_string(uint32_t address, const char* value, uint32_t maxLen)
 {
-	uint32_t i = 0;
-	char *buffer = (char*)&memory[address];
-	for(i=0; i<maxLen; i++)
-	{
-		buffer[i] = value[i];
-		if (value[i] == 0)
-			break;
-	}
-	if(buffer[i] != 0)
-		buffer[++i] = 0;
-	return i;
+	uint32_t length = 0;
+	while (length < maxLen && value[length]) length++;
+	char *buffer = (char *)guest_pointer(address, (size_t)length + 1);
+	memcpy(buffer, value, length);
+	buffer[length] = 0;
+	return length;
 }
 
 void  m68k_read_array8(uint32_t address, char* dest, uint32_t size)
 {
-	memcpy(dest, &memory[address], size);
+	memcpy(dest, guest_pointer(address, size), size);
 }
 
 void m68k_write_array8(uint32_t address, const char* value, uint32_t size)

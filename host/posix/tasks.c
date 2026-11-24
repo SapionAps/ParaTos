@@ -280,7 +280,7 @@ static int run_guest(emuptr32_t basepage)
 			break;
 		}
 		m68k_execute(10000);
-		if (!finished && family->running > 1)
+		if (!finished && PosixGuestMemoryShared())
 		{
 			PosixPause();
 			sched_yield();
@@ -337,9 +337,12 @@ static int share_family_memory(posix_ram_change *change)
 		errno = error;
 		return -1;
 	}
-	fd = PosixAdoptFd(fd);
-	if (fd < 0) return -1;
-	if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || PosixBeginRamChange(1, change) < 0)
+	int lock_fd = fcntl(fd, F_DUPFD_CLOEXEC, 6);
+	int error = errno;
+	close(fd);
+	if (lock_fd < 0) { errno = error; return -1; }
+	fd = lock_fd;
+	if (PosixBeginRamChange(1, change) < 0)
 	{
 		int error = errno;
 		close(fd);
@@ -385,7 +388,7 @@ int PosixStagedActive(void)
 	poll_staged();
 	if (self_slot || !family) return self_slot != 0;
 	for (stage_child *child = children; child; child = child->next)
-		if (!child->consumed || family->entries[child->id].retained) return 1;
+		if (child->host || !child->consumed || family->entries[child->id].retained) return 1;
 	return 0;
 }
 

@@ -47,6 +47,14 @@ emuptr32_t Malloc(int32_t size)
 	uint32_t start = POSIX_HEAP_START, largest = 0;
 	posix_heap *heap = PosixGuestHeap();
 	uint32_t *at = &heap->first;
+	/* All gaps before the rover were smaller than skipped + 1. */
+	if (request > heap->skipped && heap->rover)
+	{
+		posix_block *previous = &heap->blocks[heap->rover];
+		start = previous->start + previous->size;
+		at = &previous->next;
+		largest = heap->skipped;
+	}
 	for (;;)
 	{
 		posix_block *next = *at ? &heap->blocks[*at] : NULL;
@@ -63,6 +71,8 @@ emuptr32_t Malloc(int32_t size)
 			}
 			heap->blocks[slot] = (posix_block){*at, start, request, current_process, 0};
 			*at = slot;
+			heap->rover = slot;
+			heap->skipped = largest;
 			return start;
 		}
 		if (gap > largest) largest = gap;
@@ -81,6 +91,7 @@ static uint32_t *find_block(posix_heap *heap, emuptr32_t address)
 
 static void release_block(posix_heap *heap, uint32_t *at)
 {
+	heap->rover = 0;
 	uint32_t slot = *at;
 	*at = heap->blocks[slot].next;
 	heap->blocks[slot].next = heap->recycled;
@@ -141,6 +152,7 @@ int32_t Mshrink(emuptr32_t address, int32_t size)
 		(address != current_process || request < sizeof(basepage_t) + 8))
 		return TOS_EIMBA;
 	if (request > block->size) return TOS_EGSBF;
+	if (request < block->size) heap->rover = 0;
 	block->size = request;
 	if (block->basepage && request >= sizeof(basepage_t))
 		m68k_write_field(address, basepage_t, p_hitpa, address + request);

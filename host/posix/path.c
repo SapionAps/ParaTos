@@ -13,6 +13,7 @@
 
 char* read_path(emuptr32_t tos_path)
 {
+	if (tos_path >= memory_sz || !memchr(memory + tos_path, 0, memory_sz - tos_path)) return NULL;
 	return tos_path_to_unix(&memory[tos_path]);
 }
 

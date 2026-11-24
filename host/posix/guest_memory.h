@@ -12,11 +12,13 @@ typedef struct posix_block {
 
 typedef struct posix_heap {
 	uint32_t first, recycled, count;
+	uint32_t rover, skipped;
 	posix_block blocks[];
 } posix_heap;
 
 typedef struct posix_ram_change {
 	uint8_t *previous;
+	posix_heap *previous_heap;
 	int was_shared;
 } posix_ram_change;
 

@@ -4,67 +4,11 @@
 #include "common.h"
 #include "arguments.h"
 
-/**
- * reads a list of zero terminated strings, terminated by an empty string at the end, and allocates an array of strng pointers
- * the result must be released using free
- */
-static char** read_env(emuptr32_t address, size_t* out_size)
-{
-	size_t array_count=0;
-	size_t current_strsz=0;
-	size_t src_chars = 0;
-
-	char* src = (char*)memory+address;
-
-	do {
-		char c = src[src_chars++];
-		if (c == 0)
-		{
-			if(current_strsz == 0)
-			{
-				break;
-			}
-			else
-			{
-				array_count++;
-				current_strsz=0;
-			}
-		}
-		else
-		{
-			current_strsz++;
-		}
-	} while(true);
-
-	// note we allocate one extra entry in case we need extra room for the paratos executable name
-	size_t ptr_arraysz = (array_count+2) * sizeof(char*);
-	char** result = malloc(ptr_arraysz);
-
-	char* current = src;
-	int j=0;
-	for(int i=0; i<src_chars; i++)
-	{
-		if(src[i]==0)
-		{
-			result[j++]=current;
-			current=src+i+1;
-		}
-	}
-	// Add a terminiating null ptr
-	result[array_count]=NULL;
-
-	if(out_size)
-	{
-		*out_size = array_count;
-	}
-
-	return result;
-}
-
 static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *arg_countp, int *buffer_sizep)
 {
-	int cmd_length = m68k_read_memory_8(cmdline);
-	char * cmd = (char*)memory+cmdline+1;
+	int cmd_length = cmdline ? m68k_read_memory_8(cmdline) : 0;
+	char *cmd = (char *)memory + cmdline + 1;
+	if (cmd_length > 127) cmd_length = 127;
 	int byte_count=0;
 	enum { BL, CHAR, DQ='"', SQ='\'' } state = BL;
 	for(int i=0; i<cmd_length && cmd[i]; i++)
@@ -115,7 +59,7 @@ static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *ar
 			{
 				if (cmd[i] == state)
 				{
-					if(cmd[i+1] != state)
+					if(i + 1 >= cmd_length || cmd[i+1] != state)
 					{
 						state = CHAR;
 					}
@@ -143,48 +87,50 @@ static void parse_cmdline(emuptr32_t cmdline, char** argv, char* buffer, int *ar
 }
 
 
-void prepare_guest_args(char*** out_argv, char*** out_env, char* path, emuptr32_t cmdline, emuptr32_t env)
+int prepare_guest_args(char ***out_argv, char ***out_env, char *path,
+	emuptr32_t cmdline, emuptr32_t env, size_t env_bytes)
 {
-	size_t env_sz;
+	/* Own the environment and both argv formats until execve consumes them. */
+	int argc = 1, cmd_bytes = 0;
+	parse_cmdline(cmdline, NULL, NULL, &argc, &cmd_bytes);
 
-	char** argv = NULL;
-	char** envp = read_env(env, &env_sz);
+	const char *source = env ? (const char *)memory + env : "\0";
+	size_t env_count = 0;
+	for (const char *entry = source; *entry; entry += strlen(entry) + 1)
+		env_count++;
 
-	int cmd_length = m68k_read_memory_8(cmdline); // cmdline is a pascal string
-	if(cmd_length == 127) // ARGV procedure: real command line is at the end of the env string.
+	size_t pointer_count = env_count + argc + 3;
+	char **envp = malloc(pointer_count * sizeof(*envp) + cmd_bytes + env_bytes);
+	if (!envp) return -1;
+
+	char *cmd = (char *)(envp + pointer_count);
+	char *copy = cmd + cmd_bytes;
+	memcpy(copy, source, env_bytes);
+	for (size_t i = 0; i < env_count; i++)
 	{
-		for(int i=0; envp[i]; i++)
+		envp[i] = copy;
+		copy += strlen(copy) + 1;
+	}
+	envp[env_count] = NULL;
+
+	char **argv = NULL;
+	if (cmdline && m68k_read_memory_8(cmdline) == 127)
+	{
+		for (size_t i = 0; i < env_count; i++)
 		{
-			if(strcmp("ARGV", envp[i]) == 0 || strncmp("ARGV=", envp[i], 5) == 0)
-			{
-				argv = envp+(i+1);
-				envp[i]=NULL;
-				break;
-			}
+			if (strcmp("ARGV", envp[i]) && strncmp("ARGV=", envp[i], 5)) continue;
+			envp[i] = NULL;
+			argv = envp + i + 1;
+			break;
 		}
 	}
-
-	// parse old-style fixed size command line
-	if (argv==NULL)
+	if (!argv)
 	{
-		// first figure out how many entries we need to allocate in argv
-		int arg_count = 1;
-		int byte_count = 0;
-		parse_cmdline(cmdline, NULL, NULL, &arg_count, &byte_count);
-
-		// Place everything into the same buffer
-		size_t new_env_size = (env_sz+arg_count+3) * sizeof(char*) + byte_count;
-		envp = realloc(envp, new_env_size);
-		argv = &envp[env_sz+1];
-
-		// The actual command line bytes are placed after the argv pointers
-		char* buffer = (char*)&argv[arg_count+2];
-
-		// First argument is the executable itself, as the TOS cmdline only contains argv[1] and forward
-		argv[0]=path;
-		parse_cmdline(cmdline, argv+1, buffer, NULL, NULL);
+		argv = envp + env_count + 1;
+		argv[0] = path;
+		parse_cmdline(cmdline, argv + 1, cmd, NULL, NULL);
 	}
-
 	*out_env = envp;
 	*out_argv = argv;
+	return 0;
 }

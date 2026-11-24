@@ -22,6 +22,8 @@ static void wait_success(pid_t child)
 static void check_mappings(void)
 {
 	uint8_t *private = memory;
+	posix_heap *private_heap = PosixGuestHeap();
+	private_heap->skipped = 11;
 	const uint32_t marker = 0x100;
 	m68k_write_memory_32(marker, 17);
 	assert(!PosixGuestMemoryShared());
@@ -47,9 +49,11 @@ static void check_mappings(void)
 	posix_ram_change change;
 	assert(PosixBeginRamChange(1, &change) == 0 && PosixGuestMemoryShared());
 	PosixEndRamChange(&change, 0);
-	assert(memory == private && !PosixGuestMemoryShared());
+	assert(memory == private && PosixGuestHeap() == private_heap && !PosixGuestMemoryShared());
 	assert(PosixRemapGuestMemory(1) == 0 && PosixGuestMemoryShared());
 	uint8_t *shared = memory;
+	posix_heap *shared_heap = PosixGuestHeap();
+	assert(shared_heap != private_heap && shared_heap->skipped == 11);
 	assert(PosixRemapGuestMemory(1) == 0 && memory == shared);
 
 	child = fork();
@@ -61,12 +65,16 @@ static void check_mappings(void)
 		m68k_write_memory_32(0xff000000, 92);
 #endif
 		m68k_write_memory_32(marker, 55);
+		PosixGuestHeap()->skipped = 22;
 		assert(PosixRemapGuestMemory(0) == 0 && !PosixGuestMemoryShared());
 		assert(m68k_read_memory_32(marker) == 55);
+		assert(PosixGuestHeap()->skipped == 22);
+		PosixGuestHeap()->skipped = 33;
 		m68k_write_memory_32(marker, 66);
 		_exit(0);
 	}
 	wait_success(child);
+	assert(PosixGuestHeap() == shared_heap && shared_heap->skipped == 22);
 	assert(memory == shared && PosixGuestMemoryShared() && m68k_read_memory_32(marker) == 55);
 #if UINTPTR_MAX > UINT32_MAX
 	assert(m68k_read_memory_32(0xff000000) == 92);

@@ -686,6 +686,21 @@ class PexecTests(unittest.TestCase):
                 p.label("tail", bytes(128))
                 self.assert_words(self.run_pair(p.image(), c.image()), [37, 42, 1])
 
+    def test_staged_family_lock_leaves_standard_channels_available(self):
+        p = Program()
+        p.shrink()
+        p.pexec(3)
+        p.emit("2840")
+        p.pexec(6, basepage=True)
+        p.report()
+        for channel in (3, 4, 5):
+            p.emit("3f3c00013f3c" + struct.pack(">H", channel).hex() + "3f3c00464e415c8f")
+            p.report()
+        p.finish(23)
+        p.label("child", b"CHILD.TOS\0")
+        p.label("tail", bytes(128))
+        self.assert_words(self.run_pair(p.image(), child()), [37, 0, 0, 0])
+
     def test_staged_launch_rollback_after_mapping_or_fork_failure(self):
         for fault, error in (("shared-map", -39), ("fork", -326)):
             with self.subTest(fault=fault):
@@ -826,6 +841,9 @@ class PexecTests(unittest.TestCase):
         native.write_text("#!/bin/sh\necho $$ > PIDFILE\n"
                           "while [ ! -e GO ]; do sleep 0.01; done\nexit 0\n")
         native.chmod(0o755)
+        replacement = self.directory / "REPLACE.SH"
+        replacement.write_text("#!/bin/sh\nexit 99\n")
+        replacement.chmod(0o755)
         c = Program()
         c.pexec(100)
         c.finish(37)
@@ -837,9 +855,15 @@ class PexecTests(unittest.TestCase):
         p.emit("2840")
         p.pexec(6, basepage=True)
         p.report()
+        p.emit("42a7")
+        p.push("tail")
+        p.push("replacement")
+        p.emit("3f3c00c83f3c004b4e414fef0010")
+        p.report()
         p.emit("4879000011002f3c000000013f3c00003f3c003f4e414fef000c")
         p.finish(23)
         p.label("child", b"CHILD.TOS\0")
+        p.label("replacement", b"REPLACE.SH\0")
         p.label("tail", bytes(128))
         (self.directory / "PARENT.TOS").write_bytes(p.image())
         (self.directory / "CHILD.TOS").write_bytes(c.image())
@@ -849,7 +873,7 @@ class PexecTests(unittest.TestCase):
         try:
             import select
             self.assertTrue(select.select([proc.stdout], [], [], 3)[0])
-            self.assertEqual(proc.stdout.read(4), struct.pack(">I", 37))
+            self.assertEqual(proc.stdout.read(8), struct.pack(">Ii", 37, -32))
             deadline = time.monotonic() + 3
             pidfile = self.directory / "PIDFILE"
             while not pidfile.exists() or not pidfile.read_text().strip():

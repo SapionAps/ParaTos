@@ -21,12 +21,12 @@
 /**
  * allocate an environment and argument list for passing on to the next process
  */
-static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr32_t cmdline, emuptr32_t env)
+static int prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr32_t cmdline, emuptr32_t env, size_t env_bytes)
 {
 	char* path = *pathp;
 	char** argv;
 	char** envp;
-	prepare_guest_args(&argv, &envp, path, cmdline, env);
+	if (prepare_guest_args(&argv, &envp, path, cmdline, env, env_bytes) < 0) return -1;
 
 	uint16_t magic = 0;
 	/* Executable sniffing must not rendezvous with FIFO writers or read
@@ -50,16 +50,9 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
 	magic = paratos_be16toh(magic);
 	if (magic == 0x601a) // this is another TOS executable - prepend paratos to the command line
 	{
-		// Shift argv one element to the right
-		char* prev = argv[0];
-		for(int i=1; true; i++)
-		{
-			char* next = argv[i];
-			argv[i] = prev;
-			if (prev == 0)
-				break;
-			prev = next;
-		}
+		size_t argc = 0;
+		while (argv[argc]) argc++;
+		memmove(argv + 1, argv, (argc + 1) * sizeof(*argv));
 
 		// add paratos executable in front of the command line and change the path name to execute
 		// TODO: handle when argv[0] != pathname
@@ -69,6 +62,7 @@ static void prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr
 
 	*out_env = envp;
 	*out_argv = argv;
+	return 0;
 }
 
 /**
@@ -124,10 +118,15 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		return TOS_EINVAL;
 	}
 	if (!arg3) arg3 = m68k_read_field(current_process, basepage_t, p_env);
-	if (PosixEnvironmentSize(arg3) < 0) { free(original); return TOS_EINVAL; }
+	int32_t env_bytes = arg3 ? PosixEnvironmentSize(arg3) : 2;
+	if (env_bytes < 0) { free(original); return TOS_EINVAL; }
 	char *path = original;
 	char **argv, **envp;
-	prepare_args(&argv, &envp, &path, arg2, arg3);
+	if (prepare_args(&argv, &envp, &path, arg2, arg3, (uint32_t)env_bytes) < 0)
+	{
+		free(original);
+		return TOS_ENSMEM;
+	}
 	char **tagged = NULL;
 	char id_text[16], parent_text[16];
 	if (operation == 200)
