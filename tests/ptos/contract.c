@@ -9,10 +9,14 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pthread.h>
+#include <sched.h>
+#include <poll.h>
 #include "m68k.h"
 #include "host.h"
 #include "memory.h"
 #include "guest.h"
+#include "tasks.h"
 #include "filesystem_contract.h"
 #include "vdi_contract.h"
 
@@ -27,6 +31,28 @@ static int32_t last_mode;
 static uint32_t retained_image;
 static int expect_retained;
 static int fail_dup;
+static int clone_enabled;
+enum { FAKE_FILES = 256, FAKE_PID = 730, FAKE_TID = 200 };
+typedef struct native_process {
+	pthread_t thread;
+	void (*entry)(void *);
+	void *argument;
+	uintptr_t stack;
+	int pid, parent, status, done;
+	int files[FAKE_FILES];
+} native_process;
+static native_process clones[16];
+static _Thread_local native_process *native_self;
+static pthread_mutex_t native_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t native_finished = PTHREAD_COND_INITIALIZER;
+static size_t stack_bytes;
+static int32_t clone_error;
+static uint32_t shutdown_file;
+static int shutdown_fd;
+static int console_test;
+static int terminate_on_input;
+static int console_pipe[2];
+static int console_waiting;
 static int current_drive = 2;
 static char directories[2][128] = {"PARENT", "OTHER"};
 static uint16_t bios_function;
@@ -42,10 +68,23 @@ int32_t ptos_bios_call(uint16_t function, int16_t device, int16_t value)
 static int32_t native_file(int fd)
 {
 	if (fd < 0) return errno == EBADF ? PTOS_EIHNDL : -36;
+	if (native_self)
+	{
+		for (int i = 6; i < FAKE_FILES; i++)
+			if (native_self->files[i] < 0) { native_self->files[i] = fd; return i; }
+		close(fd);
+		return PTOS_ENHNDL;
+	}
 	if (fd >= 6) return fd;
 	int copy = fcntl(fd, F_DUPFD, 6);
 	close(fd);
 	return copy;
+}
+
+static int native_fd(int handle)
+{
+	if (!native_self || handle < 6) return handle;
+	return handle < FAKE_FILES ? native_self->files[handle] : -1;
 }
 
 static void capture(const void *data, size_t n)
@@ -53,6 +92,66 @@ static void capture(const void *data, size_t n)
 	assert(n < sizeof(output) - output_size);
 	memcpy(output + output_size, data, n);
 	output_size += n; output[output_size] = 0;
+}
+
+static void *run_clone(void *argument)
+{
+	native_self = argument;
+	native_self->entry(native_self->argument);
+	return NULL;
+}
+
+static int32_t fake_clone(const ptos_clone_args *args, size_t bytes)
+{
+	if (!clone_enabled) return PTOS_ENOSYS;
+	if (clone_error) return clone_error;
+	assert(bytes == sizeof(*args));
+	assert(args->flags == (PTOS_CLONE_VM | PTOS_CLONE_COPY_ALL_HANDLES | PTOS_CLONE_COPY_CWD));
+	assert(args->child_pid && !args->child_tid);
+	assert(args->stack_size >= 256 && !((uintptr_t)args->stack_base & 15));
+	pthread_mutex_lock(&native_lock);
+	for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
+	{
+		native_process *p = &clones[i];
+		if (p->pid) continue;
+		*p = (native_process){ .entry = args->entry, .argument = args->argument,
+			.stack = (uintptr_t)args->stack_base - (stack_bytes - args->stack_size),
+			.pid = FAKE_PID + (int)i, .parent = native_self ? native_self->pid : 42 };
+		for (int h = 6; h < FAKE_FILES; h++) p->files[h] = fcntl(native_fd(h), F_DUPFD, FAKE_FILES);
+		*args->child_pid = p->pid;
+		assert(!pthread_create(&p->thread, NULL, run_clone, p));
+		pthread_mutex_unlock(&native_lock);
+		return FAKE_TID + (int32_t)i;
+	}
+	pthread_mutex_unlock(&native_lock);
+	return PTOS_ENSMEM;
+}
+
+static int32_t fake_wait(int pid, int flags)
+{
+	pthread_mutex_lock(&native_lock);
+	for (;;)
+	{
+		int pending = 0;
+		for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
+		{
+			native_process *p = &clones[i];
+			if (!p->pid || p->parent != (native_self ? native_self->pid : 42) ||
+				(pid != -1 && p->pid != pid)) continue;
+			if (!p->done) { pending = 1; continue; }
+			int32_t result = (p->pid << 16) | (p->status & 255);
+			assert(!pthread_join(p->thread, NULL));
+			p->pid = 0;
+			pthread_mutex_unlock(&native_lock);
+			return result;
+		}
+		if (!pending || (flags & 1))
+		{
+			pthread_mutex_unlock(&native_lock);
+			return pending ? 0 : -33;
+		}
+		pthread_cond_wait(&native_finished, &native_lock);
+	}
 }
 
 int32_t ptos_map(uint32_t address, uint32_t length)
@@ -73,6 +172,37 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	if (filesystem_test_native(fn, a, b, c, d, &filesystem_result)) return filesystem_result;
 	switch (fn)
 	{
+	case GEMDOS_OP_PCLONE: return fake_clone((const void *)a, b);
+	case GEMDOS_OP_MALLOC: {
+		stack_bytes = a;
+		for (uint32_t address = 0x20000000; address < 0x20400000; address += 0x20000)
+			if (ptos_map(address, a) == (int32_t)address) return address;
+		return PTOS_ENSMEM;
+	}
+	case GEMDOS_OP_MFREE:
+		pthread_mutex_lock(&native_lock);
+		for (unsigned int i = 0; i < sizeof(clones) / sizeof(clones[0]); i++)
+			if (clones[i].pid && clones[i].stack == (uintptr_t)a && !clones[i].done)
+			{
+				pthread_mutex_unlock(&native_lock);
+				return -1;
+			}
+		pthread_mutex_unlock(&native_lock);
+		assert(!munmap((void *)a, stack_bytes));
+		return 0;
+	case GEMDOS_OP_PTERM:
+		assert(native_self);
+		for (int i = 6; i < FAKE_FILES; i++) if (native_self->files[i] >= 0) close(native_self->files[i]);
+		pthread_mutex_lock(&native_lock);
+		native_self->status = a;
+		native_self->done = 1;
+		pthread_cond_broadcast(&native_finished);
+		pthread_mutex_unlock(&native_lock);
+		pthread_exit(NULL);
+	case GEMDOS_OP_PWAITPID: return fake_wait(a, b);
+	case GEMDOS_OP_SYIELD: return sched_yield();
+	case GEMDOS_OP_PGETPID: return native_self ? native_self->pid : 42;
+	case GEMDOS_OP_PGETPPID: return native_self ? native_self->parent : 1;
 	case 0x154:
 		system_calls++;
 		if (a == SSYSTEM_OP_INQUIRE) return b == unavailable_read ? PTOS_ENOSYS : 0;
@@ -82,9 +212,34 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 		if (b == 0x462) return vbclock;
 		if (b == 0x466) return frclock;
 		return 0;
+	case GEMDOS_OP_CCONIN: {
+		if (terminate_on_input) return ptos_call(GEMDOS_OP_PTERM, -32, 0, 0, 0);
+		assert(console_test);
+		__atomic_store_n(&console_waiting, 1, __ATOMIC_RELEASE);
+		struct pollfd input = { .fd = console_pipe[0], .events = POLLIN };
+		char byte;
+		assert(poll(&input, 1, 3000) == 1);
+		assert(read(console_pipe[0], &byte, 1) == 1);
+		return byte;
+	}
+	case GEMDOS_OP_CCONIS:
+		return __atomic_load_n(&console_waiting, __ATOMIC_ACQUIRE);
 	case 9: capture((const char *)a, strlen((const char *)a)); return 0;
 	case 2: {
 		char ch = a;
+		if (console_test)
+		{
+			assert(write(console_pipe[1], &ch, 1) == 1);
+			return a;
+		}
+		if (shutdown_file && ch == '@')
+		{
+			shutdown_fd = ptos_file_open(GEMDOS_OP_FCREATE, "contract-exit.tmp", 0);
+			assert(shutdown_fd >= 6);
+			m68k_write_memory_16(shutdown_file, shutdown_fd);
+		}
+		if (shutdown_file && ch == '!')
+			assert(fcntl(shutdown_fd, F_GETFD) >= 0);
 		capture(&ch, 1);
 		if (retained_image) assert(ptos_image_valid(retained_image) == expect_retained);
 		return a;
@@ -92,17 +247,21 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case 0x3c: return native_file(open((const char *)a, O_CREAT | O_TRUNC | O_RDWR, 0600));
 	case 0x3a: return -34;
 	case 0x3d: return native_file(open((const char *)a, b == 0 ? O_RDONLY : b == 1 ? O_WRONLY : O_RDWR));
-	case 0x3e: return a >= 6 ? (close(a) < 0 ? PTOS_EIHNDL : 0) : 0;
-	case 0x3f: { ssize_t r = read(a, (void *)c, b); return r < 0 ? (errno == EBADF ? PTOS_EIHNDL : -36) : r; }
+	case 0x3e:
+		if (a < 6) return 0;
+		if (close(native_fd(a)) < 0) return PTOS_EIHNDL;
+		if (native_self) native_self->files[a] = -1;
+		return 0;
+	case 0x3f: { ssize_t r = read(native_fd(a), (void *)c, b); return r < 0 ? (errno == EBADF ? PTOS_EIHNDL : -36) : r; }
 	case GEMDOS_OP_FDUP:
 		if (fail_dup && a == 2) return PTOS_ENHNDL;
 		return a >= 0 && a < 3 ? native_file(fcntl(a, F_DUPFD, 6)) : PTOS_EIHNDL;
 	case GEMDOS_OP_FFORCE: return 0;
 	case 0x40:
 		if (a == 1 || a == 2) { capture((const void *)c, b); return b; }
-		return write(a, (const void *)c, b);
+		return write(native_fd(a), (const void *)c, b);
 	case 0x41: return unlink((const char *)a);
-	case 0x42: { off_t pos = lseek(b, a, c); return pos < 0 ? -64 : (int32_t)pos; }
+	case 0x42: { off_t pos = lseek(native_fd(b), a, c); return pos < 0 ? -64 : (int32_t)pos; }
 	case 0x57: return 0;
 	case 0x4b:
 		exec_calls++; last_mode = a;
@@ -484,6 +643,158 @@ static void test_bad_images(void)
 	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
 }
 
+static void test_async_go(int mode, int32_t error)
+{
+	reset();
+	unsigned char caller[] = {
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7, /* env, basepage, path */
+		0x3f,0x3c, 0,0, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,
+		0x23,0xc0, 0,0,0,0,                       /* save guest PID */
+		0x4a,0x80, 0x6b,0x18,                     /* skip waits on launch error */
+		0x42,0xa7, 0x3f,0x3c, 0,0, 0x3f,0x00,    /* usage, flags, pid */
+		0x3f,0x3c, 0x01,0x3a, 0x4e,0x41,          /* Pwaitpid */
+		0x4f,0xef, 0,10,
+		0x23,0xc0, 0,0,0,0,                       /* save wait result */
+		0x42,0x67, 0x4e,0x41                     /* Pterm0 */
+	};
+	unsigned char callee[] = {
+		0x3f,0x3c, 0x01,0x0c, 0x4e,0x41,          /* Pgetppid */
+		0x54,0x8f,
+		0x23,0xc0, 0,0,0,0,
+		0x3f,0x3c, 0,37, 0x3f,0x3c, 0,0x4c, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	uint32_t results = bp + 1024;
+	m68k_write_memory_32(code + 4, child);
+	m68k_write_memory_16(code + 12, mode);
+	m68k_write_memory_32(code + 26, results);
+	m68k_write_memory_32(code + 54, results + 4);
+	m68k_write_memory_32(child + BP_SIZE + 10, results + 8);
+
+	clone_error = error;
+	assert(ptos_run_program(bp) == 0);
+	clone_error = 0;
+	int32_t pid = m68k_read_memory_32(results);
+	if (error) assert(pid == error && !m68k_read_memory_32(results + 4));
+	else
+	{
+		assert(pid >= FAKE_PID && pid < FAKE_PID + (int32_t)(sizeof(clones) / sizeof(clones[0])));
+		assert(m68k_read_memory_32(results + 4) == ((uint32_t)pid << 16 | 37));
+		assert(m68k_read_memory_32(results + 8) == 42);
+	}
+	assert(!ptos_image_valid(bp) && !ptos_image_valid(child));
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
+}
+
+static void test_blocking_console(void)
+{
+	reset();
+	unsigned char caller[] = {
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7,
+		0x3f,0x3c, 0,106, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,                           /* Async Pexec */
+		0x3f,0x3c, 0,1, 0x4e,0x41, 0x54,0x8f,     /* Cconin */
+		0x3f,0x00, 0x3f,0x3c, 0,0x4c, 0x4e,0x41  /* Pterm(input) */
+	};
+	unsigned char callee[] = {
+		0x3f,0x3c, 0,0x0b, 0x4e,0x41, 0x54,0x8f, /* Cconis */
+		0x4a,0x80, 0x67,0xf4,                     /* Wait for pending input */
+		0x3f,0x3c, 0,'!', 0x3f,0x3c, 0,2, 0x4e,0x41, 0x58,0x8f,
+		0x42,0x67, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	m68k_write_memory_32(code + 4, child);
+
+	assert(pipe(console_pipe) == 0);
+	console_waiting = 0;
+	console_test = 1;
+	assert(ptos_run_program(bp) == '!');
+	console_test = 0;
+	close(console_pipe[0]);
+	close(console_pipe[1]);
+}
+
+static void test_native_console_exit(int asynchronous)
+{
+	reset();
+	unsigned char caller[] = {
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7,
+		0x3f,0x3c, 0,6, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,
+		0x3f,0x00, 0x3f,0x3c, 0,0x4c, 0x4e,0x41  /* Pterm(result) */
+	};
+	unsigned char callee[] = {
+		0x3f,0x3c, 0,1, 0x4e,0x41, 0x54,0x8f,     /* Native Cconin exits */
+		0x42,0x67, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	m68k_write_memory_32(code + 4, child);
+	if (asynchronous) m68k_write_memory_16(code + 12, 106);
+
+	terminate_on_input = 1;
+	alarm(5);
+	int32_t result = ptos_run_program(bp);
+	alarm(0);
+	terminate_on_input = 0;
+	if (asynchronous)
+	{
+		assert(result >= FAKE_PID);
+		assert((uint8_t)fake_wait(result, 0) == (uint8_t)-32);
+	}
+	else assert(result == (uint8_t)-32);
+	assert(!ptos_image_valid(bp) && !ptos_image_valid(child));
+	assert(ptos_alloc(-1) == PTOS_RAM_END - PTOS_ALLOC_START);
+}
+
+static void test_root_and_child_bindings(void)
+{
+	reset();
+	unsigned char caller[] = {
+		0x3f,0x3c, 0,'@', 0x3f,0x3c, 0,2, 0x4e,0x41, 0x58,0x8f,
+		0x42,0xa7, 0x48,0x79, 0,0,0,0, 0x42,0xa7,
+		0x3f,0x3c, 0,106, 0x3f,0x3c, 0,0x4b, 0x4e,0x41,
+		0x4f,0xef, 0,16,
+		0x33,0xfc, 0,1, 0,0,0,0,                 /* allow child to close the handle */
+		0x42,0x67, 0x4e,0x41                     /* Pterm0 */
+	};
+	unsigned char callee[] = {
+		0x4a,0x79, 0,0,0,0, 0x67,0xf8,           /* wait for parent's exit */
+		0x3f,0x39, 0,0,0,0, 0x3f,0x3c, 0,0x3e,
+		0x4e,0x41, 0x58,0x8f,                     /* Fclose inherited handle */
+		0x3f,0x3c, 0,'!', 0x3f,0x3c, 0,2, 0x4e,0x41, 0x58,0x8f,
+		0x42,0x67, 0x4e,0x41
+	};
+	uint32_t bp = load_fixture(caller, sizeof(caller));
+	assert(ptos_shrink(bp, 4096) == 0);
+	ptos_process = bp;
+	uint32_t child = load_fixture(callee, sizeof(callee));
+	uint32_t code = m68k_read_memory_32(bp + BP_TEXT);
+	shutdown_file = bp + 1024;
+	m68k_write_memory_32(code + 16, child);
+	m68k_write_memory_32(code + 40, shutdown_file + 2);
+	m68k_write_memory_32(child + BP_SIZE + 2, shutdown_file + 2);
+	m68k_write_memory_32(child + BP_SIZE + 10, shutdown_file);
+	assert(ptos_run_program(bp) == 0);
+	assert(!strcmp(output, "@!"));
+	assert(!close(shutdown_fd));
+	assert(fake_wait(-1, 1) > 0);
+	shutdown_file = 0;
+	remove("contract-exit.tmp");
+}
+
 static void test_nested_supervisor_stack(void)
 {
 	reset();
@@ -560,6 +871,16 @@ int main(int argc, char **argv)
 	test_delegation();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);
+	clone_enabled = 1;
+	test_overlay(4); test_overlay(6);
+	test_async_go(104, 0);
+	test_async_go(106, 0);
+	test_async_go(104, PTOS_ENSMEM);
+	test_blocking_console();
+	test_native_console_exit(0);
+	test_native_console_exit(1);
+	test_root_and_child_bindings();
+	clone_enabled = 0;
 	test_bad_images();
 	test_nested_supervisor_stack();
 	test_loaded_context_cleanup();

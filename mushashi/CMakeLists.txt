@@ -1,4 +1,4 @@
-project (mushashi)
+project (mushashi LANGUAGES C)
 
 set (M68KMAKE_SOURCES m68kmake.c)
 set (M68KMAKE_INPUT m68k_in.c)

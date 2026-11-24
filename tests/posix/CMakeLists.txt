@@ -4,7 +4,7 @@ add_executable(posix_memory memory.c
 	${PROJECT_SOURCE_DIR}/host/posix/memory.c)
 target_include_directories(posix_memory PRIVATE ${PROJECT_SOURCE_DIR}
 	${PROJECT_SOURCE_DIR}/mushashi ${PROJECT_SOURCE_DIR}/host/posix)
-target_compile_definitions(posix_memory PRIVATE _GNU_SOURCE)
+target_compile_definitions(posix_memory PRIVATE _GNU_SOURCE PARATOS_MEMORY_TEST)
 target_compile_options(posix_memory PRIVATE -std=c11 -UNDEBUG)
 add_test(NAME posix_memory COMMAND posix_memory)
 
@@ -19,6 +19,12 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	if(TEST posix_pexec)
+		add_library(posix_fork_faults SHARED fork_faults.c)
+		target_link_libraries(posix_fork_faults PRIVATE ${CMAKE_DL_LIBS})
+		set_tests_properties(posix_pexec PROPERTIES ENVIRONMENT
+			"PARATOS_TEST_INTERPOSER=$<TARGET_FILE:posix_fork_faults>")
+	endif()
 	# Function-section GC permits focused host-runtime tests without a CPU loop.
 	add_executable(posix_pid_registry pid_registry.c)
 	target_include_directories(posix_pid_registry PRIVATE ${PROJECT_SOURCE_DIR}
@@ -31,7 +37,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 		${PROJECT_SOURCE_DIR}/host/posix/file.c ${PROJECT_SOURCE_DIR}/host/posix/signals.c)
 	target_include_directories(posix_io_staging PRIVATE ${PROJECT_SOURCE_DIR}
 		${PROJECT_SOURCE_DIR}/gemdos ${PROJECT_SOURCE_DIR}/mushashi ${PROJECT_SOURCE_DIR}/host/posix)
-	target_compile_definitions(posix_io_staging PRIVATE _GNU_SOURCE)
+	target_compile_definitions(posix_io_staging PRIVATE _GNU_SOURCE PARATOS_IO_TEST)
 	target_compile_options(posix_io_staging PRIVATE -std=c11 -UNDEBUG -ffunction-sections -fdata-sections)
 	target_link_options(posix_io_staging PRIVATE -Wl,--gc-sections,--wrap=read,--wrap=write,--wrap=pause,--wrap=sigsuspend)
 	target_link_libraries(posix_io_staging PRIVATE Threads::Threads)

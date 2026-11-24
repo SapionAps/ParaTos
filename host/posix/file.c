@@ -963,6 +963,7 @@ int32_t Fread ( int16_t handle, int32_t count, emuptr32_t address )
  */
 int32_t Freadlink ( int16_t bufsiz, emuptr32_t buf, emuptr32_t filename )
 {
+	if (bufsiz < 0 || buf >= memory_sz || (uint32_t)bufsiz > memory_sz - buf) return TOS_EINVAL;
 	int32_t retval = TOS_E_OK;
 	char* path = read_path(filename);
 	if(!path)

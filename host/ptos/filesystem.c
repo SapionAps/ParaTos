@@ -13,40 +13,39 @@ _Static_assert(offsetof(ptos_native_xattr, size) == 20, "native XATTR size offse
 _Static_assert(offsetof(ptos_native_xattr, stamp) == 32, "native XATTR date offset");
 _Static_assert(sizeof(ptos_native_xattr) == 56, "native XATTR size");
 
-typedef struct search {
-	struct search *next;
+typedef struct ptos_search {
+	struct ptos_search *next;
 	uint32_t owner, address;
 	int started;
 	ptos_native_dta native;
 } search;
-static search *searches;
+static ptos_search_state initial;
+static ptos_search_state *current = &initial;
 /* The pTOS protected DTA table has eight slots per native process. Never
- * start a ninth cursor: it would silently evict a suspended guest's search. */
+ * start a ninth cursor in the same PROCESS: it would silently evict a search. */
 #define NATIVE_SEARCH_LIMIT 8
 
 static unsigned int active_searches(void)
 {
 	unsigned int count = 0;
-	for (search *p = searches; p; p = p->next) count += p->started != 0;
+	for (search *p = current->searches; p; p = p->next) count += p->started != 0;
 	return count;
 }
 /* Never used for Fsfirst. Fsnext on an unstarted guest DTA must not reuse
  * kernel search state belonging to a freed/reallocated native buffer. */
 static ptos_native_dta empty_dta;
-static uint32_t pending_dta;
-static int pending_restore;
 
 static int32_t restore_native_dta(uint32_t address)
 {
 	int32_t result = ptos_call(GEMDOS_OP_FSETDTA, (intptr_t)address, 0, 0, 0);
-	pending_restore = result < 0;
-	if (pending_restore) pending_dta = address;
+	current->pending_restore = result < 0;
+	if (current->pending_restore) current->pending_dta = address;
 	return result;
 }
 
 static int32_t repair_native_dta(void)
 {
-	return pending_restore ? restore_native_dta(pending_dta) : 0;
+	return current->pending_restore ? restore_native_dta(current->pending_dta) : 0;
 }
 
 /* Exhaust through Fsnext: both the protected DTA cache and a pluggable
@@ -71,7 +70,7 @@ static int32_t cancel_search(search *p)
 
 static search *find_search(uint32_t address)
 {
-	for (search *p = searches; p; p = p->next)
+	for (search *p = current->searches; p; p = p->next)
 		if (p->owner == ptos_process && p->address == address) return p;
 	return NULL;
 }
@@ -83,8 +82,8 @@ static int32_t search_error(search *p, int32_t result)
 	if (p && !p->started)
 	{
 		p->owner = 0;
-		if (!pending_restore)
-			for (search **at = &searches; *at; at = &(*at)->next)
+		if (!current->pending_restore)
+			for (search **at = &current->searches; *at; at = &(*at)->next)
 				if (*at == p) { *at = p->next; free(p); break; }
 	}
 	return result;
@@ -109,7 +108,7 @@ int32_t ptos_search(uint16_t function, const char *path, uint16_t attribute)
 		p = calloc(1, sizeof(*p));
 		if (!p) return PTOS_ENSMEM;
 		p->owner = ptos_process; p->address = address;
-		p->next = searches; searches = p;
+		p->next = current->searches; current->searches = p;
 	}
 	if (function == GEMDOS_OP_FSFIRST && p->started)
 	{
@@ -179,7 +178,7 @@ int32_t ptos_xattr(uint16_t flag, const char *path, uint32_t buffer)
 
 void ptos_filesystem_drop(uint32_t owner)
 {
-	for (search **at = &searches; *at; )
+	for (search **at = &current->searches; *at; )
 	{
 		search *p = *at;
 		if (p->owner != owner) { at = &p->next; continue; }
@@ -194,10 +193,26 @@ void ptos_filesystem_cleanup(void)
 {
 	/* Fsnext on empty_dta can also leave a pending native restoration. */
 	if (repair_native_dta() < 0) return;
-	for (search **at = &searches; *at; )
+	for (search **at = &current->searches; *at; )
 	{
 		search *p = *at;
 		if (cancel_search(p) < 0) { p->owner = 0; at = &p->next; continue; }
 		*at = p->next; free(p);
+	}
+}
+
+void ptos_filesystem_select(ptos_search_state *state)
+{
+	current = state ? state : &initial;
+}
+
+/* A reaped native PROCESS has already discarded the corresponding cursors. */
+void ptos_filesystem_retire(ptos_search_state *state)
+{
+	while (state->searches)
+	{
+		search *p = state->searches;
+		state->searches = p->next;
+		free(p);
 	}
 }

@@ -6,16 +6,29 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
+#include "host/posix/guest_memory.h"
 #include "byteorder.h"
 
 extern uint8_t* memory;
 #define INLINE __attribute__((always_inline)) static inline 
 
+INLINE uint8_t *guest_pointer(uint32_t address, size_t size)
+{
+	uint64_t end = (uint64_t)address + size;
+	if (end <= POSIX_RAM_BYTES ||
+		(UINTPTR_MAX > UINT32_MAX && address >= UINT32_C(0xff000000) &&
+		 end <= UINT64_C(0x100000000)))
+		return memory + address;
+	raise(SIGSEGV);
+	abort();
+}
+
 // NOTE we currently assume the platform allows unaligned reads and writes.
-#define MEM8(address) (memory[(address)])
-#define MEM16(address) (*((uint16_t*)(memory+(address))))
-#define MEM32(address) (*((uint32_t*)(memory+(address))))
-#define MEM64(address) (*((uint64_t*)(memory+(address))))
+#define MEM8(address) (*guest_pointer((address), 1))
+#define MEM16(address) (*((uint16_t*)guest_pointer((address), 2)))
+#define MEM32(address) (*((uint32_t*)guest_pointer((address), 4)))
+#define MEM64(address) (*((uint64_t*)guest_pointer((address), 8)))
 
 INLINE unsigned int m68k_read_memory_8(unsigned int address)
 {

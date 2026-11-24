@@ -92,6 +92,12 @@ def run(args):
                                                 "::RUNTESTS.TOS"])
             if original[:2] != b"\x60\x1a":
                 raise ValueError("The disk's RUNTESTS.TOS must be a 68k TOS PRG, not a native ELF")
+        elif args.pclone:
+            prg = args.fixtures / "pclone_guest.tos"
+            if prg.read_bytes()[:2] != b"\x60\x1a":
+                raise ValueError("The Pclone fixture must be a compiled 68k TOS PRG")
+            shutil.copyfile(prg, stage / "PCGUEST.TOS")
+            shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
         else:
             shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
             shutil.copyfile(args.filesystem_native, stage / "FSNATIVE.TOS")
@@ -167,6 +173,9 @@ def run(args):
                             if args.test_disk and ("All tests passed." not in body or
                                                   not re.search(r"Summary: [1-9][0-9]* passed, 0 failed", body)):
                                 raise RuntimeError("The 68k runner did not report a successful test summary")
+                            if args.pclone and any(marker not in body for marker in
+                                                   ("Pclone guest modes: PASS", "Pclone shutdown: PASS")):
+                                raise RuntimeError("The 68k Pclone guest or its shutdown child did not report success")
                             print(begin + body[:body.index(passed) + len(passed)])
                             return
                     if process.poll() is not None:
@@ -186,6 +195,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arch", required=True, choices=("arm", "x32"))
+    parser.add_argument("--pclone", action="store_true")
     for name in ("kernel-dir", "paratos", "launcher", "native-child", "filesystem-native", "fixtures", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--qemu", required=True)

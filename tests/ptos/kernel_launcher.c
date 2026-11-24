@@ -61,9 +61,14 @@ static long launch(int mode, const char *path, const char *environment)
 
 int main(void)
 {
+#ifdef PTOS_TEST_EXEC_REPLACEMENT
+	enum { semantics_status = 24 };
+#else
+	enum { semantics_status = 0 };
+#endif
 	static const struct { const char *name, *path, *env; long status; } cases[] = {
 		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_env, 37},
-		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, 0},
+		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, semantics_status},
 		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_env, 0},
 		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_env, 0},
 		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_env, 255},
@@ -71,7 +76,11 @@ int main(void)
 		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_env, 42},
 		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_env, 37}
 	};
+#ifdef PTOS_TEST_NATIVE_MODE_ZERO_ONLY
+	static const int modes[] = {0};
+#else
 	static const int modes[] = {0, 4, 6};
+#endif
 	puts("pTOS Paratos kernel integration: BEGIN");
 	if (!userspace())
 	{

@@ -66,18 +66,28 @@ int32_t ptos_vdi(uint32_t parameter_block)
 	return paratos_vdi_marshal(parameter_block, &host);
 }
 
-void ptos_vdi_drop(uint32_t owner)
+static void drop_workstations(uint32_t owner, int close_native)
 {
 	for (workstation **at = &workstations; *at; )
 	{
 		workstation *p = *at;
 		if (p->owner != owner) { at = &p->next; continue; }
-		if (p->handle > 0 && close_workstation(p->handle) < 0)
+		if (close_native && p->handle > 0 && close_workstation(p->handle) < 0)
 		{
 			p->owner = 0; at = &p->next; continue;
 		}
 		*at = p->next; free(p);
 	}
+}
+
+void ptos_vdi_drop(uint32_t owner)
+{
+	drop_workstations(owner, 1);
+}
+
+void ptos_vdi_forget(uint32_t owner)
+{
+	drop_workstations(owner, 0);
 }
 
 void ptos_vdi_cleanup(void)

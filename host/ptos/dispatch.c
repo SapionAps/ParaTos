@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 #ifdef PARATOS_TRACE
 #include <stdio.h>
@@ -8,6 +9,7 @@
 #include "guest.h"
 #include "filesystem.h"
 #include "vdi.h"
+#include "tasks.h"
 
 static uint32_t word(uint32_t sp, unsigned int offset) { return m68k_read_memory_16(sp + offset); }
 static uint32_t lng(uint32_t sp, unsigned int offset) { return m68k_read_memory_32(sp + offset); }
@@ -67,10 +69,29 @@ static int32_t guest_ssystem(uint16_t mode, uint32_t a, uint32_t b)
 	return PTOS_ENOSYS;
 }
 
+static int blocking_io(uint16_t fn)
+{
+	switch (fn)
+	{
+	case GEMDOS_OP_CCONIN: case GEMDOS_OP_CAUXIN: case GEMDOS_OP_CRAWCIN:
+	case GEMDOS_OP_CNECIN: case GEMDOS_OP_CCONOUT: case GEMDOS_OP_CAUXOUT:
+	case GEMDOS_OP_CPRNOUT: case GEMDOS_OP_CRAWIO: case GEMDOS_OP_CCONWS:
+	case GEMDOS_OP_CCONRS: case GEMDOS_OP_FREAD: case GEMDOS_OP_FWRITE:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
 void dispatch_gemdos_trap(void)
 {
 	uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
 	uint16_t fn = word(sp, 0);
+	/* These handlers can join or suspend the native thread. Finish the
+	 * Musashi timeslice first so peers cannot overwrite its scratch state. */
+	if ((blocking_io(fn) || fn == GEMDOS_OP_PEXEC || fn == GEMDOS_OP_SYIELD || fn == GEMDOS_OP_PWAIT ||
+		fn == GEMDOS_OP_PWAIT3 || fn == GEMDOS_OP_PWAITPID) &&
+		ptos_defer_trap(dispatch_gemdos_trap)) return;
 #ifdef PARATOS_TRACE
 	fprintf(stderr, "guest GEMDOS %04x\n", fn);
 #endif
@@ -84,6 +105,7 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_CAUXIN:
 	case GEMDOS_OP_CRAWCIN:
 	case GEMDOS_OP_CNECIN:
+		r = ptos_task_io(fn, 0, 0, 0, NULL); break;
 	case GEMDOS_OP_CCONIS:
 	case GEMDOS_OP_CCONOS:
 	case GEMDOS_OP_CPRNOS:
@@ -103,23 +125,48 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_PGETUID:
 	case GEMDOS_OP_PGETGID:
 		r = ptos_call(fn, 0, 0, 0, 0); break;
+	case GEMDOS_OP_SYIELD: ptos_task_yield(); r = 0; break;
+	case GEMDOS_OP_PWAIT: r = ptos_task_wait(-1, 2, 0); break;
+	case GEMDOS_OP_PWAIT3: r = ptos_task_wait(-1, word(sp, 2), lng(sp, 4)); break;
+	case GEMDOS_OP_PWAITPID: r = ptos_task_wait(word(sp, 2), word(sp, 4), lng(sp, 6)); break;
 	case GEMDOS_OP_PNICE:
 	case GEMDOS_OP_PUMASK:
 	case GEMDOS_OP_PSETAUID:
-	case GEMDOS_OP_CCONOUT:
-	case GEMDOS_OP_CAUXOUT:
-	case GEMDOS_OP_CPRNOUT:
-	case GEMDOS_OP_CRAWIO:
 	case GEMDOS_OP_DSETDRV:
 	case GEMDOS_OP_TSETDATE:
 	case GEMDOS_OP_TSETTIME:
 		r = ptos_call(fn, (int16_t)word(sp, 2), 0, 0, 0); break;
+	case GEMDOS_OP_CCONOUT:
+	case GEMDOS_OP_CAUXOUT:
+	case GEMDOS_OP_CPRNOUT:
+	case GEMDOS_OP_CRAWIO:
+		r = ptos_task_io(fn, (int16_t)word(sp, 2), 0, 0, NULL); break;
 	case GEMDOS_OP_FCLOSE: r = ptos_file_close(word(sp, 2)); break;
 	case GEMDOS_OP_FDUP: r = ptos_file_dup(word(sp, 2)); break;
-	case GEMDOS_OP_CCONWS: r = ptos_call(fn, (intptr_t)ptos_guest_string(lng(sp, 2), 32766), 0, 0, 0); break;
+	case GEMDOS_OP_CCONWS: {
+		const char *guest = ptos_guest_string(lng(sp, 2), 32766);
+		size_t length = strlen(guest) + 1;
+		char *buffer = malloc(length);
+		if (!buffer) { r = PTOS_ENSMEM; break; }
+		memcpy(buffer, guest, length);
+		r = ptos_task_io(fn, (intptr_t)buffer, 0, 0, buffer);
+		free(buffer);
+		break;
+	}
 	case GEMDOS_OP_CCONRS: {
-		uint32_t buf = lng(sp, 2);
-		r = ptos_call(fn, (intptr_t)ptos_guest_buffer(buf, 2 + m68k_read_memory_8(buf)), 0, 0, 0); break;
+		uint32_t address = lng(sp, 2);
+		unsigned int size = 2 + m68k_read_memory_8(address);
+		void *guest = ptos_guest_buffer(address, size);
+		unsigned char buffer[257];
+		memcpy(buffer, guest, size);
+		r = ptos_task_io(fn, (intptr_t)buffer, 0, 0, NULL);
+		if (r >= 0)
+		{
+			unsigned int length = buffer[1];
+			if (length > size - 2) length = size - 2;
+			memcpy((unsigned char *)guest + 1, buffer + 1, length + 1);
+		}
+		break;
 	}
 	case GEMDOS_OP_FSETDTA:
 		ptos_guest_buffer(lng(sp, 2), 44);
@@ -142,8 +189,21 @@ void dispatch_gemdos_trap(void)
 		if (count < 0) { r = PTOS_EINVAL; break; }
 		int32_t handle = ptos_file_handle(word(sp, 2));
 		if (handle == PTOS_EIHNDL) { r = handle; break; }
-		r = ptos_call(fn, handle, count,
-			(intptr_t)ptos_guest_buffer(lng(sp, 8), (uint32_t)count), 0); break;
+		void *guest = ptos_guest_buffer(lng(sp, 8), (uint32_t)count);
+		if (!count)
+		{
+			char scratch;
+			r = ptos_task_io(fn, handle, 0, (intptr_t)&scratch, NULL);
+			break;
+		}
+		void *buffer = malloc((uint32_t)count);
+		if (!buffer) { r = PTOS_ENSMEM; break; }
+		if (fn == GEMDOS_OP_FWRITE) memcpy(buffer, guest, (uint32_t)count);
+		r = ptos_task_io(fn, handle, count, (intptr_t)buffer, buffer);
+		if (fn == GEMDOS_OP_FREAD && r > 0 && r <= count)
+			memcpy(guest, buffer, (uint32_t)r);
+		free(buffer);
+		break;
 	}
 	case GEMDOS_OP_FSEEK: {
 		int32_t handle = ptos_file_handle(word(sp, 6));
@@ -197,11 +257,12 @@ void dispatch_gemdos_trap(void)
 	case GEMDOS_OP_DGETPATH: r = ptos_call(fn, (intptr_t)ptos_guest_buffer(lng(sp, 2), 128), word(sp, 6), 0, 0); break;
 	case GEMDOS_OP_MFREE: r = ptos_free(lng(sp, 2)); break;
 	case GEMDOS_OP_MSHRINK: r = ptos_shrink(lng(sp, 4), (int32_t)lng(sp, 8)); break;
-	case GEMDOS_OP_PEXEC:
+	case GEMDOS_OP_PEXEC: {
+		uint32_t caller = ptos_process;
 		r = ptos_exec(word(sp, 2), lng(sp, 4), lng(sp, 8), lng(sp, 12));
-		if (r == 0 && ((word(sp, 2) & 0x7fff) == PTOS_EXEC_GO ||
-			(word(sp, 2) & 0x7fff) == PTOS_EXEC_GO_FREE)) return;
+		if (ptos_process != caller) return; /* legacy in-place GO */
 		break;
+	}
 	case GEMDOS_OP_FRENAME: r = ptos_call(fn, 0, path(lng(sp, 4), p1), path(lng(sp, 8), p2), 0); break;
 	case GEMDOS_OP_FDATIME: {
 		uint32_t at = lng(sp, 2); int writing = word(sp, 8);
@@ -257,9 +318,13 @@ void dispatch_bios_trap(void)
 	}
 	else if (device <= BIOS_DEVICE_CONSOLE)
 	{
-		if (fn == BIOS_OP_BCONSTAT || fn == BIOS_OP_BCONIN || fn == BIOS_OP_BCOSTAT)
+		if (fn == BIOS_OP_BCONIN || fn == BIOS_OP_BCONOUT)
+		{
+			if (ptos_defer_trap(dispatch_bios_trap)) return;
+			r = ptos_task_bios_io(fn, device, fn == BIOS_OP_BCONOUT ? word(sp, 4) : 0);
+		}
+		else if (fn == BIOS_OP_BCONSTAT || fn == BIOS_OP_BCOSTAT)
 			r = ptos_bios_call(fn, device, 0);
-		if (fn == BIOS_OP_BCONOUT) r = ptos_bios_call(fn, device, word(sp, 4));
 	}
 	m68k_set_reg(M68K_REG_D0, r);
 }

@@ -33,14 +33,25 @@ uint64_t PosixTaskOwner(void) { return owner; }
 int16_t PosixTaskPid(void) { return 7; }
 int16_t PosixTaskParentPid(void) { return 8; }
 int16_t PosixRuntimeRootPid(void) { return 1; }
-int PosixHasThreads(void) { return 0; }
+int PosixFamilyPidUsed(int16_t pid) { (void)pid; return 0; }
+void PosixFamilyReservePid(int16_t pid, int reserved) { (void)pid; (void)reserved; }
 void PosixRootIdentity(int16_t id, int16_t parent) { reported_id = id; reported_parent = parent; }
 int32_t MapErrno(void) { return TOS_ERROR; }
 void PosixPause(void) {}
 void PosixResume(void) {}
-int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *result)
+int32_t PosixForkGuest(int16_t id, int16_t parent)
 {
-	(void)pid; (void)flags; (void)usage; (void)result;
+	pid_t pid = registry_fork();
+	if (pid > 0) { PosixBindPid(id, pid, 0); return id; }
+	if (pid < 0) return TOS_ERROR;
+	PosixResetPidMap();
+	PosixRootIdentity(id, parent);
+	return 0;
+}
+
+int PosixWaitStage(int16_t pid, emuptr32_t usage, int32_t *result)
+{
+	(void)pid; (void)usage; (void)result;
 	return 0;
 }
 static pid_t registry_wait(pid_t pid, int *status, int flags, struct rusage *usage)

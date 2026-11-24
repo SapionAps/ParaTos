@@ -1,4 +1,6 @@
+#ifdef PARATOS_IO_TEST
 #include <pthread.h>
+#endif
 #include <sched.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -9,48 +11,86 @@
 #include <fcntl.h>
 #include <time.h>
 #include <stdarg.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 
 #include "gemdos.h"
 #include "host.h"
 #include "runtime.h"
 #include "tasks.h"
+#include "guest_memory.h"
+#include "../../guest_exec.h"
 
+#ifdef PARATOS_IO_TEST
 static pthread_mutex_t cpu_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t terminal_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
-static _Thread_local sigjmp_buf fault_return;
-static _Thread_local int finished, exit_status;
-static _Thread_local int cpu_locked;
+#endif
 
-typedef struct task {
-	struct task *next;
-	pthread_t thread;
-	emuptr32_t basepage, parent;
-	uint64_t generation, parent_generation;
-	int id, token, parent_id, asynchronous, done, status, cleanup_pending;
-	int streams[3];
-} task;
-static task *tasks, *retired;
-static _Thread_local task *self;
-static _Thread_local int root_streams[3] = {0, 1, 2};
-static int next_host_id = -2;
-static uint64_t next_generation = 1;
-static _Thread_local int16_t root_id, root_parent_id;
-static int16_t runtime_root_id;
-static emuptr32_t initial_basepage;
-static int initial_active;
-static pthread_t reaper_thread;
-static int reaper_started, reaper_running, reaper_stop;
+static _Thread_local sigjmp_buf fault_return;
+static _Thread_local int finished, exit_status, cpu_locked;
+static int16_t guest_pid, guest_parent_pid, runtime_root_id;
+
+/* A shared record outlives the guest's CPU as long as a descendant can
+ * still reference its image. Host wait ownership stays in the local list. */
+enum { PID_SLOTS = 32768 };
+typedef struct stage {
+	uint32_t bp, env;
+	uint16_t next, parent, dependents, status;
+	int done, retained, host_exiting;
+} stage;
+
+typedef struct stage_family {
+	stage entries[PID_SLOTS]; /* slot 0 is the initial guest */
+	unsigned char reserved[PID_SLOTS];
+	unsigned running;
+} stage_family;
+
+typedef struct stage_child {
+	struct stage_child *next;
+	pid_t host;
+	int16_t id;
+	int waitable, consumed;
+} stage_child;
+
+static stage_family *family;
+static stage_child *children;
+static uint16_t self_slot;
+static int family_fd = -1;
+
+#ifndef PARATOS_IO_TEST
+static void record_lock(int byte, int type)
+{
+	struct flock lock = { .l_type = type, .l_whence = SEEK_SET, .l_start = byte, .l_len = 1 };
+	int saved = errno;
+	int result;
+	do { result = fcntl(family_fd, F_SETLKW, &lock); } while (result < 0 && errno == EINTR);
+	if (result < 0) { perror("ParaTOS guest lock"); _exit(1); }
+	errno = saved;
+}
+#endif
+
+static void cpu_lock(int type)
+{
+#ifndef PARATOS_IO_TEST
+	if (family_fd >= 0 && PosixGuestMemoryShared()) record_lock(0, type);
+#else
+	if (type == F_UNLCK) pthread_mutex_unlock(&cpu_mutex);
+	else pthread_mutex_lock(&cpu_mutex);
+#endif
+}
 
 void PosixPause(void)
 {
 	cpu_locked = 0;
-	pthread_mutex_unlock(&cpu_mutex);
+	cpu_lock(F_UNLCK);
 }
 
 void PosixResume(void)
 {
-	pthread_mutex_lock(&cpu_mutex);
+	cpu_lock(F_WRLCK);
 	cpu_locked = 1;
 }
 
@@ -91,97 +131,43 @@ void PosixLog(int fd, const char *format, ...)
 void PosixTerminalLock(void)
 {
 	PosixPause();
+#ifdef PARATOS_IO_TEST
 	pthread_mutex_lock(&terminal_mutex);
+#else
+	if (family_fd >= 0 && PosixGuestMemoryShared()) record_lock(1, F_WRLCK);
+#endif
 	PosixResume();
 }
 
 void PosixTerminalUnlock(void)
 {
+#ifdef PARATOS_IO_TEST
 	pthread_mutex_unlock(&terminal_mutex);
+#else
+	if (family_fd >= 0 && PosixGuestMemoryShared()) record_lock(1, F_UNLCK);
+#endif
 }
 
-uint64_t PosixTaskOwner(void)
-{
-	return self ? self->generation : 0;
-}
+uint64_t PosixTaskOwner(void) { return 0; }
 
 void PosixRootIdentity(int16_t id, int16_t parent)
 {
-	root_id = id;
-	root_parent_id = parent;
+	guest_pid = id;
+	guest_parent_pid = parent;
 	runtime_root_id = id;
 }
 
-int16_t PosixRuntimeRootPid(void)
-{
-	return runtime_root_id ? runtime_root_id : PosixTaskPid();
-}
+int16_t PosixTaskPid(void) { return guest_pid ? guest_pid : (int16_t)getpid(); }
+int16_t PosixTaskParentPid(void) { return guest_pid ? guest_parent_pid : (int16_t)getppid(); }
+int16_t PosixRuntimeRootPid(void) { return runtime_root_id ? runtime_root_id : PosixTaskPid(); }
 
-static void *reap_children(void *argument)
-{
-	(void)argument;
-	PosixResume();
-	while (PosixReapOrphans() && !reaper_stop)
-	{
-		struct timespec until;
-		clock_gettime(CLOCK_REALTIME, &until);
-		until.tv_nsec += 10000000;
-		if (until.tv_nsec >= 1000000000) { until.tv_sec++; until.tv_nsec -= 1000000000; }
-		pthread_cond_timedwait(&changed, &cpu_mutex, &until);
-	}
-	reaper_running = 0;
-	pthread_cond_broadcast(&changed);
-	PosixPause();
-	return NULL;
-}
-
-static void join_finished_reaper(void)
-{
-	if (reaper_started && !reaper_running)
-	{
-		pthread_join(reaper_thread, NULL);
-		reaper_started = 0;
-	}
-}
-
-static void handoff_children(uint64_t owner)
-{
-	if (!PosixOrphanChildren(owner)) return;
-	join_finished_reaper();
-	if (!reaper_started)
-	{
-		reaper_running = 1;
-		if (!pthread_create(&reaper_thread, NULL, reap_children, NULL)) reaper_started = 1;
-		else reaper_running = 0; /* retain records; scheduler polling retries collection */
-	}
-	pthread_cond_broadcast(&changed);
-}
-
-static int *streams(void)
-{
-	return self ? self->streams : root_streams;
-}
-
-int PosixHostFd(int fd)
-{
-	return fd >= 0 && fd < 3 ? streams()[fd] : fd;
-}
-
-int PosixClose(int fd)
-{
-	int native = PosixHostFd(fd);
-	if (fd >= 0 && fd < 3) streams()[fd] = -1;
-	return close(native);
-}
+int PosixHostFd(int fd) { return fd == family_fd ? -1 : fd; }
+int PosixClose(int fd) { return close(PosixHostFd(fd)); }
 
 int PosixForce(int target, int source)
 {
-	if (target < 0 || target >= 3) return dup2(PosixHostFd(source), target);
-	int replacement = fcntl(PosixHostFd(source), F_DUPFD_CLOEXEC, 6);
-	if (replacement < 0) return -1;
-	PosixClose(target);
-	streams()[target] = replacement;
-	return 0;
+	if (target == family_fd) { errno = EBADF; return -1; }
+	return dup2(PosixHostFd(source), target);
 }
 
 int PosixAdoptFd(int fd)
@@ -192,16 +178,6 @@ int PosixAdoptFd(int fd)
 	close(fd);
 	errno = error;
 	return replacement;
-}
-
-void PosixExportStandardHandles(void)
-{
-	for (int fd = 0; fd < 3; fd++)
-	{
-		int native = PosixHostFd(fd);
-		if (native < 0) close(fd);
-		else if (native != fd) dup2(native, fd);
-	}
 }
 
 ssize_t PosixRead(int fd, void *buffer, size_t count)
@@ -270,7 +246,8 @@ static void broken_pipe_handler(int signal_number)
 	 * preserving native-program behavior without a process-wide reset window. */
 }
 
-/* Called with cpu_mutex held; returns with it held as well. */
+/* Called with the execution lock held and returns with it held. */
+static void poll_staged(int wait_for_exit);
 static int run_guest(emuptr32_t basepage)
 {
 	current_process = basepage;
@@ -279,7 +256,7 @@ static int run_guest(emuptr32_t basepage)
 	exit_status = 0;
 	while (!finished)
 	{
-		PosixReapOrphans();
+		poll_staged(0);
 		if (sigsetjmp(fault_return, 1))
 		{
 			/* Format under the execution lock: CPU/disassembler state and
@@ -303,7 +280,7 @@ static int run_guest(emuptr32_t basepage)
 			break;
 		}
 		m68k_execute(10000);
-		if (!finished)
+		if (!finished && PosixGuestMemoryShared())
 		{
 			PosixPause();
 			sched_yield();
@@ -320,168 +297,354 @@ void PosixTerminate(uint16_t status)
 	m68k_end_timeslice();
 }
 
-static int has_dependents(emuptr32_t bp)
+static void sleep_for_child(void)
 {
-	for (task *t = tasks; t; t = t->next)
-		if (t->parent == bp && (!t->done || t->cleanup_pending)) return 1;
-	for (task *t = retired; t; t = t->next)
-		if (t->parent == bp && t->cleanup_pending) return 1;
+	const struct timespec delay = {0, 1000000};
+	PosixPause();
+	nanosleep(&delay, NULL);
+	PosixResume();
+}
+
+static int new_family(uint32_t bp)
+{
+	stage_family *new = mmap(NULL, sizeof(*new), PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (new == MAP_FAILED) return -1;
+	if (family) munmap(family, sizeof(*family));
+	if (family_fd >= 0) close(family_fd);
+	family = new;
+	family_fd = -1;
+	self_slot = 0;
+	family->entries[0] = (stage){.bp = bp,
+		.env = m68k_read_field(bp, basepage_t, p_env), .retained = 1};
+	family->running = 1;
 	return 0;
 }
 
-static void reclaim_memory(void)
+static int share_family_memory(posix_ram_change *change)
 {
-	int progress;
+	if (PosixGuestMemoryShared()) return 0;
+
+	/* POSIX record locks are per process, so a forked child waits on the
+	 * parent's lock even though both inherited the same open descriptor. */
+	char path[] = "/tmp/paratos-memory-XXXXXX";
+	int fd = mkstemp(path);
+	if (fd < 0) return -1;
+	if (unlink(path) < 0)
+	{
+		int error = errno;
+		close(fd);
+		errno = error;
+		return -1;
+	}
+	int lock_fd = fcntl(fd, F_DUPFD_CLOEXEC, 6);
+	int error = errno;
+	close(fd);
+	if (lock_fd < 0) { errno = error; return -1; }
+	fd = lock_fd;
+	if (PosixBeginRamChange(1, change) < 0)
+	{
+		int error = errno;
+		close(fd);
+		errno = error;
+		return -1;
+	}
+	family_fd = fd;
+	cpu_lock(F_WRLCK);
+	return 0;
+}
+
+int PosixFamilyPidUsed(int16_t pid) { return family && family->reserved[(uint16_t)pid]; }
+void PosixFamilyReservePid(int16_t pid, int reserved)
+{
+	if (family) family->reserved[(uint16_t)pid] = reserved != 0;
+}
+
+static void discard_inherited_children(void)
+{
+	PosixResetPidMap();
+	while (children)
+	{
+		stage_child *next = children->next;
+		free(children);
+		children = next;
+	}
+}
+
+int PosixImageBusy(uint32_t address)
+{
+	if (!family) return 0;
+	uint16_t slot = 0;
 	do {
-		progress = 0;
-		for (task *t = tasks; t; t = t->next)
-			if (t->done && t->cleanup_pending && !has_dependents(t->basepage))
-			{
-				FreeOwnedMemory(t->basepage);
-				t->cleanup_pending = 0;
-				progress = 1;
-			}
-		for (task **at = &retired; *at; )
+		const stage *entry = &family->entries[slot];
+		if (entry->retained && (entry->bp == address || entry->env == address)) return 1;
+		slot = entry->next;
+	} while (slot);
+	return 0;
+}
+
+int PosixStagedActive(void)
+{
+	poll_staged(0);
+	if (self_slot || !family) return self_slot != 0;
+	for (stage_child *child = children; child; child = child->next)
+	{
+		stage *entry = &family->entries[child->id];
+		if (!child->consumed || entry->retained || (child->host && !entry->host_exiting))
+			return 1;
+	}
+	/* A child in final teardown needs no further family work. Reap it
+	 * before replacing the process that owns its wait status. */
+	poll_staged(1);
+	return children != NULL;
+}
+
+static void finish_stage(uint16_t slot, uint16_t status)
+{
+	stage *entry = &family->entries[slot];
+	if (entry->done) return;
+	entry->status = status;
+	entry->done = 1;
+	family->running--;
+	while (entry->done && entry->retained && !entry->dependents)
+	{
+		entry->retained = 0;
+		FreeOwnedMemory(entry->bp);
+		if (!slot) break;
+		slot = entry->parent;
+		entry = &family->entries[slot];
+		entry->dependents--;
+	}
+}
+
+static void poll_staged(int wait_for_exit)
+{
+	for (stage_child **at = &children; *at; )
+	{
+		stage_child *child = *at;
+		stage *entry = &family->entries[child->id];
+		if (child->host)
 		{
-			task *t = *at;
-			if (has_dependents(t->basepage)) { at = &t->next; continue; }
-			FreeOwnedMemory(t->basepage);
-			*at = t->next;
-			free(t);
-			progress = 1;
+			int options = wait_for_exit && entry->host_exiting ? 0 : WNOHANG;
+			pid_t waited;
+			do { waited = waitpid(child->host, NULL, options); } while (waited < 0 && errno == EINTR);
+			if (waited == child->host || (waited < 0 && errno == ECHILD))
+			{
+				child->host = 0;
+				finish_stage(child->id, 255);
+			}
 		}
-	} while (progress);
+		if (child->host || !child->consumed || entry->retained)
+		{
+			at = &child->next;
+			continue;
+		}
+
+		stage *prev = &family->entries[0];
+		while (prev->next != child->id) prev = &family->entries[prev->next];
+		prev->next = entry->next;
+		*entry = (stage){0};
+		*at = child->next;
+		PosixReleasePid(child->id);
+		free(child);
+	}
 }
 
-static void remove_task(task *t)
+static void close_guest_descriptors(void)
 {
-	task **at = &tasks;
-	while (*at != t) at = &(*at)->next;
-	*at = t->next;
-	PosixForgetPid(t->token);
-	if (t->cleanup_pending) { t->next = retired; retired = t; }
-	else free(t);
-	reclaim_memory();
-	pthread_cond_broadcast(&changed);
+	/* An exited supervisor must not keep a pipe writer alive. Keep only
+	 * the family lock, used to collect staged descendants and release IDs. */
+#ifdef SYS_close_range
+	if (family_fd < 0)
+	{
+		if (!syscall(SYS_close_range, 0u, ~0u, 0u)) return;
+	}
+	else if (!syscall(SYS_close_range, 0u, (unsigned)family_fd - 1, 0u) &&
+		!syscall(SYS_close_range, (unsigned)family_fd + 1, ~0u, 0u)) return;
+#endif
+	long limit = sysconf(_SC_OPEN_MAX);
+	for (long fd = 0; fd < limit; fd++)
+		if (fd != family_fd) close((int)fd);
 }
 
-static void *thread_main(void *argument)
+static void complete_guest(uint16_t status)
 {
-	task *t = argument;
-	self = t;
-	PosixResume();
-	t->status = run_guest(t->basepage);
-	handoff_children(t->generation);
-	for (int fd = 0; fd < 3; fd++) PosixClose(fd);
-	t->done = 1;
-	reclaim_memory();
-	pthread_cond_broadcast(&changed);
+	/* Only the calling process owns these descriptors. Any host children
+	 * have already inherited their own table. */
 	PosixPause();
-	return NULL;
+	PosixTerminalUnlock();
+	fflush(stdout);
+	fflush(stderr);
+	close_guest_descriptors();
+	PosixResume();
+	finish_stage(self_slot, status);
+	for (stage_child *child = children; child; child = child->next) child->consumed = 1;
+	PosixOrphanChildren(0);
+
+	/* A staged process can report its guest status before its native
+	 * children exit. Remain as their host parent to reap those statuses. */
+	for (;;)
+	{
+		poll_staged(0);
+		int native_pending = PosixReapOrphans();
+		if (self_slot ? !children && !native_pending : !family->running) break;
+		sleep_for_child();
+	}
+	/* From here a staged process only unlocks and calls _exit(). */
+	if (self_slot) family->entries[self_slot].host_exiting = 1;
+	PosixPause();
 }
 
-int PosixHasThreads(void)
+static _Noreturn void run_staged(uint16_t slot, int16_t parent)
 {
-	join_finished_reaper();
-	return tasks != NULL || reaper_started;
-}
-
-int16_t PosixTaskPid(void)
-{
-	return self ? (int16_t)self->id : (root_id ? root_id : (int16_t)getpid());
-}
-
-int16_t PosixTaskParentPid(void)
-{
-	return self ? (int16_t)self->parent_id : (root_id ? root_parent_id : (int16_t)getppid());
+	self_slot = slot;
+	guest_pid = slot;
+	guest_parent_pid = parent;
+	discard_inherited_children();
+	PosixResume();
+	if (!family->entries[slot].retained) _exit(1);
+	int status = run_guest(family->entries[slot].bp);
+	complete_guest(status);
+	_exit(status & 255);
 }
 
 int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 {
-	if (initial_active && bp == initial_basepage) return TOS_EACCDN;
+	poll_staged(0);
+	if (bp == current_process || PosixImageBusy(bp)) return TOS_EACCDN;
 	int32_t size = MemoryBlockSize(bp);
 	if (size < (int32_t)sizeof(basepage_t) + 8) return TOS_EIMBA;
 	uint32_t high = m68k_read_field(bp, basepage_t, p_hitpa);
 	uint32_t entry = m68k_read_field(bp, basepage_t, p_tbase);
 	if (high > bp + (uint32_t)size || high < bp + sizeof(basepage_t) + 8 ||
 		entry < 0x10000 || entry >= memory_sz || (entry & 1)) return TOS_ENOEXEC;
-	for (task *t = tasks; t; t = t->next)
-		if (t->basepage == bp) return TOS_EACCDN;
-	for (task *t = retired; t; t = t->next)
-		if (t->basepage == bp) return TOS_EACCDN;
-	if (bp == current_process) return TOS_EACCDN;
-	task *t = calloc(1, sizeof(*t));
-	if (!t) return TOS_ENSMEM;
-	/* Synthetic host IDs share the same 16-bit guest namespace as forked children. */
-	t->token = next_host_id--;
-	t->id = PosixRegisterPid(t->token);
-	if (t->id < 0) { free(t); return TOS_ENHNDL; }
-	t->basepage = bp;
-	t->parent = current_process;
-	t->generation = next_generation++;
-	t->parent_generation = PosixTaskOwner();
-	t->parent_id = PosixTaskPid();
-	t->asynchronous = asynchronous;
-	t->cleanup_pending = 1;
-	for (int fd = 0; fd < 3; fd++) t->streams[fd] = -1;
-	for (int fd = 0; fd < 3; fd++)
+	uint32_t env = m68k_read_field(bp, basepage_t, p_env);
+	if (release && (!MemoryBlockSize(env) || PosixImageBusy(env))) return TOS_EIMBA;
+
+	stage_child *child = calloc(1, sizeof(*child));
+	if (!child) return TOS_ENSMEM;
+	int16_t id = PosixReservePid(1);
+	if (id < 0) { free(child); return TOS_ENHNDL; }
+	posix_ram_change change = {0};
+	if (share_family_memory(&change) < 0)
 	{
-		int native = PosixHostFd(fd);
-		if (native < 0) continue;
-		t->streams[fd] = fcntl(native, F_DUPFD_CLOEXEC, 6);
-		if (t->streams[fd] < 0)
+		int32_t error = MapErrno();
+		PosixReleasePid(id);
+		free(child);
+		return error;
+	}
+
+	int16_t parent_pid = PosixTaskPid();
+	pid_t host = fork();
+	if (!host)
+	{
+		PosixEndRamChange(&change, 1);
+		run_staged(id, parent_pid);
+	}
+	if (host < 0)
+	{
+		int32_t error = MapErrno();
+		if (change.previous)
 		{
-			for (int i = 0; i < fd; i++) if (t->streams[i] >= 0) close(t->streams[i]);
-			PosixForgetPid(t->token);
-			free(t);
-			return TOS_ENHNDL;
+			close(family_fd);
+			family_fd = -1;
+			PosixEndRamChange(&change, 0);
 		}
+		PosixReleasePid(id);
+		free(child);
+		return error;
 	}
-	t->next = tasks;
-	tasks = t;
+	PosixEndRamChange(&change, 1);
+
+	/* The child cannot take the execution lock before this commit. */
+	stage *root = &family->entries[0];
+	family->entries[id] = (stage){ .bp = bp, .env = env, .next = root->next,
+		.parent = self_slot, .retained = 1 };
+	root->next = id;
+	family->entries[self_slot].dependents++;
+	family->running++;
+	*child = (stage_child){ .next = children, .host = host, .id = id, .waitable = asynchronous };
+	children = child;
 	m68k_write_field(bp, basepage_t, p_parent, current_process);
-	int error = pthread_create(&t->thread, NULL, thread_main, t);
-	if (error)
-	{
-		for (int fd = 0; fd < 3; fd++) if (t->streams[fd] >= 0) close(t->streams[fd]);
-		t->cleanup_pending = 0;
-		remove_task(t);
-		return TOS_ENSMEM;
-	}
 	if (release)
 	{
-		SetMemoryOwner(m68k_read_field(bp, basepage_t, p_env), bp);
+		SetMemoryOwner(env, bp);
 		SetMemoryOwner(bp, bp);
 	}
-	if (asynchronous) return t->id;
+	if (asynchronous) return id;
 
-	PosixPause();
-	pthread_join(t->thread, NULL);
-	PosixResume();
-	int32_t status = t->status;
-	remove_task(t);
+	while (!family->entries[id].done)
+	{
+		sleep_for_child();
+		poll_staged(0);
+	}
+	int32_t status = family->entries[id].status;
+	child->consumed = 1;
+	poll_staged(0);
 	return status;
 }
 
-int PosixWaitThread(int16_t pid, int16_t flags, emuptr32_t usage, int32_t *result)
+int PosixWaitStage(int16_t pid, emuptr32_t usage, int32_t *result)
 {
-	task *selected = NULL;
-	for (task *t = tasks; t; t = t->next)
-		if (t->asynchronous && t->parent_generation == PosixTaskOwner() && (pid == -1 || pid == t->id))
-		{
-			selected = t;
-			if (t->done) break;
-		}
-	if (!selected) return 0;
-	if (!selected->done && (flags & 1)) { *result = 0; return 1; }
+	poll_staged(0);
+	int pending = 0;
+	for (stage_child *child = children; child; child = child->next)
+	{
+		if (!child->waitable || child->consumed || (pid != -1 && child->id != pid)) continue;
+		pending = 1;
+		stage *entry = &family->entries[child->id];
+		if (!entry->done) continue;
+		*result = (int32_t)(((uint32_t)(uint16_t)child->id << 16) | (entry->status & 255));
+		if (usage) memset(memory + usage, 0, 8);
+		child->consumed = 1;
+		poll_staged(0);
+		return 1;
+	}
+	*result = 0;
+	return pending;
+}
 
-	PosixPause();
-	pthread_join(selected->thread, NULL);
-	PosixResume();
-	*result = (int32_t)(((uint32_t)selected->id << 16) | (selected->status & 255));
-	if (usage) memset(memory + usage, 0, 8);
-	remove_task(selected);
-	return 1;
+int32_t PosixForkGuest(int16_t id, int16_t parent)
+{
+	int channel[2];
+	if (pipe(channel) < 0) return MapErrno();
+	int shared = PosixGuestMemoryShared();
+	pid_t host = fork();
+	if (host < 0)
+	{
+		int32_t result = MapErrno();
+		close(channel[0]); close(channel[1]);
+		return result;
+	}
+	if (!host)
+	{
+		close(channel[0]);
+		/* The parent still holds the family lock. No peer can write the
+		 * source until this child has copied both RAM and the allocator. */
+		int32_t result = 0;
+		if ((shared && PosixRemapGuestMemory(0) < 0) || new_family(current_process) < 0)
+			result = MapErrno();
+		ssize_t sent;
+		do { sent = write(channel[1], &result, sizeof(result)); } while (sent < 0 && errno == EINTR);
+		close(channel[1]);
+		if (result < 0 || sent != (ssize_t)sizeof(result)) _exit(1);
+		discard_inherited_children();
+		PosixRootIdentity(id, parent);
+		return 0;
+	}
+	close(channel[1]);
+	int32_t result;
+	ssize_t count;
+	do { count = read(channel[0], &result, sizeof(result)); } while (count < 0 && errno == EINTR);
+	close(channel[0]);
+	if (count == (ssize_t)sizeof(result) && result == 0)
+	{
+		PosixBindPid(id, host, 0);
+		return id;
+	}
+	if (count != (ssize_t)sizeof(result)) kill(host, SIGKILL);
+	while (waitpid(host, NULL, 0) < 0 && errno == EINTR) {}
+	return count == (ssize_t)sizeof(result) ? result : TOS_ERROR;
 }
 
 int PosixRunRoot(emuptr32_t basepage)
@@ -496,41 +659,13 @@ int PosixRunRoot(emuptr32_t basepage)
 	struct sigaction broken_pipe = {0};
 	broken_pipe.sa_handler = broken_pipe_handler;
 	sigemptyset(&broken_pipe.sa_mask);
-	if (sigaction(SIGPIPE, &broken_pipe, NULL) < 0)
+	if (sigaction(SIGPIPE, &broken_pipe, NULL) < 0 || new_family(basepage) < 0)
 	{
-		perror("installing host SIGPIPE handler");
+		perror("initializing POSIX guest runtime");
 		return 1;
 	}
 	PosixResume();
-	initial_basepage = basepage;
-	initial_active = 1;
 	int status = run_guest(basepage);
-	initial_active = 0;
-	/* Flush host diagnostics before releasing root-owned stream mappings.
-	 * Drop the execution mutex in case a surviving guest must drain a pipe. */
-	PosixPause();
-	fflush(stdout);
-	fflush(stderr);
-	PosixResume();
-	for (int fd = 0; fd < 3; fd++) PosixClose(fd);
-	handoff_children(0);
-	/* Ending the initial guest must not terminate still-running guest threads. */
-	while (tasks)
-	{
-		task *t = tasks;
-		while (t && t->done) t = t->next;
-		if (t) { pthread_cond_wait(&changed, &cpu_mutex); continue; }
-		/* No guest is still running or waiting on a join. */
-		t = tasks;
-		pthread_join(t->thread, NULL);
-		remove_task(t);
-	}
-	/* Do not wait for still-running detached native children at host shutdown.
-	 * Collect completed ones, then let the OS adopt any that outlive us. */
-	PosixReapOrphans();
-	reaper_stop = 1;
-	pthread_cond_broadcast(&changed);
-	PosixPause();
-	if (reaper_started) pthread_join(reaper_thread, NULL);
+	complete_guest(status);
 	return status;
 }
