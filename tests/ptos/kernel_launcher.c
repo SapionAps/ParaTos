@@ -62,7 +62,7 @@ static long launch(int mode, const char *path, const char *environment)
 int main(void)
 {
 #ifdef PTOS_TEST_MANAGED_KERNEL
-	enum { semantics_status = 23 };
+	enum { semantics_status = 24 };
 #else
 	enum { semantics_status = 0 };
 #endif

@@ -124,8 +124,9 @@ int main(void)
 	if (native) { printf("native launch check: %d\n", native); return 13; }
 	puts("pTOS guest semantics: PASS");
 #ifdef PTOS_TEST_MANAGED_KERNEL
-	/* The native replacement exits with 23. The guest must never resume. */
-	long replacement = Pexec(200, "C:/NATIVE.TOS", empty_tail, 0);
+	/* The native replacement exits with 24. The guest must never resume. */
+	static const char replacement_env[] = "PARATOS_REPLACE_TEST=yes\0";
+	long replacement = Pexec(200, "C:/NATIVE.TOS", empty_tail, replacement_env);
 	printf("native Pexec(200) unexpectedly returned: %ld\n", replacement);
 	return 18;
 #else

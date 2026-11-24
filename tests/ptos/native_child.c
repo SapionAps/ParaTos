@@ -8,6 +8,8 @@
 
 int main(int argc, char **argv)
 {
+	const char *replacement = getenv("PARATOS_REPLACE_TEST");
+	if (replacement && !strcmp(replacement, "yes")) return 24;
 	if (argc == 2 && !strncmp(argv[1], "pid:", 4))
 	{
 		char parent[16];
