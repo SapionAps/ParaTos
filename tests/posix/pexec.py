@@ -375,6 +375,31 @@ class PexecTests(unittest.TestCase):
                         self.assertEqual((self.directory / "WORKER.OUT").read_bytes(),
                                          struct.pack(">i", -32))
 
+    def test_replacement_waits_for_final_host_exit(self):
+        env = self.fault_env("stage-exit")
+        native = self.directory / "NATIVE.SH"
+        native.write_text("#!/bin/sh\nexit 23\n")
+        native.chmod(0o755)
+        for mode in (6, 106):
+            with self.subTest(mode=mode):
+                p = Program()
+                p.shrink()
+                p.pexec(3)
+                p.emit("2840")
+                p.pexec(mode, basepage=True)
+                if mode >= 100:
+                    p.emit("2c00")
+                    p.wait()
+                p.emit("42a7")
+                p.push("tail")
+                p.push("native")
+                p.emit("3f3c00c83f3c004b4e414fef0010")
+                p.finish(99)
+                p.label("child", b"CHILD.TOS\0")
+                p.label("native", b"NATIVE.SH\0")
+                p.label("tail", bytes(128))
+                self.assert_words(self.run_pair(p.image(), child(), env=env), [])
+
     def test_broken_host_diagnostic_pipe_does_not_terminate_runtime(self):
         p = Program()
         p.emit("4879000011082f3c000000013f3c00003f3c003f4e414fef000c")

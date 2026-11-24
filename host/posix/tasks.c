@@ -39,7 +39,7 @@ enum { PID_SLOTS = 32768 };
 typedef struct stage {
 	uint32_t bp, env;
 	uint16_t next, parent, dependents, status;
-	int done, retained;
+	int done, retained, host_exiting;
 } stage;
 
 typedef struct stage_family {
@@ -247,7 +247,7 @@ static void broken_pipe_handler(int signal_number)
 }
 
 /* Called with the execution lock held and returns with it held. */
-static void poll_staged(void);
+static void poll_staged(int wait_for_exit);
 static int run_guest(emuptr32_t basepage)
 {
 	current_process = basepage;
@@ -256,7 +256,7 @@ static int run_guest(emuptr32_t basepage)
 	exit_status = 0;
 	while (!finished)
 	{
-		poll_staged();
+		poll_staged(0);
 		if (sigsetjmp(fault_return, 1))
 		{
 			/* Format under the execution lock: CPU/disassembler state and
@@ -385,11 +385,18 @@ int PosixImageBusy(uint32_t address)
 
 int PosixStagedActive(void)
 {
-	poll_staged();
+	poll_staged(0);
 	if (self_slot || !family) return self_slot != 0;
 	for (stage_child *child = children; child; child = child->next)
-		if (child->host || !child->consumed || family->entries[child->id].retained) return 1;
-	return 0;
+	{
+		stage *entry = &family->entries[child->id];
+		if (!child->consumed || entry->retained || (child->host && !entry->host_exiting))
+			return 1;
+	}
+	/* A child in final teardown needs no further family work. Reap it
+	 * before replacing the process that owns its wait status. */
+	poll_staged(1);
+	return children != NULL;
 }
 
 static void finish_stage(uint16_t slot, uint16_t status)
@@ -410,7 +417,7 @@ static void finish_stage(uint16_t slot, uint16_t status)
 	}
 }
 
-static void poll_staged(void)
+static void poll_staged(int wait_for_exit)
 {
 	for (stage_child **at = &children; *at; )
 	{
@@ -418,8 +425,9 @@ static void poll_staged(void)
 		stage *entry = &family->entries[child->id];
 		if (child->host)
 		{
-			int status;
-			pid_t waited = waitpid(child->host, &status, WNOHANG);
+			int options = wait_for_exit && entry->host_exiting ? 0 : WNOHANG;
+			pid_t waited;
+			do { waited = waitpid(child->host, NULL, options); } while (waited < 0 && errno == EINTR);
 			if (waited == child->host || (waited < 0 && errno == ECHILD))
 			{
 				child->host = 0;
@@ -477,11 +485,13 @@ static void complete_guest(uint16_t status)
 	 * children exit. Remain as their host parent to reap those statuses. */
 	for (;;)
 	{
-		poll_staged();
+		poll_staged(0);
 		int native_pending = PosixReapOrphans();
 		if (self_slot ? !children && !native_pending : !family->running) break;
 		sleep_for_child();
 	}
+	/* From here a staged process only unlocks and calls _exit(). */
+	if (self_slot) family->entries[self_slot].host_exiting = 1;
 	PosixPause();
 }
 
@@ -500,7 +510,7 @@ static _Noreturn void run_staged(uint16_t slot, int16_t parent)
 
 int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 {
-	poll_staged();
+	poll_staged(0);
 	if (bp == current_process || PosixImageBusy(bp)) return TOS_EACCDN;
 	int32_t size = MemoryBlockSize(bp);
 	if (size < (int32_t)sizeof(basepage_t) + 8) return TOS_EIMBA;
@@ -566,17 +576,17 @@ int32_t PosixGo(emuptr32_t bp, int release, int asynchronous)
 	while (!family->entries[id].done)
 	{
 		sleep_for_child();
-		poll_staged();
+		poll_staged(0);
 	}
 	int32_t status = family->entries[id].status;
 	child->consumed = 1;
-	poll_staged();
+	poll_staged(0);
 	return status;
 }
 
 int PosixWaitStage(int16_t pid, emuptr32_t usage, int32_t *result)
 {
-	poll_staged();
+	poll_staged(0);
 	int pending = 0;
 	for (stage_child *child = children; child; child = child->next)
 	{
@@ -587,7 +597,7 @@ int PosixWaitStage(int16_t pid, emuptr32_t usage, int32_t *result)
 		*result = (int32_t)(((uint32_t)(uint16_t)child->id << 16) | (entry->status & 255));
 		if (usage) memset(memory + usage, 0, 8);
 		child->consumed = 1;
-		poll_staged();
+		poll_staged(0);
 		return 1;
 	}
 	*result = 0;
