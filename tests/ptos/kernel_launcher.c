@@ -71,7 +71,11 @@ int main(void)
 		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_env, 42},
 		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_env, 37}
 	};
+#ifdef PTOS_TEST_MANAGED_KERNEL
+	static const int modes[] = {0};
+#else
 	static const int modes[] = {0, 4, 6};
+#endif
 	puts("pTOS Paratos kernel integration: BEGIN");
 	if (!userspace())
 	{
