@@ -402,7 +402,10 @@ static void test_arguments(void)
 	assert(tail[0] == 7 && !strcmp(tail + 1, "one two"));
 	char *quoted[] = {"two words", "it's"};
 	ptos_command_tail(tail, 2, quoted);
-	assert(tail[0] == 19 && !strcmp(tail + 1, "'two words' 'it''s'"));
+	assert(tail[0] == 127 && !strcmp(tail + 1, "'two words' 'it''s'"));
+	char *double_quote[] = {"a\"b", NULL};
+	ptos_command_tail(tail, 1, double_quote);
+	assert(tail[0] == 127 && !strcmp(tail + 1, "'a\"b'"));
 	char *empty[] = {"two words", ""};
 	ptos_command_tail(tail, 2, empty);
 	assert(tail[0] == 127 && !strcmp(tail + 1, "'two words' ''"));
@@ -583,6 +586,13 @@ static void test_delegation(void)
 	((char *)ptos_guest_buffer(environment, sizeof(extended)))[14] = '9';
 	assert(ptos_exec(100, bp + 300, bp + 384, environment) == PTOS_EINVAL);
 	assert(exec_calls == 4);
+	/* Inherited ARGV is ignored and CR ends both classic and marker tails. */
+	static const char terminated[] = "\"two words\" ''\rpadding";
+	memcpy(tail + 1, terminated, sizeof(terminated));
+	tail[0] = sizeof(terminated) - 1;
+	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 5);
+	tail[0] = 127;
+	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 6);
 }
 
 static void test_guest_super(void)

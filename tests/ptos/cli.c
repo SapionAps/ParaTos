@@ -7,10 +7,13 @@
 
 int main(int argc, char **argv)
 {
-	if (argc != 3 || strcmp(argv[1], "two words") || strcmp(argv[2], "")) return 1;
-	if ((unsigned char)_base->p_cmdlin[0] != 127 || strcmp(_base->p_cmdlin + 1, "'two words' ''")) return 8;
 	const char *env = getenv("DEMO");
 	if (!env || strcmp(env, "present")) return 2;
+	if (argc == 1) return _base->p_cmdlin[0] || _base->p_cmdlin[1] ? 8 : 38;
+	if (argc == 2 && !strcmp(argv[1], "plain"))
+		return _base->p_cmdlin[0] != 5 || strcmp(_base->p_cmdlin + 1, "plain") ? 8 : 38;
+	if (argc != 3 || strcmp(argv[1], "two words") || strcmp(argv[2], "")) return 1;
+	if ((unsigned char)_base->p_cmdlin[0] != 127 || strcmp(_base->p_cmdlin + 1, "'two words' ''")) return 8;
 	FILE *file = fopen("cli-data.tmp", "wb");
 	if (!file) return 3;
 	if (fwrite("guest data", 1, 10, file) != 10 || fclose(file)) return 4;

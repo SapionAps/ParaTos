@@ -5,16 +5,16 @@
 
 void ptos_command_tail(char tail[128], int argc, char **argv)
 {
-	int quoted = 0, extended = 0;
+	int quoted = 0;
 	for (int i = 0; i < argc; i++)
 	{
-		if (!*argv[i]) { quoted = 1; extended = 1; }
+		if (!*argv[i]) quoted = 1;
 		for (const char *s = argv[i]; *s; s++)
-			if (isspace((unsigned char)*s) || *s == '\'') quoted = 1;
+			if (isspace((unsigned char)*s) || *s == '\'' || *s == '"') quoted = 1;
 	}
 	/* MagX convention: quote every argument if quoting is needed, and
 	 * double embedded single quotes. ARGV remains the lossless source for
-	 * empty arguments and command lines longer than the classic tail. */
+	 * quoted arguments and command lines longer than the classic tail. */
 	memset(tail, 0, 128);
 	size_t n = 0;
 #define APPEND(ch) do { if (n < 126) tail[1 + n] = (ch); n++; } while (0)
@@ -30,7 +30,7 @@ void ptos_command_tail(char tail[128], int argc, char **argv)
 		if (quoted) APPEND('\'');
 	}
 #undef APPEND
-	tail[0] = extended || n > 126 ? 127 : (char)n;
+	tail[0] = quoted || n > 126 ? 127 : (char)n;
 }
 
 #define PTOS_VECTOR_MAX 1024
@@ -43,12 +43,13 @@ static int parse_tail(const char tail[128], char **argv, char *text)
 	size_t i = 1;
 	int count = 0;
 
-	while (i <= length && tail[i])
+	/* A producer may leave padding after the historical CR terminator. */
+	while (i <= length && tail[i] && tail[i] != '\r')
 	{
 		int quote = 0;
 		if (isspace((unsigned char)tail[i])) { i++; continue; }
 		argv[count++] = text;
-		while (i <= length && tail[i])
+		while (i <= length && tail[i] && tail[i] != '\r')
 		{
 			unsigned char ch = tail[i++];
 			if (quote)

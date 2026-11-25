@@ -80,6 +80,14 @@ static int native_launch(void)
 	if (launched != 37) { printf("guest Pexec result: %ld\n", launched); return 9; }
 	launched = Pexec(0, "C:/SCRIPT.SH", tail, 0);
 	if (launched != 42) { printf("guest shebang Pexec result: %ld\n", launched); return 10; }
+	static const char extended_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
+	tail[0] = 127;
+	strcpy(tail + 1, "'two words' ''\rignored");
+	if (Pexec(0, "C:/CLI.TOS", tail, 0) != 37 ||
+		Pexec(0, "C:/CLI.TOS", tail, extended_env) != 37) return 11;
+	tail[0] = sprintf(tail + 1, "plain");
+	if (Pexec(0, "C:/CLI.TOS", tail, 0) != 38 ||
+		Pexec(0, "C:/CLI.TOS", empty_tail, 0) != 38) return 12;
 #ifndef PTOS_TEST_EXEC_REPLACEMENT
 	/* Older kernels must reject replacement without spawning a child. */
 	if (Pexec(200, "C:/NATIVE.TOS", tail, 0) != -32L) return 4;

@@ -67,11 +67,12 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	ptos_allocator_init();
+	/* Supply ARGV for runtimes that consume it while preserving the
+	 * counted tail that classic programs read directly from the basepage. */
 	char *env = guest_environment(argc, argv);
 	if (!env) { result = PTOS_ERANGE; goto done; }
 	char tail[128];
 	ptos_command_tail(tail, argc - 2, argv + 2);
-	tail[0] = 127; /* the guest receives the extended ARGV block */
 	char filename[1024];
 	if (strlen(argv[1]) >= sizeof(filename)) { result = PTOS_ERANGE; free(env); goto done; }
 	for (size_t i = 0; i <= strlen(argv[1]); i++) filename[i] = argv[1][i] == '/' ? '\\' : argv[1][i];
