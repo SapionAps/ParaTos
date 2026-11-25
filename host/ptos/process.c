@@ -249,7 +249,7 @@ static const char *guest_env(uint32_t address, size_t *size)
 	if (!address) address = m68k_read_memory_32(ptos_process + BP_ENV);
 	const char *s = ptos_guest_buffer(address, 2);
 	uint32_t max = PTOS_RAM_END - address;
-	if (max > 32766) max = 32766;
+	if (max > PTOS_GUEST_ENV_MAX) max = PTOS_GUEST_ENV_MAX;
 	for (uint32_t i = 0; i + 1 < max; i++)
 		if (!s[i] && !s[i + 1]) { *size = i + 2; return s; }
 	ptos_fault(address, "unterminated guest environment");
@@ -279,7 +279,7 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	int32_t result = ptos_capture_launch(filename, command, environment, env_size, env != 0, &args);
 	if (result < 0) return result;
 	/* Native binfmt owns interpreter selection and mode 200 keeps the PID. */
-	result = ptos_task_exec(operation, filename, args.argv, args.envp);
+	result = ptos_task_exec(operation, filename, &args);
 	free(args.envp);
 	return result;
 }

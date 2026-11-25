@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "host.h"
 
 /* Native pTOS Pclone v1, introduced by pTOS PR #903. Pointers use the
  * caller's ILP32 ABI, including x32. TLS is reserved and must be NULL. */
@@ -41,7 +42,7 @@ int32_t ptos_task_go(uint32_t bp, int take_ownership, int asynchronous);
 int ptos_task_active_image(uint32_t bp);
 int ptos_task_active_environment(uint32_t address);
 int32_t ptos_task_wait(int16_t pid, int16_t flags, uint32_t usage);
-int32_t ptos_task_exec(uint16_t mode, const char *path, char *const argv[], char *const envp[]);
+int32_t ptos_task_exec(uint16_t mode, const char *path, const ptos_launch_args *args);
 void ptos_task_yield(void);
 int32_t ptos_task_io(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, void *buffer);
 int32_t ptos_task_bios_io(uint16_t fn, uint16_t device, uint16_t value);

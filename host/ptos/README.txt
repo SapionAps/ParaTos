@@ -177,11 +177,15 @@ Full MiNT libc startup is not yet supported.
 
 Guest Pexec(0/100/200) decodes the classic command tail or explicit
 marker-127 ARGV block into owned argv and envp vectors for native Pexecve.
+The kernel's Ssystem -10 adapter uses the same launch transaction and takes
+a separate snapshot of all 128 guest tail bytes and any explicit raw environment.
 An inherited environment contributes its ordinary variables. ARGV from
 the previous launch is discarded. For a 68k target, kernel binfmt
 selects another ParaTOS instance and supplies the interpreter vectors.
-The incoming native ELF vectors are converted to extended ARGV only
-when creating the emulated PRG basepage. A guest cannot replace the
+When entry argv[1] names the directly redirected PRG, ParaTOS restores
+the raw tail and explicit environment from AT_PTOS_GUEST_LAUNCH. It uses
+the original argv[0] when it needs to generate an ARGV block. Shebang
+chains instead use the interpreter's own argument list. A guest cannot replace the
 shared native process while it has outstanding cloned guests, from
 within a cloned guest, or from an in-place overlay.
 
@@ -245,8 +249,9 @@ launches per architecture:
 - BIOS output remains on the console while GEMDOS stdout is redirected.
 - Native Pexecve with inherited handles, working directory and environment,
   including same-PID mode 200 on a kernel with replacement enabled.
-- Guest-to-guest Pexec(0) through the kernel and registered handler, with
-  short command tails overriding inherited ARGV while preserving environment.
+- Guest-to-guest Pexec(0/100) through the registered handler, with
+  short tails overriding inherited ARGV and byte-exact classic/extended
+  tails, explicit environments and caller-chosen argv[0].
 - Shebang scripts with a 68k interpreter (shebang followed by binfmt), an
   optional argument containing spaces/quotes, empty arguments, CRLF and
   propagated status 42, launched from native and guest callers.
@@ -262,7 +267,8 @@ From the Paratos checkout:
   sh tests/ptos/build_kernel_test.sh arm /absolute/path/to/pTOS
   sh tests/ptos/build_kernel_test.sh x32 /absolute/path/to/pTOS
 
-The kernel must include pTOS PR #1066. Set PTOS_NATIVE_LIBCMINI_ROOT to
+The kernel must include the guest Pexecve adapter in pTOS PR #1068.
+Set PTOS_NATIVE_LIBCMINI_ROOT to
 the vector CRT checkout if the kernel submodule lacks libcmini PR #28.
 The same libcmini revision builds the native CRT and the guest fixtures.
 The guest fixture exercises the m68k Pexecve fallback through emulated Pexec.

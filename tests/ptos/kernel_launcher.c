@@ -4,8 +4,10 @@
 #include <stdio.h>
 #include <mint/osbind.h>
 #include <mint/mintbind.h>
+#include "../../host/ptos/host.h"
 
 static char *const demo_env[] = {"DEMO=present", NULL};
+static char *const cli_env[] = {"DEMO=present", "CHECKARGV0=guest display name", NULL};
 #if defined(__arm__)
 static char *const vdi_env[] = {"VDI=kernel", NULL};
 #elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
@@ -13,7 +15,7 @@ static char *const vdi_env[] = {"VDI=required", NULL};
 #else
 static char *const vdi_env[] = {"VDI=absent", NULL};
 #endif
-static char *const cli_args[] = {"C:/CLI.TOS", "two words", "", NULL};
+static char *const cli_args[] = {"guest display name", "two words", "", NULL};
 static char *const semantics_args[] = {"C:\\SEMANTIC.TOS", NULL};
 static char *const filesystem_args[] = {"C:\\FSCOMP.TOS", NULL};
 static char *const vdi_args[] = {"C:\\VDI.TOS", NULL};
@@ -37,6 +39,26 @@ static int userspace(void)
 #endif
 }
 
+static int reject_bad_guest_request(void)
+{
+	static const unsigned char tail[128] = {128}, empty_tail[128] = {0};
+	static const char malformed_environment[] = "\0X=bad\0";
+	ptos_guest_launch_request request = {0, (uintptr_t)"C:\\CLI.TOS", (uintptr_t)cli_args,
+		(uintptr_t)cli_env, 0, 0};
+	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request) - 4) != PTOS_EINVAL ||
+		Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EIMBA)
+		return 0;
+	request.tail = (uintptr_t)tail;
+	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EINVAL)
+		return 0;
+	request.tail = (uintptr_t)empty_tail;
+	request.environment = (uintptr_t)malformed_environment;
+	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EINVAL)
+		return 0;
+	request.mode = 3;
+	return Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) == PTOS_ENOSYS;
+}
+
 int main(void)
 {
 #ifdef PTOS_TEST_EXEC_REPLACEMENT
@@ -45,7 +67,7 @@ int main(void)
 	enum { semantics_status = 0 };
 #endif
 	static const struct { const char *name, *path; char *const *argv, *const *envp; long status; } cases[] = {
-		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_args, demo_env, 37},
+		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_args, cli_env, 37},
 		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_args, demo_env, semantics_status},
 		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_args, demo_env, 0},
 		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_args, vdi_env, 0},
@@ -58,6 +80,11 @@ int main(void)
 	if (!userspace())
 	{
 		puts("pTOS Paratos kernel integration: FAIL (native privilege)");
+		return 1;
+	}
+	if (!reject_bad_guest_request())
+	{
+		puts("pTOS Paratos kernel integration: FAIL (guest launch request validation)");
 		return 1;
 	}
 	for (int round = 0; round < 2; round++)

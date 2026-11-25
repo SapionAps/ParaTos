@@ -137,7 +137,8 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 	 * scheduler can run another guest. Transport slots are always ILP32. */
 	size_t slots = argc + envc + 2;
 	size_t path_size = payload ? 0 : strlen(path) + 1;
-	envp = malloc(slots * sizeof(*envp) + env_size + path_size + 128);
+	envp = malloc(slots * sizeof(*envp) + env_size + path_size + 128 +
+		(explicit_env ? env_size : 0));
 	if (!envp) return PTOS_ENSMEM;
 	argv = envp + envc + 1;
 	copy = (char *)(envp + slots);
@@ -176,6 +177,14 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 	}
 	out->envp = envp;
 	out->argv = argv;
+	memcpy(out->tail, tail, sizeof(out->tail));
+	out->environment = NULL;
+	if (explicit_env)
+	{
+		char *raw = text + path_size + 128;
+		memcpy(raw, env, env_size);
+		out->environment = raw;
+	}
 	return 0;
 fail:
 	free(envp);

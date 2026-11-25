@@ -88,6 +88,13 @@ static int native_launch(void)
 	tail[0] = sprintf(tail + 1, "plain");
 	if (Pexec(0, "C:/CLI.TOS", tail, 0) != 38 ||
 		Pexec(0, "C:/CLI.TOS", empty_tail, 0) != 38) return 12;
+	static char raw_short[128] = "\014plain  again";
+	static char raw_extended[128] = "\177'raw  display'\rpadding";
+	static const char raw_env[] = "DEMO=rawextended\0ARGV=NULL:2\0original guest name\0two words\0 \0";
+	raw_short[127] = raw_extended[127] = 0x5a;
+	long child = Pexec(100, "C:/CLI.TOS", raw_short, "DEMO=rawshort\0");
+	if (child <= 0 || Pwaitpid((short)child, 0, NULL) != (child << 16 | 39) ||
+		Pexec(0, "C:/CLI.TOS", raw_extended, raw_env) != 40) return 13;
 #ifndef PTOS_TEST_EXEC_REPLACEMENT
 	/* Older kernels must reject replacement without spawning a child. */
 	if (Pexec(200, "C:/NATIVE.TOS", tail, 0) != -32L) return 4;

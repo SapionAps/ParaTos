@@ -7,7 +7,18 @@
 
 extern char **environ;
 
-static char *guest_environment(int argc, char **argv)
+static const ptos_guest_launch *guest_launch(void)
+{
+	char **end = environ;
+	while (*end) end++;
+	const uint32_t *aux = (const uint32_t *)(end + 1);
+	for (unsigned int i = 0; i < 32 && aux[0]; i++, aux += 2)
+		if (aux[0] == PTOS_AT_GUEST_LAUNCH)
+			return (const ptos_guest_launch *)(uintptr_t)aux[1];
+	return NULL;
+}
+
+static char *guest_environment(int argc, char **argv, const char *argv0)
 {
 	size_t size = 64; /* ARGV=NULL: indices, terminators */
 	for (char **e = environ; *e; e++)
@@ -16,9 +27,9 @@ static char *guest_environment(int argc, char **argv)
 		if (!**e || !strncmp(*e, "ARGV=", 5) || n > 32766 - size) return NULL;
 		size += n;
 	}
-	for (int i = 1; i < argc; i++)
+	for (int i = 0; i < argc; i++)
 	{
-		size_t n = strlen(argv[i]) + 16;
+		size_t n = strlen(i ? argv[i] : argv0) + 16;
 		if (n > 32766 - size) return NULL;
 		size += n;
 	}
@@ -31,16 +42,17 @@ static char *guest_environment(int argc, char **argv)
 	}
 	memcpy(out, "ARGV=", 5); out += 5;
 	int first_empty = 1;
-	for (int i = 1; i < argc; i++)
+	for (int i = 0; i < argc; i++)
 	{
-		if (*argv[i]) continue;
-		out += sprintf(out, first_empty ? "NULL:%d" : ",%d", i - 1);
+		if (*(i ? argv[i] : argv0)) continue;
+		out += sprintf(out, first_empty ? "NULL:%d" : ",%d", i);
 		first_empty = 0;
 	}
 	*out++ = 0;
-	for (int i = 1; i < argc; i++)
+	for (int i = 0; i < argc; i++)
 	{
-		const char *arg = *argv[i] ? argv[i] : " ";
+		const char *arg = i ? argv[i] : argv0;
+		if (!*arg) arg = " ";
 		size_t n = strlen(arg) + 1;
 		memcpy(out, arg, n); out += n;
 	}
@@ -67,20 +79,40 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	ptos_allocator_init();
-	/* Supply ARGV for runtimes that consume it while preserving the
-	 * counted tail that classic programs read directly from the basepage. */
-	char *env = guest_environment(argc, argv);
-	if (!env) { result = PTOS_ERANGE; goto done; }
-	char tail[128];
-	ptos_command_tail(tail, argc - 2, argv + 2);
+	const ptos_guest_launch *launch = guest_launch();
+	const char *argv0 = launch && launch->argv0 ? (const char *)(uintptr_t)launch->argv0 : argv[1];
+	const char *tail = launch ? (const char *)(uintptr_t)launch->tail : NULL;
+	const char *env = launch ? (const char *)(uintptr_t)launch->environment : NULL;
+	char *generated_env = NULL;
+	char generated_tail[128];
+	if (env && (launch->environment_size < 2 || launch->environment_size > PTOS_GUEST_ENV_MAX ||
+		env[launch->environment_size - 2] || env[launch->environment_size - 1]))
+	{
+		result = PTOS_EINVAL;
+		goto done;
+	}
+	if (!tail)
+	{
+		ptos_command_tail(generated_tail, argc - 2, argv + 2);
+		tail = generated_tail;
+	}
+	if (!env)
+	{
+		generated_env = guest_environment(argc - 1, argv + 1, argv0);
+		if (!generated_env) { result = PTOS_ERANGE; goto done; }
+		env = generated_env;
+	}
 	char filename[1024];
-	if (strlen(argv[1]) >= sizeof(filename)) { result = PTOS_ERANGE; free(env); goto done; }
-	for (size_t i = 0; i <= strlen(argv[1]); i++) filename[i] = argv[1][i] == '/' ? '\\' : argv[1][i];
+	size_t path_length = strlen(argv[1]);
+	if (path_length >= sizeof(filename)) { result = PTOS_ERANGE; goto done; }
+	for (size_t i = 0; i <= path_length; i++) filename[i] = argv[1][i] == '/' ? '\\' : argv[1][i];
 	result = ptos_load(filename, tail, env);
-	free(env);
+	free(generated_env);
+	generated_env = NULL;
 	if (result > 0) result = ptos_run_program(result);
 	else fprintf(stderr, "Paratos: cannot load %s (GEMDOS error %ld).\n", filename, (long)result);
 done:
+	free(generated_env);
 	ptos_allocator_destroy();
 	ptos_memory_destroy();
 	return result < 0 ? 1 : result;

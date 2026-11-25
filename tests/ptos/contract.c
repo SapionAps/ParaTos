@@ -204,6 +204,31 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case GEMDOS_OP_PGETPID: return native_self ? native_self->pid : 42;
 	case GEMDOS_OP_PGETPPID: return native_self ? native_self->parent : 1;
 	case 0x154:
+		if (a == PTOS_GUEST_LAUNCH_SSYSTEM)
+		{
+			const ptos_guest_launch_request *request = (const void *)b;
+			char *const *argv = (char *const *)request->argv;
+			char *const *envp = (char *const *)request->envp;
+			const unsigned char *tail = (const void *)request->tail;
+			const char *environment = (const void *)request->environment;
+			assert(c == (intptr_t)sizeof(*request) && d == 0);
+			exec_calls++; last_mode = request->mode;
+			assert(!strcmp((const char *)request->path, "C:\\APP.PRG"));
+			assert(!strcmp(envp[0], "X=1") && !envp[1]);
+			assert(tail[127] == 0x5a);
+			if (last_mode == 100)
+			{
+				static const char extended[] = "X=1\0ARGV=NULL:1\0chosen zero\0 \0two words\0";
+				assert(tail[0] == 127 && environment && !memcmp(environment, extended, sizeof(extended)));
+				assert(!strcmp(argv[0], "chosen zero") && !argv[1][0]);
+				assert(!strcmp(argv[2], "two words") && !argv[3]);
+				return 123;
+			}
+			assert(!environment);
+			assert(!strcmp(argv[0], "C:\\APP.PRG"));
+			assert(!strcmp(argv[1], "two words") && !argv[2][0] && !argv[3]);
+			return last_mode == 200 ? PTOS_ENOSYS : 37;
+		}
 		system_calls++;
 		if (a == SSYSTEM_OP_INQUIRE) return b == unavailable_read ? PTOS_ENOSYS : 0;
 		if (a >= 0xd && a <= 0xf) return -36;
@@ -263,22 +288,6 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case 0x41: return unlink((const char *)a);
 	case 0x42: { off_t pos = lseek(native_fd(b), a, c); return pos < 0 ? -64 : (int32_t)pos; }
 	case 0x57: return 0;
-	case GEMDOS_OP_PEXECVE: {
-		char *const *argv = (char *const *)c;
-		char *const *envp = (char *const *)d;
-		exec_calls++; last_mode = a;
-		assert(!strcmp((const char *)b, "C:\\APP.PRG"));
-		assert(!strcmp(envp[0], "X=1") && !envp[1]);
-		if (a == 100)
-		{
-			assert(!strcmp(argv[0], "chosen zero") && !argv[1][0]);
-			assert(!strcmp(argv[2], "two words") && !argv[3]);
-			return 123;
-		}
-		assert(!strcmp(argv[0], "C:\\APP.PRG"));
-		assert(!strcmp(argv[1], "two words") && !argv[2][0] && !argv[3]);
-		return a == 200 ? PTOS_ENOSYS : 37;
-	}
 	case 0x30: return 0x2000;
 	case GEMDOS_OP_DGETDRV: return current_drive;
 	case GEMDOS_OP_DSETDRV: current_drive = a; return 12;
@@ -568,6 +577,7 @@ static void test_delegation(void)
 	static const char classic[] = "\"two words\" ''";
 	tail[0] = sizeof(classic) - 1;
 	memcpy(tail + 1, classic, sizeof(classic));
+	tail[127] = 0x5a;
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37);
 	assert(last_mode == 0);
 	assert(ptos_exec(200, bp + 300, bp + 384, 0) == PTOS_ENOSYS);
