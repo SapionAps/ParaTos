@@ -74,6 +74,18 @@ int main(void)
 				return 1;
 			}
 		}
+#ifndef PTOS_TEST_VDI_ONLY
+	static const char classic_tail[] = "\016'two words' ''";
+	static const char extended_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
+	long classic = Pexec(0, "C:\\CLI.TOS", classic_tail, "DEMO=present\0");
+	long extended = Pexec(0, "C:\\CLI.TOS", "\177", extended_env);
+	printf("legacy Pexec through Pexecve (classic/ARGV): %ld/%ld\n", classic, extended);
+	if (classic != 37 || extended != 37)
+	{
+		puts("pTOS Paratos kernel integration: FAIL (legacy Pexec wrapper)");
+		return 1;
+	}
+#endif
 	puts("pTOS Paratos kernel integration: PASS");
 	return 0;
 }
