@@ -244,13 +244,14 @@ int ptos_super_return(void)
 	return 1;
 }
 
-static const char *guest_env(uint32_t address)
+static const char *guest_env(uint32_t address, size_t *size)
 {
 	if (!address) address = m68k_read_memory_32(ptos_process + BP_ENV);
 	const char *s = ptos_guest_buffer(address, 2);
 	uint32_t max = PTOS_RAM_END - address;
 	if (max > 32766) max = 32766;
-	for (uint32_t i = 0; i + 1 < max; i++) if (!s[i] && !s[i + 1]) return s;
+	for (uint32_t i = 0; i + 1 < max; i++)
+		if (!s[i] && !s[i + 1]) { *size = i + 2; return s; }
 	ptos_fault(address, "unterminated guest environment");
 }
 
@@ -264,7 +265,8 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 		operation != PTOS_EXEC_BASEPAGE && operation != PTOS_EXEC_BASEPAGE_FLAGS)
 		return PTOS_ENOSYS;
 	const char *command = ptos_guest_buffer(tail, 128);
-	const char *environment = guest_env(env);
+	size_t env_size;
+	const char *environment = guest_env(env, &env_size);
 	if (operation == PTOS_EXEC_BASEPAGE || operation == PTOS_EXEC_BASEPAGE_FLAGS)
 		return ptos_basepage(command, environment);
 	const char *guest_path = ptos_guest_string(path, 1024);
@@ -272,7 +274,12 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	size_t n = strlen(guest_path);
 	for (size_t i = 0; i <= n; i++) filename[i] = guest_path[i] == '/' ? '\\' : guest_path[i];
 	if (operation == PTOS_EXEC_LOAD) return ptos_load(filename, command, environment);
-	/* Includes guest-to-guest modes 0 and 200: let native Pexec/binfmt
-	 * select another Paratos instance. Never turn replacement into spawn. */
-	return ptos_task_exec(mode, filename, command, environment);
+	if (mode != operation) return PTOS_ENOSYS;
+	ptos_launch_args args;
+	int32_t result = ptos_capture_launch(filename, command, environment, env_size, env != 0, &args);
+	if (result < 0) return result;
+	/* Native binfmt owns interpreter selection and mode 200 keeps the PID. */
+	result = ptos_task_exec(operation, filename, args.argv, args.envp);
+	free(args.envp);
+	return result;
 }

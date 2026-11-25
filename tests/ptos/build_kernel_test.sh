@@ -10,7 +10,7 @@ arch=$1
 kernel=$(cd "$2" && pwd)
 top=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 build=$top/build/ptos/kernel-$arch
-libcmini=$kernel/lib/libcmini
+libcmini=$(cd "${PTOS_NATIVE_LIBCMINI_ROOT:-$kernel/lib/libcmini}" && pwd)
 case $arch in
     arm)
         config=virt-arm-aspace
@@ -39,6 +39,9 @@ native_flags="$native_flags -fno-pie -fno-stack-protector -fno-unwind-tables -fn
 # Build pTOS's own m68k regression disk, with its existing CLI suites and
 # full TOS startup. The native minicrt0 used by other pTOS tests emits ELF.
 make -C "$libcmini" BUILDDIR="$build/guest-libcmini" CROSSPREFIX="$guest_prefix" mintelf_defconfig
+if [ -d "$build/guest-libcmini/objs" ]; then
+    make -C "$libcmini" BUILDDIR="$build/guest-libcmini" CROSSPREFIX="$guest_prefix" clean
+fi
 make -C "$libcmini" BUILDDIR="$build/guest-libcmini" CROSSPREFIX="$guest_prefix" ONLY_68K=y -j4 dirs libs startups
 make -C "$kernel" atari512_defconfig
 make -C "$kernel" CROSS_COMPILE="$guest_prefix" \
@@ -91,6 +94,7 @@ cmake -S "$top" -B "$build/native" \
     -DCMAKE_TOOLCHAIN_FILE="$top/cmake/$toolchain" -DCMAKE_BUILD_TYPE=Release \
     -DPTOS_LIBCMINI_ROOT="$libcmini" -DPTOS_LIBCMINI_ARCHIVE="$build/libcmini/libcmini.a" \
     -DPTOS_CRT0="$build/libcmini/objs/crt0.o" -DPTOS_KERNEL_DIR="$kernel" \
+    -DPTOS_ELF_CRT0="$build/libcmini/objs/elfcrt0.o" \
     -DPTOS_GUEST_LIBCMINI_DIR="$build/guest-libcmini" \
     -DPTOS_M68K_TEST_DISK="$build/m68k-test-hd.img" \
     -DPTOS_VDI_LIBRARY="$vdi_library" \

@@ -32,20 +32,16 @@ add_executable(ptos_kernel_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/kernel_laun
 if(PTOS_VDI_LIBRARY)
 	target_compile_definitions(ptos_kernel_launcher PRIVATE PTOS_TEST_VDI_AVAILABLE=1)
 endif()
-ptos_executable(ptos_kernel_launcher 0x00400000)
+ptos_executable(ptos_kernel_launcher 0x00400000 BASEPAGE)
 add_executable(ptos_fs_native ${PROJECT_SOURCE_DIR}/tests/ptos/fs_native.c)
 ptos_executable(ptos_fs_native 0x00400000)
 add_executable(ptos_native_child ${PROJECT_SOURCE_DIR}/tests/ptos/native_child.c)
 ptos_executable(ptos_native_child 0x00400000)
 
-# Kernel options independently control the native launcher, the Pexec(200)
-# fixture, and the guest's staged PROCESSes.
+# Kernel options independently control the replacement fixture and the guest's
+# staged PROCESSes. The boot driver uses basepage entry from the kernel.
 file(STRINGS "${PTOS_KERNEL_DIR}/obj/autoconf.h" PTOS_KERNEL_OPTIONS
-	REGEX "^#define CONF_WITH_(MULTITHREADING|LEGACY_PEXEC|EXEC_REPLACE|PEXEC200|PCLONE|PROCESS_FILES|NATIVE_SCHED) [01]$")
-if("#define CONF_WITH_LEGACY_PEXEC 0" IN_LIST PTOS_KERNEL_OPTIONS)
-	set(PTOS_NATIVE_MODE_ZERO_ONLY ON)
-	target_compile_definitions(ptos_kernel_launcher PRIVATE PTOS_TEST_NATIVE_MODE_ZERO_ONLY=1)
-endif()
+	REGEX "^#define CONF_WITH_(MULTITHREADING|EXEC_REPLACE|PEXEC200|PCLONE|PROCESS_FILES|NATIVE_SCHED) [01]$")
 if("#define CONF_WITH_EXEC_REPLACE 1" IN_LIST PTOS_KERNEL_OPTIONS AND
 	NOT "#define CONF_WITH_PEXEC200 0" IN_LIST PTOS_KERNEL_OPTIONS)
 	set(PTOS_EXEC_REPLACEMENT ON)
@@ -61,7 +57,7 @@ set(PTOS_FIXTURES cli semantics overlay fault interpreter filesystem fs_overlay 
 if(PTOS_CLONED_GUESTS)
 	list(APPEND PTOS_FIXTURES pclone_guest)
 	add_executable(ptos_pclone_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/pclone_launcher.c)
-	ptos_executable(ptos_pclone_launcher 0x00400000)
+	ptos_executable(ptos_pclone_launcher 0x00400000 BASEPAGE)
 endif()
 
 set(PTOS_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/guest-fixtures)
@@ -111,7 +107,7 @@ endif()
 
 if(PTOS_VDI_LIBRARY)
 	# Exercise the optional no-client build too, using the same VDI-enabled
-	# kernel. Only six VDI launches are needed to check the fallback path.
+	# kernel. Repeat the vector launch to check the fallback path.
 	get_target_property(PTOS_NO_VDI_SOURCES paratos SOURCES)
 	add_executable(ptos_no_vdi ${PTOS_NO_VDI_SOURCES})
 	target_include_directories(ptos_no_vdi PRIVATE ${PROJECT_SOURCE_DIR}/mushashi)
@@ -119,10 +115,7 @@ if(PTOS_VDI_LIBRARY)
 	ptos_executable(ptos_no_vdi 0x41000000)
 	add_executable(ptos_no_vdi_launcher ${PROJECT_SOURCE_DIR}/tests/ptos/kernel_launcher.c)
 	target_compile_definitions(ptos_no_vdi_launcher PRIVATE PTOS_TEST_VDI_ONLY=1)
-	if(PTOS_NATIVE_MODE_ZERO_ONLY)
-		target_compile_definitions(ptos_no_vdi_launcher PRIVATE PTOS_TEST_NATIVE_MODE_ZERO_ONLY=1)
-	endif()
-	ptos_executable(ptos_no_vdi_launcher 0x00400000)
+	ptos_executable(ptos_no_vdi_launcher 0x00400000 BASEPAGE)
 	add_test(NAME ptos_kernel_no_vdi
 		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/ptos/run_kernel.py
 			--arch ${PTOS_TEST_ARCH} --kernel-dir ${PTOS_KERNEL_DIR}
@@ -136,7 +129,7 @@ endif()
 
 if(PTOS_M68K_TEST_DISK)
 	add_executable(ptos_disk_runner ${PROJECT_SOURCE_DIR}/tests/ptos/disk_runner.c)
-	ptos_executable(ptos_disk_runner 0x00400000)
+	ptos_executable(ptos_disk_runner 0x00400000 BASEPAGE)
 	add_test(NAME ptos_m68k_disk
 		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/ptos/run_kernel.py
 			--arch ${PTOS_TEST_ARCH} --kernel-dir ${PTOS_KERNEL_DIR}

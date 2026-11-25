@@ -3,23 +3,24 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <mint/osbind.h>
-#include <mint/basepage.h>
+#include <mint/mintbind.h>
 
-static const char cli_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
-static const char semantics_env[] = "DEMO=present\0ARGV=\0C:\\SEMANTIC.TOS\0";
-static const char filesystem_env[] = "DEMO=present\0ARGV=\0C:\\FSCOMP.TOS\0";
+static char *const demo_env[] = {"DEMO=present", NULL};
 #if defined(__arm__)
-static const char vdi_env[] = "VDI=kernel\0ARGV=\0C:\\VDI.TOS\0";
+static char *const vdi_env[] = {"VDI=kernel", NULL};
 #elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
-static const char vdi_env[] = "VDI=required\0ARGV=\0C:\\VDI.TOS\0";
+static char *const vdi_env[] = {"VDI=required", NULL};
 #else
-static const char vdi_env[] = "VDI=absent\0ARGV=\0C:\\VDI.TOS\0";
+static char *const vdi_env[] = {"VDI=absent", NULL};
 #endif
-static const char read_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0read\0";
-static const char write_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0write\0";
-static const char script_env[] = "DEMO=present\0ARGV=NULL:2\0C:/SCRIPT.SH\0two words\0 \0";
-static const char explicit_env[] = "DEMO=present\0ARGV=NULL:3\0C:\\BIN\\PARATOS.PRG\0"
-	"C:/CLI.TOS\0two words\0 \0";
+static char *const cli_args[] = {"C:/CLI.TOS", "two words", "", NULL};
+static char *const semantics_args[] = {"C:\\SEMANTIC.TOS", NULL};
+static char *const filesystem_args[] = {"C:\\FSCOMP.TOS", NULL};
+static char *const vdi_args[] = {"C:\\VDI.TOS", NULL};
+static char *const read_fault_args[] = {"C:\\FAULT.TOS", "read", NULL};
+static char *const write_fault_args[] = {"C:\\FAULT.TOS", "write", NULL};
+static char *const script_args[] = {"C:/SCRIPT.SH", "two words", "", NULL};
+static char *const explicit_args[] = {"C:\\BIN\\PARATOS.PRG", "C:/CLI.TOS", "two words", "", NULL};
 
 static int userspace(void)
 {
@@ -36,29 +37,6 @@ static int userspace(void)
 #endif
 }
 
-static long launch(int mode, const char *path, const char *environment)
-{
-	char tail[128] = {127, 0};
-	if (!mode) return Pexec(0, path, tail, environment);
-	BASEPAGE *bp = (BASEPAGE *)Pexec(3, path, tail, environment);
-	if ((long)bp <= 0) return (long)bp;
-	if ((uintptr_t)bp->p_tbase < 0x41000000UL || (uintptr_t)bp->p_tbase >= 0x42000000UL ||
-		(uintptr_t)bp < 0x01000000UL || (uintptr_t)bp->p_env < 0x01000000UL)
-	{
-		puts("pTOS Paratos kernel integration: FAIL (native layout)");
-		return -1;
-	}
-	void *env = bp->p_env;
-	long result = Pexec(mode, "", bp, 0);
-	if (mode == 4)
-	{
-		/* PE_GO lends the image and returns it as a Malloc block. */
-		if (Mfree((void *)0x41000000UL) || Mfree(env) || Mfree(bp))
-			return -1;
-	}
-	return result;
-}
-
 int main(void)
 {
 #ifdef PTOS_TEST_EXEC_REPLACEMENT
@@ -66,21 +44,16 @@ int main(void)
 #else
 	enum { semantics_status = 0 };
 #endif
-	static const struct { const char *name, *path, *env; long status; } cases[] = {
-		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_env, 37},
-		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, semantics_status},
-		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_env, 0},
-		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_env, 0},
-		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_env, 255},
-		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_env, 255},
-		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_env, 42},
-		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_env, 37}
+	static const struct { const char *name, *path; char *const *argv, *const *envp; long status; } cases[] = {
+		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_args, demo_env, 37},
+		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_args, demo_env, semantics_status},
+		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_args, demo_env, 0},
+		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_args, vdi_env, 0},
+		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_args, demo_env, 255},
+		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_args, demo_env, 255},
+		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_args, demo_env, 42},
+		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_args, demo_env, 37}
 	};
-#ifdef PTOS_TEST_NATIVE_MODE_ZERO_ONLY
-	static const int modes[] = {0};
-#else
-	static const int modes[] = {0, 4, 6};
-#endif
 	puts("pTOS Paratos kernel integration: BEGIN");
 	if (!userspace())
 	{
@@ -88,20 +61,19 @@ int main(void)
 		return 1;
 	}
 	for (int round = 0; round < 2; round++)
-		for (unsigned int mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++)
-			for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
-			{
+		for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+		{
 #ifdef PTOS_TEST_VDI_ONLY
-				if (cases[i].env != vdi_env) continue;
+			if (cases[i].envp != vdi_env) continue;
 #endif
-				long result = launch(modes[mode], cases[i].path, cases[i].env);
-				printf("round %d mode %d %s: %ld\n", round + 1, modes[mode], cases[i].name, result);
-				if (result != cases[i].status)
-				{
-					puts("pTOS Paratos kernel integration: FAIL (exit status or cleanup)");
-					return 1;
-				}
+			long result = Pexecve(0, cases[i].path, cases[i].argv, cases[i].envp);
+			printf("round %d %s: %ld\n", round + 1, cases[i].name, result);
+			if (result != cases[i].status)
+			{
+				puts("pTOS Paratos kernel integration: FAIL (exit status or cleanup)");
+				return 1;
 			}
+		}
 	puts("pTOS Paratos kernel integration: PASS");
 	return 0;
 }

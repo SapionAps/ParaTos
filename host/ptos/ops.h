@@ -87,7 +87,8 @@ enum ptos_gemdos_op {
 	GEMDOS_OP_PSETPRIORITY = 0x159,
 	GEMDOS_OP_MMAP = 0x17e,
 	GEMDOS_OP_MUNMAP = 0x17f,
-	GEMDOS_OP_PCLONE = 0x190
+	GEMDOS_OP_PCLONE = 0x190,
+	GEMDOS_OP_PEXECVE = 0x193
 };
 
 enum ptos_bios_op {

@@ -10,9 +10,18 @@ extern char **environ;
 static char *guest_environment(int argc, char **argv)
 {
 	size_t size = 64; /* ARGV=NULL: indices, terminators */
-	for (char **e = environ; *e; e++) size += strlen(*e) + 1;
-	for (int i = 1; i < argc; i++) size += strlen(argv[i]) + 16;
-	if (size > 32766) return NULL;
+	for (char **e = environ; *e; e++)
+	{
+		size_t n = strlen(*e) + 1;
+		if (!**e || !strncmp(*e, "ARGV=", 5) || n > 32766 - size) return NULL;
+		size += n;
+	}
+	for (int i = 1; i < argc; i++)
+	{
+		size_t n = strlen(argv[i]) + 16;
+		if (n > 32766 - size) return NULL;
+		size += n;
+	}
 	char *env = calloc(1, size), *out = env;
 	if (!env) return NULL;
 	for (char **e = environ; *e; e++)
@@ -62,6 +71,7 @@ int main(int argc, char **argv)
 	if (!env) { result = PTOS_ERANGE; goto done; }
 	char tail[128];
 	ptos_command_tail(tail, argc - 2, argv + 2);
+	tail[0] = 127; /* the guest receives the extended ARGV block */
 	char filename[1024];
 	if (strlen(argv[1]) >= sizeof(filename)) { result = PTOS_ERANGE; free(env); goto done; }
 	for (size_t i = 0; i <= strlen(argv[1]); i++) filename[i] = argv[1][i] == '/' ? '\\' : argv[1][i];

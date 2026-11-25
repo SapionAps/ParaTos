@@ -10,6 +10,12 @@ int32_t ptos_bios_call(uint16_t function, int16_t device, int16_t value);
 int32_t ptos_map(uint32_t address, uint32_t length);
 int32_t ptos_unmap(uint32_t address, uint32_t length);
 void ptos_command_tail(char tail[128], int argc, char **argv);
+typedef struct {
+	char **argv;
+	char **envp; /* owns both pointer arrays and all strings */
+} ptos_launch_args;
+int32_t ptos_capture_launch(const char *path, const char tail[128], const char *env,
+	size_t env_size, int explicit_env, ptos_launch_args *out);
 
 #define PTOS_NATIVE_BASE 0x41000000u
 #define PTOS_RAM_START   0x00010000u

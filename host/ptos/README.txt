@@ -52,7 +52,7 @@ in separate directories below build/.
       -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/ptos-x32.cmake" \
       -DPTOS_LIBCMINI_ROOT="$LIBCMINI" \
       -DPTOS_LIBCMINI_ARCHIVE="$PWD/build/ptos/libcmini/libcmini.a" \
-      -DPTOS_CRT0="$PWD/build/ptos/libcmini/objs/crt0.o" \
+      -DPTOS_ELF_CRT0="$PWD/build/ptos/libcmini/objs/elfcrt0.o" \
       -DCMAKE_BUILD_TYPE=Release
   cmake --build build/ptos/native -j4
   readelf -h -l build/ptos/native/host/ptos/paratos.prg
@@ -74,7 +74,7 @@ For ARM, use a separate libcmini build and the ARM toolchain file:
       -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/ptos-arm.cmake" \
       -DPTOS_LIBCMINI_ROOT="$LIBCMINI" \
       -DPTOS_LIBCMINI_ARCHIVE="$PWD/build/ptos/arm-libcmini/libcmini.a" \
-      -DPTOS_CRT0="$PWD/build/ptos/arm-libcmini/objs/crt0.o" \
+      -DPTOS_ELF_CRT0="$PWD/build/ptos/arm-libcmini/objs/elfcrt0.o" \
       -DCMAKE_BUILD_TYPE=Release
   cmake --build build/ptos/arm-native -j4
   arm-none-eabi-readelf -h -l build/ptos/arm-native/host/ptos/paratos.prg
@@ -175,10 +175,15 @@ committed only on success. Unknown structure/command ABIs still need explicit
 adapters; directory streams, stat64, signals and networking remain follow-ups.
 Full MiNT libc startup is not yet supported.
 
-Pexec(0/100/200) delegates pathname-based execution to native Pexec.
-For a 68k target, the kernel's binfmt registration selects another ParaTOS
-instance. A guest cannot replace the shared native process while it has
-outstanding cloned guests, or from within a cloned guest.
+Guest Pexec(0/100/200) decodes the classic command tail or explicit
+marker-127 ARGV block into owned argv and envp vectors for native Pexecve.
+An inherited environment contributes its ordinary variables. ARGV from
+the previous launch is discarded. For a 68k target, kernel binfmt
+selects another ParaTOS instance and supplies the interpreter vectors.
+The incoming native ELF vectors are converted to extended ARGV only
+when creating the emulated PRG basepage. A guest cannot replace the
+shared native process while it has outstanding cloned guests, from
+within a cloned guest, or from an in-place overlay.
 
 Guest Pexec(3) loads a 68k PRG into guest RAM and Pexec(5/7) creates a
 guest basepage. Modes 4/6 start it and return the child's exit code.
@@ -192,8 +197,7 @@ Pclone flag (pTOS #1040, PR #1045). ParaTOS requests CLONE_VM,
 CLONE_COPY_ALL_HANDLES and CLONE_COPY_CWD. Pclone writes the guest's native
 PROCESS ID to child_pid. Pgetpid, Pgetppid and Pwaitpid use the kernel's IDs
 and relationships, including Pexec(100) children. The synchronous GO modes
-return the full Pterm word. Ordinary native Pexec(0) supplies the managed
-caller, including for the first application started from boot (pTOS #1039).
+return the full Pterm word. Native Pexecve(0) supplies a managed child.
 Kernels without Pclone retain the legacy in-place modes 4/6.
 
 Each cloned PROCESS inherits descriptor numbers and shares the underlying
@@ -239,8 +243,8 @@ launches per architecture:
   active supervisor callback; retained/transferred image ownership,
   file cleanup, inherited handles, stream and directory restoration.
 - BIOS output remains on the console while GEMDOS stdout is redirected.
-- Native Pexec with inherited handles, working directory and environment;
-  mode 200's native ENOSYS without an extra child launch.
+- Native Pexecve with inherited handles, working directory and environment,
+  including same-PID mode 200 on a kernel with replacement enabled.
 - Guest-to-guest Pexec(0) through the kernel and registered handler, with
   short command tails overriding inherited ARGV while preserving environment.
 - Shebang scripts with a 68k interpreter (shebang followed by binfmt), an
@@ -258,6 +262,11 @@ From the Paratos checkout:
   sh tests/ptos/build_kernel_test.sh arm /absolute/path/to/pTOS
   sh tests/ptos/build_kernel_test.sh x32 /absolute/path/to/pTOS
 
+The kernel must include pTOS PR #1066. Set PTOS_NATIVE_LIBCMINI_ROOT to
+the vector CRT checkout if the kernel submodule lacks libcmini PR #28.
+The same libcmini revision builds the native CRT and the guest fixtures.
+The guest fixture exercises the m68k Pexecve fallback through emulated Pexec.
+
 These commands select and build the kernel configuration, build guest and
 native libcmini archives in separate output directories, and run CTest.
 They change the kernel/libcmini ignored configurations: run architectures
@@ -269,7 +278,7 @@ unmodified regression sources: cookie_values, fseek_rewind,
 open_unlink, process_calls and sysconf. Full crt0.o produces a TOS PRG instead of a native m68k ELF. The
 additional ptos_m68k_disk test boots a copy of that image: RUNTESTS.TOS stays
 in place, preserved byte for byte, and a native wrapper replaces EMUCON.TOS.
-It launches RUNTESTS.TOS directly through native Pexec and the boot-configured
+It launches RUNTESTS.TOS directly through native Pexecve and the boot-configured
 binfmt handler. The other disk files remain
 in place. CTest requires both a successful upstream test summary and exit
 status 0 from the guest; failures are not filtered into a passing result.
@@ -284,7 +293,8 @@ adapted disk.img remain in host/ptos/m68k-disk-test for inspection.
 
 To use an already built kernel instead, configure the native Paratos build
 with PTOS_KERNEL_DIR and PTOS_GUEST_LIBCMINI_DIR (a m68k libcmini directory
-containing libcmini.a and objs/crt0.o). Then build and run just the boot test:
+containing libcmini.a and objs/crt0.o). Set PTOS_CRT0 to the native
+basepage startup used by the boot drivers. Then build and run just the boot test:
 
   cmake --build build/ptos/arm-native -j4
   ctest --test-dir build/ptos/arm-native -R '^ptos_kernel$' --output-on-failure
@@ -300,7 +310,7 @@ directories, preserve the image, obj/autoconf.h, tools/mkhdisk.sh and an
 optional SOURCE_REVISION file, so changing the source checkout's active
 configuration does not invalidate an earlier architecture's test setup.
 
-GitHub Actions runs Linux/macOS POSIX builds and ARM/x32 legacy real-kernel
+GitHub Actions runs Linux/macOS POSIX builds and ARM/x32 real-kernel
 tests against the pinned merged kernel. The pTOS job also runs the ARM
 bridge test. Use an MMU build of pTOS #1040 for `ptos_kernel_pclone`.
 

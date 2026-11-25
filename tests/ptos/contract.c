@@ -263,12 +263,22 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case 0x41: return unlink((const char *)a);
 	case 0x42: { off_t pos = lseek(native_fd(b), a, c); return pos < 0 ? -64 : (int32_t)pos; }
 	case 0x57: return 0;
-	case 0x4b:
+	case GEMDOS_OP_PEXECVE: {
+		char *const *argv = (char *const *)c;
+		char *const *envp = (char *const *)d;
 		exec_calls++; last_mode = a;
 		assert(!strcmp((const char *)b, "C:\\APP.PRG"));
-		assert(((const char *)c)[0] == 0);
-		assert(!strcmp((const char *)d, "X=1"));
+		assert(!strcmp(envp[0], "X=1") && !envp[1]);
+		if (a == 100)
+		{
+			assert(!strcmp(argv[0], "chosen zero") && !argv[1][0]);
+			assert(!strcmp(argv[2], "two words") && !argv[3]);
+			return 123;
+		}
+		assert(!strcmp(argv[0], "C:\\APP.PRG"));
+		assert(!strcmp(argv[1], "two words") && !argv[2][0] && !argv[3]);
 		return a == 200 ? PTOS_ENOSYS : 37;
+	}
 	case 0x30: return 0x2000;
 	case GEMDOS_OP_DGETDRV: return current_drive;
 	case GEMDOS_OP_DSETDRV: current_drive = a; return 12;
@@ -551,10 +561,28 @@ static void test_delegation(void)
 	strcpy(ptos_guest_buffer(bp + 256, 8), "X=1");
 	m68k_write_memory_8(bp + 260, 0);
 	strcpy(ptos_guest_buffer(bp + 300, 16), "C:/APP.PRG");
+	char *tail = ptos_guest_buffer(bp + 384, 128);
+	static const char classic[] = "\"two words\" ''";
+	tail[0] = sizeof(classic) - 1;
+	memcpy(tail + 1, classic, sizeof(classic));
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37);
 	assert(last_mode == 0);
 	assert(ptos_exec(200, bp + 300, bp + 384, 0) == PTOS_ENOSYS);
 	assert(last_mode == 200 && exec_calls == 2);
+	static const char extended[] = "X=1\0ARGV=NULL:1\0chosen zero\0 \0two words\0";
+	uint32_t environment = ptos_alloc(sizeof(extended));
+	assert(environment > 0);
+	memcpy(ptos_guest_buffer(environment, sizeof(extended)), extended, sizeof(extended));
+	tail[0] = 127;
+	assert(ptos_exec(100, bp + 300, bp + 384, environment) == 123);
+	assert(last_mode == 100 && exec_calls == 3);
+	/* A marker in the inherited environment does not replace this tail. */
+	m68k_write_memory_32(bp + BP_ENV, environment);
+	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 4);
+	/* Out-of-range NULL indices fail before the syscall. */
+	((char *)ptos_guest_buffer(environment, sizeof(extended)))[14] = '9';
+	assert(ptos_exec(100, bp + 300, bp + 384, environment) == PTOS_EINVAL);
+	assert(exec_calls == 4);
 }
 
 static void test_guest_super(void)
