@@ -605,6 +605,21 @@ static void test_delegation(void)
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 6);
 }
 
+static void test_basepage_environment_limit(void)
+{
+	reset();
+	static char environment[PTOS_GUEST_ENV_MAX];
+	char tail[128] = {0};
+	memset(environment, 'x', sizeof(environment) - 2);
+	int32_t bp = ptos_basepage(tail, environment);
+	assert(bp > 0);
+	uint32_t env = m68k_read_memory_32(bp + BP_ENV);
+	assert(!memcmp(ptos_guest_buffer(env, sizeof(environment)), environment, sizeof(environment)));
+	assert(ptos_free(bp) == 0 && ptos_free(env) == 0);
+	environment[sizeof(environment) - 2] = 'x';
+	assert(ptos_basepage(tail, environment) == PTOS_ERANGE);
+}
+
 static void test_guest_super(void)
 {
 	reset();
@@ -917,6 +932,7 @@ int main(int argc, char **argv)
 	test_vdi();
 	test_filesystem_lifetime();
 	test_delegation();
+	test_basepage_environment_limit();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);
 	clone_enabled = 1;

@@ -145,8 +145,9 @@ int ptos_image_startable(uint32_t bp, int take_ownership)
 int32_t ptos_basepage(const char *tail, const char *environment)
 {
 	uint32_t env_size = 0;
-	while (env_size < 32764 && (environment[env_size] || environment[env_size + 1])) env_size++;
-	if (env_size == 32764) return PTOS_ERANGE;
+	while (env_size + 1 < PTOS_GUEST_ENV_MAX &&
+		(environment[env_size] || environment[env_size + 1])) env_size++;
+	if (env_size + 1 == PTOS_GUEST_ENV_MAX) return PTOS_ERANGE;
 	env_size += 2;
 	int32_t env = ptos_alloc(env_size);
 	if (env < 0) return env;
