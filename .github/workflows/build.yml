@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kelihlodversson/libcmini
-          ref: 98758a5c1a15751cf33847dd0766a3120b4fe5c8
+          ref: f67aad9da53e66b4caa965e03cf4cc8316eaaf51
           path: native-libcmini
       - name: Check out Paratos
         uses: actions/checkout@v4
