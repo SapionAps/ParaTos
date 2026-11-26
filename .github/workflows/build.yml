@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kelihlodversson/pTOS
-          ref: ca3268e4aad7732ab31dec3177526bad3b32538e
+          ref: b7b1c0d2ba917b2e1e20ae43a49b3290d4464b23
           submodules: recursive
       - name: Check out the native vector CRT
         uses: actions/checkout@v4
