@@ -26,9 +26,11 @@ int main(int argc, char **argv)
 	if (!env || strcmp(env, "present")) return 2;
 	const char *expected_name = getenv("CHECKARGV0");
 	if (expected_name && strcmp(argv[0], expected_name)) return 9;
-	if (argc == 1) return _base->p_cmdlin[0] || _base->p_cmdlin[1] ? 8 : 38;
+	int marker = expected_name && *expected_name ? 127 : 0;
+	if (argc == 1) return _base->p_cmdlin[0] != marker || _base->p_cmdlin[1] ? 8 : 38;
 	if (argc == 2 && !strcmp(argv[1], "plain"))
-		return _base->p_cmdlin[0] != 5 || strcmp(_base->p_cmdlin + 1, "plain") ? 8 : 38;
+		return _base->p_cmdlin[0] != (marker ? marker : 5) ||
+			strcmp(_base->p_cmdlin + 1, "plain") ? 8 : 38;
 	if (argc != 3 || strcmp(argv[1], "two words") || strcmp(argv[2], "")) return 1;
 	if (((unsigned char)_base->p_cmdlin[0] != 127 && _base->p_cmdlin[0] != 14) ||
 		strncmp(_base->p_cmdlin + 1, "'two words' ''", 14)) return 8;

@@ -8,6 +8,7 @@
 
 static char *const demo_env[] = {"DEMO=present", NULL};
 static char *const cli_env[] = {"DEMO=present", "CHECKARGV0=guest display name", NULL};
+static char *const cli_classic_env[] = {"DEMO=present", "CHECKARGV0=", NULL};
 #if defined(__arm__)
 static char *const vdi_env[] = {"VDI=kernel", NULL};
 #elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
@@ -16,6 +17,9 @@ static char *const vdi_env[] = {"VDI=required", NULL};
 static char *const vdi_env[] = {"VDI=absent", NULL};
 #endif
 static char *const cli_args[] = {"guest display name", "two words", "", NULL};
+static char *const cli_named_no_args[] = {"guest display name", NULL};
+static char *const cli_named_short[] = {"guest display name", "plain", NULL};
+static char *const cli_classic[] = {"", "plain", NULL};
 static char *const semantics_args[] = {"C:\\SEMANTIC.TOS", NULL};
 static char *const filesystem_args[] = {"C:\\FSCOMP.TOS", NULL};
 static char *const vdi_args[] = {"C:\\VDI.TOS", NULL};
@@ -68,6 +72,9 @@ int main(void)
 #endif
 	static const struct { const char *name, *path; char *const *argv, *const *envp; long status; } cases[] = {
 		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_args, cli_env, 37},
+		{"CLI named argv without operands", "C:\\CLI.TOS", cli_named_no_args, cli_env, 38},
+		{"CLI named argv with a short operand", "C:\\CLI.TOS", cli_named_short, cli_env, 38},
+		{"CLI classic unnamed tail", "C:\\CLI.TOS", cli_classic, cli_classic_env, 38},
 		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_args, demo_env, semantics_status},
 		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_args, demo_env, 0},
 		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_args, vdi_env, 0},

@@ -184,8 +184,11 @@ the previous launch is discarded. For a 68k target, kernel binfmt
 selects another ParaTOS instance and supplies the interpreter vectors.
 When entry argv[1] names the directly redirected PRG, ParaTOS restores
 the raw tail and explicit environment from AT_PTOS_GUEST_LAUNCH. It uses
-the original argv[0] when it needs to generate an ARGV block. Shebang
-chains instead use the interpreter's own argument list. A guest cannot replace the
+the original argv[0] when it needs to generate an ARGV block. A synthesized
+tail can use the classic count when argv[0] is empty and its operands fit
+losslessly. A supplied name or an operand that needs extended encoding
+uses marker 127 so strict PRG runtimes recognize ARGV. Shebang chains use
+the interpreter's own argument list. A guest cannot replace the
 shared native process while it has outstanding cloned guests, from
 within a cloned guest, or from an in-place overlay.
 

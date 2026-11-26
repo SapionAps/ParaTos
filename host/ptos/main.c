@@ -20,18 +20,23 @@ static const ptos_guest_launch *guest_launch(void)
 
 static char *guest_environment(int argc, char **argv, const char *argv0)
 {
-	size_t size = 64; /* ARGV=NULL: indices, terminators */
+	size_t size = argc ? 64 : 0; /* Allow room for extended ARGV metadata. */
 	for (char **e = environ; *e; e++)
 	{
 		size_t n = strlen(*e) + 1;
-		if (!**e || !strncmp(*e, "ARGV=", 5) || n > 32766 - size) return NULL;
+		if (!**e || !strncmp(*e, "ARGV=", 5) || n > PTOS_GUEST_ENV_MAX - size) return NULL;
 		size += n;
 	}
 	for (int i = 0; i < argc; i++)
 	{
 		size_t n = strlen(i ? argv[i] : argv0) + 16;
-		if (n > 32766 - size) return NULL;
+		if (n > PTOS_GUEST_ENV_MAX - size) return NULL;
 		size += n;
+	}
+	if (!argc)
+	{
+		size += size ? 1 : 2;
+		if (size > PTOS_GUEST_ENV_MAX) return NULL;
 	}
 	char *env = calloc(1, size), *out = env;
 	if (!env) return NULL;
@@ -40,6 +45,7 @@ static char *guest_environment(int argc, char **argv, const char *argv0)
 		size_t n = strlen(*e) + 1;
 		memcpy(out, *e, n); out += n;
 	}
+	if (!argc) return env;
 	memcpy(out, "ARGV=", 5); out += 5;
 	int first_empty = 1;
 	for (int i = 0; i < argc; i++)
@@ -85,6 +91,7 @@ int main(int argc, char **argv)
 	const char *env = launch ? (const char *)(uintptr_t)launch->environment : NULL;
 	char *generated_env = NULL;
 	char generated_tail[128];
+	int extended_argc = argc - 1;
 	if (env && (launch->environment_size < 2 || launch->environment_size > PTOS_GUEST_ENV_MAX ||
 		env[launch->environment_size - 2] || env[launch->environment_size - 1]))
 	{
@@ -94,11 +101,14 @@ int main(int argc, char **argv)
 	if (!tail)
 	{
 		ptos_command_tail(generated_tail, argc - 2, argv + 2);
+		/* Classic PRG startup supplies an empty argv[0]. */
+		if (*argv0) generated_tail[0] = 127;
+		if (generated_tail[0] != 127) extended_argc = 0;
 		tail = generated_tail;
 	}
 	if (!env)
 	{
-		generated_env = guest_environment(argc - 1, argv + 1, argv0);
+		generated_env = guest_environment(extended_argc, argv + 1, argv0);
 		if (!generated_env) { result = PTOS_ERANGE; goto done; }
 		env = generated_env;
 	}
