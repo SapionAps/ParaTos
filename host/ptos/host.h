@@ -10,6 +10,8 @@ int32_t ptos_bios_call(uint16_t function, int16_t device, int16_t value);
 int32_t ptos_map(uint32_t address, uint32_t length);
 int32_t ptos_unmap(uint32_t address, uint32_t length);
 void ptos_command_tail(char tail[128], int argc, char **argv);
+/* The caller frees the flat block. Zero argc encodes only the environment. */
+char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, char *const envp[]);
 typedef struct {
 	char **argv;
 	char **envp; /* owns both pointer arrays and all strings */

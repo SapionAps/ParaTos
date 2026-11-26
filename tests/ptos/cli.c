@@ -4,10 +4,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <mint/basepage.h>
+#include <mint/osbind.h>
 
 int main(int argc, char **argv)
 {
 	const char *env = getenv("DEMO");
+	if (env && !strcmp(env, "inherit-limit"))
+	{
+		const char *padding = getenv("PAD");
+		size_t size = padding ? strlen(padding) : 0;
+		if (size < 32700 || padding[0] != 'x' || padding[size - 1] != 'z') return 8;
+		if (argc == 1)
+		{
+			static const char tail[128] = "\005child";
+			long result = Pexec(0, "C:\\CLI.TOS", tail, NULL);
+			if (result == 41) return 42;
+			printf("CLI inherited environment child result: %ld\n", result);
+			return 10;
+		}
+		return argc == 2 && !strcmp(argv[1], "child") && _base->p_cmdlin[0] == 5 ? 41 : 8;
+	}
 	if (env && !strcmp(env, "rawshort"))
 	{
 		char expected[128] = "\014plain  again";

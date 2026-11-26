@@ -424,6 +424,13 @@ static void test_arguments(void)
 	assert(tail[0] == 127 && strlen(tail + 1) == 126 && tail[127] == 0);
 	ptos_command_tail(tail, 0, NULL);
 	assert(tail[0] == 0 && tail[1] == 0);
+	char *const env[] = {NULL};
+	char *const args[] = {"ignored", "1", "2", "3", "4", "5", "6", "7", "8", "9", ""};
+	const char expected[] = "ARGV=NULL:0,10\0 \0"
+		"1\0" "2\0" "3\0" "4\0" "5\0" "6\0" "7\0" "8\0" "9\0 \0";
+	char *packed = ptos_guest_environment(11, args, "", env);
+	assert(packed && !memcmp(packed, expected, sizeof(expected)));
+	free(packed);
 }
 
 static void test_file_lifetimes(void)
@@ -618,6 +625,31 @@ static void test_basepage_environment_limit(void)
 	assert(ptos_free(bp) == 0 && ptos_free(env) == 0);
 	environment[sizeof(environment) - 2] = 'x';
 	assert(ptos_basepage(tail, environment) == PTOS_ERANGE);
+}
+
+static void test_inherited_environment_limit(void)
+{
+	static char inherited[PTOS_GUEST_ENV_MAX];
+	static const char path[] = "C:\\CLI.TOS";
+	static const char suffix[] = "ARGV=\0C:\\CLI.TOS\0child\0";
+	const char tail[128] = "\005child";
+	const size_t size = sizeof(inherited) - sizeof(suffix);
+	ptos_launch_args launch;
+
+	memcpy(inherited, "PAD=", 4);
+	memset(inherited + 4, 'x', size - 5);
+	assert(ptos_capture_launch(path, tail, inherited, size + 1, 0, &launch) == 0);
+	assert(!launch.environment && !memcmp(launch.tail, tail, sizeof(tail)));
+	char *packed = ptos_guest_environment(2, launch.argv, launch.argv[0], launch.envp);
+	assert(packed && !memcmp(packed, inherited, size));
+	assert(!memcmp(packed + size, suffix, sizeof(suffix)));
+	free(packed);
+	free(launch.envp);
+
+	inherited[size - 1] = 'x';
+	assert(ptos_capture_launch(path, tail, inherited, size + 2, 0, &launch) == 0);
+	assert(!ptos_guest_environment(2, launch.argv, launch.argv[0], launch.envp));
+	free(launch.envp);
 }
 
 static void test_guest_super(void)
@@ -933,6 +965,7 @@ int main(int argc, char **argv)
 	test_filesystem_lifetime();
 	test_delegation();
 	test_basepage_environment_limit();
+	test_inherited_environment_limit();
 	test_guest_super();
 	test_overlay(4); test_overlay(6);
 	clone_enabled = 1;

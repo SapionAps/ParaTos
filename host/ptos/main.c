@@ -18,54 +18,6 @@ static const ptos_guest_launch *guest_launch(void)
 	return NULL;
 }
 
-static char *guest_environment(int argc, char **argv, const char *argv0)
-{
-	size_t size = argc ? 64 : 0; /* Allow room for extended ARGV metadata. */
-	for (char **e = environ; *e; e++)
-	{
-		size_t n = strlen(*e) + 1;
-		if (!**e || !strncmp(*e, "ARGV=", 5) || n > PTOS_GUEST_ENV_MAX - size) return NULL;
-		size += n;
-	}
-	for (int i = 0; i < argc; i++)
-	{
-		size_t n = strlen(i ? argv[i] : argv0) + 16;
-		if (n > PTOS_GUEST_ENV_MAX - size) return NULL;
-		size += n;
-	}
-	if (!argc)
-	{
-		size += size ? 1 : 2;
-		if (size > PTOS_GUEST_ENV_MAX) return NULL;
-	}
-	char *env = calloc(1, size), *out = env;
-	if (!env) return NULL;
-	for (char **e = environ; *e; e++)
-	{
-		size_t n = strlen(*e) + 1;
-		memcpy(out, *e, n); out += n;
-	}
-	if (!argc) return env;
-	memcpy(out, "ARGV=", 5); out += 5;
-	int first_empty = 1;
-	for (int i = 0; i < argc; i++)
-	{
-		if (*(i ? argv[i] : argv0)) continue;
-		out += sprintf(out, first_empty ? "NULL:%d" : ",%d", i);
-		first_empty = 0;
-	}
-	*out++ = 0;
-	for (int i = 0; i < argc; i++)
-	{
-		const char *arg = i ? argv[i] : argv0;
-		if (!*arg) arg = " ";
-		size_t n = strlen(arg) + 1;
-		memcpy(out, arg, n); out += n;
-	}
-	*out = 0;
-	return env;
-}
-
 int main(int argc, char **argv)
 {
 	if (argc < 2)
@@ -108,7 +60,7 @@ int main(int argc, char **argv)
 	}
 	if (!env)
 	{
-		generated_env = guest_environment(extended_argc, argv + 1, argv0);
+		generated_env = ptos_guest_environment(extended_argc, argv + 1, argv0, environ);
 		if (!generated_env) { result = PTOS_ERANGE; goto done; }
 		env = generated_env;
 	}

@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "host.h"
@@ -31,6 +32,65 @@ void ptos_command_tail(char tail[128], int argc, char **argv)
 	}
 #undef APPEND
 	tail[0] = quoted || n > 126 ? 127 : (char)n;
+}
+
+char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, char *const envp[])
+{
+	size_t env_size = 0, arg_size = 0, indices_size = 0;
+	for (char *const *entry = envp; *entry; entry++)
+	{
+		size_t bytes = strlen(*entry) + 1;
+		if (!**entry || !strncmp(*entry, "ARGV=", 5) || bytes > PTOS_GUEST_ENV_MAX - env_size)
+			return NULL;
+		env_size += bytes;
+	}
+	for (int i = 0; i < argc; i++)
+	{
+		size_t length = strlen(i ? argv[i] : argv0);
+		size_t bytes = length ? length + 1 : 2;
+		if (bytes > PTOS_GUEST_ENV_MAX - arg_size) return NULL;
+		arg_size += bytes;
+		if (!length)
+		{
+			size_t digits = 1;
+			for (int index = i; index >= 10; index /= 10) digits++;
+			indices_size += (indices_size ? 1 : 5) + digits;
+		}
+	}
+	/* Include the marker's terminator and the final NUL. An empty
+	 * classic environment needs both NUL bytes. */
+	size_t suffix = env_size ? 1 : 2;
+	if (argc) suffix = sizeof("ARGV=") + indices_size + arg_size + 1;
+	if (suffix > PTOS_GUEST_ENV_MAX - env_size) return NULL;
+	char *env = calloc(1, env_size + suffix), *out = env;
+	if (!env) return NULL;
+	for (char *const *entry = envp; *entry; entry++)
+	{
+		size_t bytes = strlen(*entry) + 1;
+		memcpy(out, *entry, bytes);
+		out += bytes;
+	}
+	if (!argc) return env;
+	memcpy(out, "ARGV=", 5);
+	out += 5;
+	int first_empty = 1;
+	for (int i = 0; i < argc; i++)
+	{
+		if (*(i ? argv[i] : argv0)) continue;
+		out += sprintf(out, first_empty ? "NULL:%d" : ",%d", i);
+		first_empty = 0;
+	}
+	*out++ = 0;
+	for (int i = 0; i < argc; i++)
+	{
+		const char *arg = i ? argv[i] : argv0;
+		if (!*arg) arg = " ";
+		size_t bytes = strlen(arg) + 1;
+		memcpy(out, arg, bytes);
+		out += bytes;
+	}
+	*out = 0;
+	return env;
 }
 
 #define PTOS_VECTOR_MAX 1024

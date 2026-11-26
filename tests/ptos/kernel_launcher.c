@@ -2,9 +2,13 @@
  * new native Paratos process for each ordinary compiled 68k TOS program. */
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <mint/osbind.h>
 #include <mint/mintbind.h>
 #include "../../host/ptos/host.h"
+
+/* The ELF startup stack carries both live and saved launch vectors. */
+long _stksize = 128L * 1024;
 
 static char *const demo_env[] = {"DEMO=present", NULL};
 static char *const cli_env[] = {"DEMO=present", "CHECKARGV0=guest display name", NULL};
@@ -20,6 +24,11 @@ static char *const cli_args[] = {"guest display name", "two words", "", NULL};
 static char *const cli_named_no_args[] = {"guest display name", NULL};
 static char *const cli_named_short[] = {"guest display name", "plain", NULL};
 static char *const cli_classic[] = {"", "plain", NULL};
+static char *const cli_inherit[] = {"", NULL};
+/* Leave exactly enough room for the nested launch's ARGV block. */
+static char inherited_padding[PTOS_GUEST_ENV_MAX - sizeof("DEMO=inherit-limit") -
+	sizeof("ARGV=") - sizeof("C:\\CLI.TOS") - sizeof("child") - 1] = "PAD=";
+static char *const inherited_env[] = {"DEMO=inherit-limit", inherited_padding, NULL};
 static char *const semantics_args[] = {"C:\\SEMANTIC.TOS", NULL};
 static char *const filesystem_args[] = {"C:\\FSCOMP.TOS", NULL};
 static char *const vdi_args[] = {"C:\\VDI.TOS", NULL};
@@ -75,6 +84,7 @@ int main(void)
 		{"CLI named argv without operands", "C:\\CLI.TOS", cli_named_no_args, cli_env, 38},
 		{"CLI named argv with a short operand", "C:\\CLI.TOS", cli_named_short, cli_env, 38},
 		{"CLI classic unnamed tail", "C:\\CLI.TOS", cli_classic, cli_classic_env, 38},
+		{"CLI inherited environment at the PRG limit", "C:\\CLI.TOS", cli_inherit, inherited_env, 42},
 		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_args, demo_env, semantics_status},
 		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_args, demo_env, 0},
 		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_args, vdi_env, 0},
@@ -84,6 +94,8 @@ int main(void)
 		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_args, demo_env, 37}
 	};
 	puts("pTOS Paratos kernel integration: BEGIN");
+	memset(inherited_padding + 4, 'x', sizeof(inherited_padding) - 6);
+	inherited_padding[sizeof(inherited_padding) - 2] = 'z';
 	if (!userspace())
 	{
 		puts("pTOS Paratos kernel integration: FAIL (native privilege)");
