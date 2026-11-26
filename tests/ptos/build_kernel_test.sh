@@ -93,7 +93,7 @@ cmake -S "$top" -B "$build/native" \
     -DPTOS_M68K_CC="$(command -v "${guest_prefix}gcc")" \
     -DCMAKE_TOOLCHAIN_FILE="$top/cmake/$toolchain" -DCMAKE_BUILD_TYPE=Release \
     -DPTOS_LIBCMINI_ROOT="$libcmini" -DPTOS_LIBCMINI_ARCHIVE="$build/libcmini/libcmini.a" \
-    -DPTOS_CRT0="$build/libcmini/objs/crt0.o" -DPTOS_KERNEL_DIR="$kernel" \
+    -DPTOS_KERNEL_DIR="$kernel" \
     -DPTOS_ELF_CRT0="$build/libcmini/objs/elfcrt0.o" \
     -DPTOS_GUEST_LIBCMINI_DIR="$build/guest-libcmini" \
     -DPTOS_M68K_TEST_DISK="$build/m68k-test-hd.img" \

@@ -299,8 +299,9 @@ adapted disk.img remain in host/ptos/m68k-disk-test for inspection.
 
 To use an already built kernel instead, configure the native Paratos build
 with PTOS_KERNEL_DIR and PTOS_GUEST_LIBCMINI_DIR (a m68k libcmini directory
-containing libcmini.a and objs/crt0.o). Set PTOS_CRT0 to the native
-basepage startup used by the boot drivers. Then build and run just the boot test:
+containing libcmini.a and objs/crt0.o). The native boot drivers use
+PTOS_ELF_CRT0 and require a kernel with vector-based AUTO startup.
+Then build and run just the boot test:
 
   cmake --build build/ptos/arm-native -j4
   ctest --test-dir build/ptos/arm-native -R '^ptos_kernel$' --output-on-failure
