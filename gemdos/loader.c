@@ -90,7 +90,8 @@ notrunc:
 #define WRITE_BASEPAGE(field,value) m68k_write_field(base_tpa, basepage_t, field, value)
 #define READ_BASEPAGE(field) m68k_read_field(base_tpa, basepage_t, field)
 
-emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environment[])
+emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environment[],
+	const raw_prg_arguments *raw)
 {
 	tos_header_t header;
 	FILE* file = fopen(filename,"r");
@@ -99,7 +100,11 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environme
 		perror(filename);
 		return 0;
 	}
-	fread(&header, sizeof(tos_header_t), 1, file);
+	if (fread(&header, sizeof(header), 1, file) != 1)
+	{
+		fclose(file);
+		return 0;
+	}
 	header.PRG_magic = paratos_be16toh(header.PRG_magic);
 	header.PRG_tsize = paratos_be32toh(header.PRG_tsize);
 	header.PRG_dsize = paratos_be32toh(header.PRG_dsize);
@@ -110,7 +115,21 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environme
 	header.ABSFLAG = paratos_be16toh(header.ABSFLAG);
 	TRACEF("Reading in text size: %d, data: %d, magic: %04x\n", header.PRG_tsize, header.PRG_dsize, header.PRG_magic);
 
-	uint32_t base_tpa = Malloc(Malloc(-1));
+	uint32_t available = Malloc(-1);
+	if (raw && (header.PRG_magic != 0x601a ||
+		(uint64_t)sizeof(basepage_t) + raw->environment_size + 3 +
+		(uint32_t)header.PRG_tsize + (uint32_t)header.PRG_dsize +
+		(uint32_t)header.PRG_bsize + 8 > available))
+	{
+		fclose(file);
+		return 0;
+	}
+	uint32_t base_tpa = Malloc(available);
+	if (!base_tpa)
+	{
+		fclose(file);
+		return 0;
+	}
 	MarkBasepage(base_tpa);
 
 	WRITE_BASEPAGE(p_lowtpa, base_tpa);
@@ -119,21 +138,23 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environme
 	uint32_t current = base_tpa + sizeof(basepage_t);
 	WRITE_BASEPAGE(p_env, current);          /* Address of the environment string   */
 
-	// copy environment
-	for(char ** ep=environment; *ep; ep++)
-	{
-		for(char *vp=*ep; *vp;vp++)
-		{
-			m68k_write_memory_8(current++, *vp);
-		}
-		m68k_write_memory_8(current++, 0);
-
-	}
-	// Copy command line
 	uint32_t command_line = base_tpa+offsetof(basepage_t, p_cmdlin);
-	current = BuildTosArglist(command_line, argv, argc, current);
-
-	m68k_write_memory_8(current++, 0);
+	if (raw)
+	{
+		memcpy(memory + command_line, raw->tail, 128);
+		memcpy(memory + current, raw->environment, raw->environment_size);
+		current += raw->environment_size;
+	}
+	else
+	{
+		for (char **ep = environment; *ep; ep++)
+		{
+			for (char *vp = *ep; *vp; vp++) m68k_write_memory_8(current++, *vp);
+			m68k_write_memory_8(current++, 0);
+		}
+		current = BuildTosArglist(command_line, argv, argc, current);
+		m68k_write_memory_8(current++, 0);
+	}
 	while((current & 3) !=0)
 		current++;
 
@@ -157,6 +178,8 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environme
 	char* dest = memory+READ_BASEPAGE(p_tbase);
 	if(!fread(dest, sizeof(char), READ_BASEPAGE(p_tlen)+READ_BASEPAGE(p_dlen), file))
 	{
+		fclose(file);
+		Mfree(base_tpa);
 		return 0;
 	}
 	TRACEF("Skipping %d bytes of symbol data\n", header.PRG_ssize);
@@ -187,5 +210,6 @@ emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environme
 		}
 	}
 
+	fclose(file);
 	return base_tpa;
 }

@@ -52,27 +52,39 @@ def print_tail():
     return prg(code + bytes.fromhex("2f092f013f3c00013f3c00404e41") + terminate())
 
 
-def print_environment(length):
+def print_environment(length, include_tail=False):
+    code = b""
+    if include_tail:
+        # Write the entire basepage tail, then restore SP for the env read.
+        code = bytes.fromhex("206f000443e800802f092f3c000000803f3c00013f3c00404e414fef000c")
     # A1 = basepage->p_env; Fwrite(1, length, A1); Pterm(37).
-    code = bytes.fromhex("206f00042268002c2f092f3c") + struct.pack(">I", length)
+    code += bytes.fromhex("206f00042268002c2f092f3c") + struct.pack(">I", length)
     return prg(code + bytes.fromhex("3f3c00013f3c00404e41") + terminate())
 
 
-def parent():
-    # Pexec(0, child, tail, env), then Pterm(D0). PEA operands are relocated
+def command_tail(argument, marker=None, padding=0):
+    count = len(argument) if marker is None else marker
+    return bytes([count]) + argument + bytes(126 - len(argument)) + bytes([padding])
+
+
+def parent(tail=command_tail(b"nested-child"), environment=b"\0\0", mode=0):
+    # Pexec(mode, child, tail, env), then Pterm(D0). PEA operands are relocated
     # from text-relative offsets by the ordinary PRG loader.
     code = bytearray(bytes.fromhex("487900000000487900000000487900000000"
                                    "3f3c00003f3c004b4e413f003f3c004c4e41"))
-    env = len(code)
-    code += b"\0\0"
-    tail = len(code)
-    argument = b"nested-child"
-    code += bytes([len(argument)]) + argument + bytes(127 - len(argument))
+    struct.pack_into(">H", code, 20, mode)
+    relocations = [8, 14]
+    if environment is not None:
+        struct.pack_into(">I", code, 2, len(code))
+        relocations.insert(0, 2)
+        code += environment
+    tail_offset = len(code)
+    code += tail
     child = len(code)
     code += b"CHILD.TOS\0"
-    for offset, value in ((2, env), (8, tail), (14, child)):
+    for offset, value in ((8, tail_offset), (14, child)):
         struct.pack_into(">I", code, offset, value)
-    return prg(code, (2, 8, 14))
+    return prg(code, relocations)
 
 
 class LaunchTests(unittest.TestCase):
@@ -195,7 +207,34 @@ class LaunchTests(unittest.TestCase):
         result = subprocess.run(["unused argv0", "PARENT.TOS"], executable=str(executable),
                                 cwd=self.directory, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 37, result.stderr)
-        self.assertEqual(result.stdout, b" nested-child")
+        self.assertEqual(result.stdout, b"nested-child")
+
+    def test_nested_execution_preserves_raw_tail_and_environment(self):
+        ordinary = b"FLAG=classic\0\0"
+        extended = b"FLAG=extended\0ARGV=NULL:2\0custom argv zero\0--flag\0raw placeholder\0\0"
+        large = b"PAD=" + b"x" * (100 * 1024) + b"\0\0"
+        cases = ((0, command_tail(b"plain  again", padding=0x5a), ordinary),
+                 (200, command_tail(b"'raw  display'\rpadding", 127, 0x5a), extended),
+                 (0, command_tail(b"large", padding=0x80), large))
+        for mode, tail, environment in cases:
+            with self.subTest(mode=mode, env_size=len(environment)):
+                (self.directory / "PARENT.TOS").write_bytes(parent(tail, environment, mode))
+                (self.directory / "CHILD.TOS").write_bytes(print_environment(len(environment), True))
+                result = self.run_guest("PARENT.TOS")
+                self.assertEqual(result.returncode, 37, result.stderr)
+                self.assertTrue(result.stdout == tail + environment, "guest startup bytes changed")
+
+    def test_nested_execution_rebuilds_inherited_argv_from_the_new_tail(self):
+        tail = command_tail(b"'two words' ''", padding=0x5a)
+        (self.directory / "PARENT.TOS").write_bytes(parent(tail, environment=None))
+        (self.directory / "CHILD.TOS").write_bytes(print_environment(256, True))
+        result = self.run_guest("PARENT.TOS", "parent-only", env={"FLAG": "inherited"})
+        self.assertEqual(result.returncode, 37, result.stderr)
+        self.assertEqual(result.stdout[:128], tail)
+        variables = result.stdout[128:].split(b"\0\0", 1)[0].split(b"\0")
+        self.assertEqual(variables[:2], [b"FLAG=inherited", b"ARGV=NULL:2"])
+        self.assertTrue(variables[2].endswith(b"CHILD.TOS"), variables)
+        self.assertEqual(variables[3:], [b"two words", b" "])
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux SIGSEGV contract")
     def test_memory_fault_diagnostics(self):

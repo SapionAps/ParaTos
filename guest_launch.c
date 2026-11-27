@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "host.h"
+#include "guest_launch.h"
+#include "tos_errors.h"
 
-void ptos_command_tail(char tail[128], int argc, char **argv)
+void guest_command_tail(char tail[128], int argc, char **argv)
 {
 	int quoted = 0;
 	for (int i = 0; i < argc; i++)
@@ -34,13 +35,14 @@ void ptos_command_tail(char tail[128], int argc, char **argv)
 	tail[0] = quoted || n > 126 ? 127 : (char)n;
 }
 
-char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, char *const envp[])
+char *guest_build_environment(int argc, char *const argv[], const char *argv0,
+	char *const envp[], size_t limit, size_t *length)
 {
 	size_t env_size = 0, arg_size = 0, indices_size = 0;
 	for (char *const *entry = envp; *entry; entry++)
 	{
 		size_t bytes = strlen(*entry) + 1;
-		if (!**entry || !strncmp(*entry, "ARGV=", 5) || bytes > PTOS_GUEST_ENV_MAX - env_size)
+		if (!**entry || !strncmp(*entry, "ARGV=", 5) || bytes > limit - env_size)
 			return NULL;
 		env_size += bytes;
 	}
@@ -48,7 +50,7 @@ char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, ch
 	{
 		size_t length = strlen(i ? argv[i] : argv0);
 		size_t bytes = length ? length + 1 : 2;
-		if (bytes > PTOS_GUEST_ENV_MAX - arg_size) return NULL;
+		if (bytes > limit - arg_size) return NULL;
 		arg_size += bytes;
 		if (!length)
 		{
@@ -61,9 +63,10 @@ char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, ch
 	 * classic environment needs both NUL bytes. */
 	size_t suffix = env_size ? 1 : 2;
 	if (argc) suffix = sizeof("ARGV=") + indices_size + arg_size + 1;
-	if (suffix > PTOS_GUEST_ENV_MAX - env_size) return NULL;
+	if (suffix > limit - env_size) return NULL;
 	char *env = calloc(1, env_size + suffix), *out = env;
 	if (!env) return NULL;
+	if (length) *length = env_size + suffix;
 	for (char *const *entry = envp; *entry; entry++)
 	{
 		size_t bytes = strlen(*entry) + 1;
@@ -92,9 +95,6 @@ char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, ch
 	*out = 0;
 	return env;
 }
-
-#define PTOS_VECTOR_MAX 1024
-#define PTOS_VECTOR_BYTES 65536u
 
 /* Parse the classic tail when no explicit ARGV block was supplied. */
 static int parse_tail(const char tail[128], char **argv, char *text)
@@ -149,21 +149,21 @@ static int decode_empty_arguments(const char *metadata, char **argv, size_t argc
 	}
 }
 
-int32_t ptos_capture_launch(const char *path, const char tail[128], const char *env,
-	size_t env_size, int explicit_env, ptos_launch_args *out)
+int32_t guest_capture_launch(const char *path, const char tail[128], const char *env,
+	size_t env_size, int explicit_env, guest_launch_args *out)
 {
 	size_t envc = 0, argc = 0, i;
 	const char *cursor = env, *end = env + env_size;
 	const char *metadata = NULL, *payload = NULL;
 	const unsigned char tail_size = (unsigned char)tail[0];
-	int32_t result = PTOS_EINVAL;
+	int32_t result = TOS_EINVAL;
 	char **envp, **argv;
 	char *copy, *text;
 
-	if (tail_size > 127) return PTOS_ERANGE;
+	if (tail_size > 127) return TOS_EBADARG;
 	while (cursor < end && *cursor)
 	{
-		size_t size = strlen(cursor) + 1; /* guest_env bounded this block */
+		size_t size = strlen(cursor) + 1; /* The caller supplies the bounded block. */
 		if (!strcmp(cursor, "ARGV") || !strncmp(cursor, "ARGV=", 5))
 		{
 			if (explicit_env && tail_size == 127)
@@ -173,7 +173,6 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 			}
 			break; /* inherited ARGV belongs to the previous launch */
 		}
-		if (envc == PTOS_VECTOR_MAX) return PTOS_ERANGE;
 		envc++;
 		cursor += size;
 	}
@@ -181,11 +180,10 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 	{
 		while (cursor < end && *cursor)
 		{
-			if (argc == PTOS_VECTOR_MAX - envc) return PTOS_ERANGE;
 			argc++;
 			cursor += strlen(cursor) + 1;
 		}
-		if (!argc) return PTOS_EINVAL;
+		if (!argc) return TOS_EINVAL;
 	}
 	else
 	{
@@ -193,13 +191,12 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 		argc = 1 + (tail_size + 1) / 2;
 	}
 
-	/* One allocation owns both vectors and the strings while the native
-	 * scheduler can run another guest. Transport slots are always ILP32. */
+	/* One allocation owns both vectors and the strings across the launch. */
 	size_t slots = argc + envc + 2;
 	size_t path_size = payload ? 0 : strlen(path) + 1;
 	envp = malloc(slots * sizeof(*envp) + env_size + path_size + 128 +
 		(explicit_env ? env_size : 0));
-	if (!envp) return PTOS_ENSMEM;
+	if (!envp) return TOS_ENSMEM;
 	argv = envp + envc + 1;
 	copy = (char *)(envp + slots);
 	text = copy + env_size;
@@ -229,15 +226,10 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 		if (count < 0) goto fail;
 		argc = 1 + count;
 	}
-	if (envc + argc > PTOS_VECTOR_MAX ||
-		(envc + argc + 2) * 4 + env_size + path_size + 128 > PTOS_VECTOR_BYTES)
-	{
-		result = PTOS_ERANGE;
-		goto fail;
-	}
 	out->envp = envp;
 	out->argv = argv;
 	out->argc = argc;
+	out->envc = envc;
 	memcpy(out->tail, tail, sizeof(out->tail));
 	out->environment = NULL;
 	out->environment_size = out->argv_offset = 0;

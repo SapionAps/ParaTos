@@ -11,4 +11,11 @@ typedef struct  {
 	uint16_t ABSFLAG;
 } __attribute__((packed)) tos_header_t;
 
-emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environment[]);
+typedef struct {
+	const char *tail;
+	const char *environment;
+	size_t environment_size;
+} raw_prg_arguments;
+
+emuptr32_t LoadExe(const char* filename, char* argv[], int argc, char* environment[],
+	const raw_prg_arguments *raw);

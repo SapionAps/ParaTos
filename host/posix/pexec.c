@@ -16,18 +16,11 @@
 #include "arguments.h"
 #include "tasks.h"
 #include "../../guest_exec.h"
+#include "../../guest_launch.h"
 
 
-/**
- * allocate an environment and argument list for passing on to the next process
- */
-static int prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr32_t cmdline, emuptr32_t env, size_t env_bytes)
+static int is_prg(const char *path)
 {
-	char* path = *pathp;
-	char** argv;
-	char** envp;
-	if (prepare_guest_args(&argv, &envp, path, cmdline, env, env_bytes) < 0) return -1;
-
 	uint16_t magic = 0;
 	/* Executable sniffing must not rendezvous with FIFO writers or read
 	 * devices under the execution mutex. Inspect regular files only, using
@@ -47,22 +40,7 @@ static int prepare_args(char*** out_argv, char*** out_env, char** pathp, emuptr3
 			close(fd);
 		}
 	}
-	magic = paratos_be16toh(magic);
-	if (magic == 0x601a) // this is another TOS executable - prepend paratos to the command line
-	{
-		size_t argc = 0;
-		while (argv[argc]) argc++;
-		memmove(argv + 1, argv, (argc + 1) * sizeof(*argv));
-
-		// add paratos executable in front of the command line and change the path name to execute
-		// TODO: handle when argv[0] != pathname
-		*pathp = paratos_exe;
-		argv[0] = paratos_exe;
-	}
-
-	*out_env = envp;
-	*out_argv = argv;
-	return 0;
+	return paratos_be16toh(magic) == 0x601a;
 }
 
 /**
@@ -117,48 +95,65 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		free(original);
 		return TOS_EINVAL;
 	}
+	int explicit_env = arg3 != 0;
 	if (!arg3) arg3 = m68k_read_field(current_process, basepage_t, p_env);
 	int32_t env_bytes = arg3 ? PosixEnvironmentSize(arg3) : 2;
 	if (env_bytes < 0) { free(original); return TOS_EINVAL; }
-	char *path = original;
-	char **argv, **envp;
-	if (prepare_args(&argv, &envp, &path, arg2, arg3, (uint32_t)env_bytes) < 0)
+	int prg = is_prg(original);
+	const char *path = prg ? paratos_exe : original;
+	char **argv, **envp, **vectors = NULL, **options = NULL, **tagged = NULL;
+	char *empty_env[] = {NULL};
+	int16_t id = 0;
+	int32_t result;
+	if (prg)
 	{
-		free(original);
-		return TOS_ENSMEM;
+		char tail[128] = {0};
+		if (arg2) memcpy(tail, memory + arg2, sizeof(tail));
+		const char *environment = arg3 ? (const char *)memory + arg3 : "\0";
+		guest_launch_args args;
+		result = guest_capture_launch(original, tail, environment, env_bytes, explicit_env, &args);
+		if (result < 0) goto failed;
+		vectors = args.envp;
+		result = guest_encode_options(path, original, &args, &options);
+		if (result < 0) goto failed;
+		argv = options;
+		envp = explicit_env ? empty_env : vectors;
 	}
-	char **tagged = NULL;
-	char id_text[16], parent_text[16];
-	if (operation == 200)
+	else
 	{
-		if (path == paratos_exe)
+		if (prepare_guest_args(&argv, &vectors, original, arg2, arg3, env_bytes) < 0)
 		{
-			tagged = tag_guest_argv(argv, PosixTaskPid(), PosixTaskParentPid(), id_text, parent_text);
-			if (!tagged) { free(tagged); free(envp); free(original); return TOS_ENSMEM; }
-			argv = tagged;
+			result = TOS_ENSMEM;
+			goto failed;
 		}
-		execve(path, argv, envp);
-		int32_t result = MapErrno();
-		free(tagged); free(envp);
-		free(original);
-		return result;
+		envp = vectors;
 	}
 	/* Reserve identity and ownership before a child can exist. Synchronous
 	 * launches remain invisible to every guest's Pwait until their own join. */
-	int16_t id = PosixReservePid(1);
-	if (id < 0) { free(tagged); free(envp); free(original); return TOS_ENHNDL; }
-	if (path == paratos_exe)
+	if (operation != 200)
 	{
-		tagged = tag_guest_argv(argv, id, PosixTaskPid(), id_text, parent_text);
-		if (!tagged) { PosixReleasePid(id); free(tagged); free(envp); free(original); return TOS_ENSMEM; }
+		id = PosixReservePid(1);
+		if (id < 0) { result = TOS_ENHNDL; goto failed; }
+	}
+	char id_text[16], parent_text[16];
+	if (prg)
+	{
+		tagged = tag_guest_argv(argv, id ? id : PosixTaskPid(),
+			id ? PosixTaskPid() : PosixTaskParentPid(), id_text, parent_text);
+		if (!tagged) { result = TOS_ENSMEM; goto failed; }
 		argv = tagged;
+	}
+	if (operation == 200)
+	{
+		execve(path, argv, envp);
+		result = MapErrno();
+		goto failed;
 	}
 	int channel[2];
 	if (pipe(channel) < 0)
 	{
-		int32_t error = MapErrno();
-		PosixReleasePid(id); free(tagged); free(envp); free(original);
-		return error;
+		result = MapErrno();
+		goto failed;
 	}
 	for (int i = 0; i < 2; i++)
 	{
@@ -166,11 +161,10 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		channel[i] = PosixAdoptFd(native);
 		if (channel[i] < 0 || fcntl(channel[i], F_SETFD, FD_CLOEXEC) < 0)
 		{
-			int32_t error = MapErrno();
+			result = MapErrno();
 			if (channel[0] >= 0) close(channel[0]);
 			if (channel[1] >= 0) close(channel[1]);
-			PosixReleasePid(id); free(tagged); free(envp); free(original);
-			return error;
+			goto failed;
 		}
 	}
 	pid_t pid = fork();
@@ -191,14 +185,15 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 		}
 		_exit(127);
 	}
-	int32_t result = pid < 0 ? MapErrno() : 0;
-	free(tagged); free(envp); free(original);
-	close(channel[1]);
 	if (pid < 0)
 	{
-		close(channel[0]); PosixReleasePid(id);
-		return result;
+		result = MapErrno();
+		close(channel[0]);
+		close(channel[1]);
+		goto failed;
 	}
+	free(tagged); free(options); free(vectors); free(original);
+	close(channel[1]);
 	PosixBindPid(id, pid, 1);
 	PosixPause();
 	int launch_error = 0;
@@ -228,4 +223,9 @@ int32_t Pexec ( uint16_t mode, emuptr32_t arg1, emuptr32_t arg2, emuptr32_t arg3
 	errno = saved_errno;
 	if (launch_error || waited < 0) return MapErrno();
 	return WIFEXITED(status) ? WEXITSTATUS(status) : TOS_ERROR;
+
+failed:
+	if (id > 0) PosixReleasePid(id);
+	free(tagged); free(options); free(vectors); free(original);
+	return result;
 }

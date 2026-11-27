@@ -257,6 +257,8 @@ static const char *guest_env(uint32_t address, size_t *size)
 }
 
 static char ptos_executable[PTOS_PATH_MAX];
+#define PTOS_VECTOR_MAX 1024
+#define PTOS_VECTOR_BYTES 65536u
 
 int32_t ptos_set_executable(const char *path)
 {
@@ -307,9 +309,18 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	for (size_t i = 0; i <= n; i++) filename[i] = guest_path[i] == '/' ? '\\' : guest_path[i];
 	if (operation == PTOS_EXEC_LOAD) return ptos_load(filename, command, environment);
 	if (mode != operation) return PTOS_ENOSYS;
-	ptos_launch_args args;
-	int32_t result = ptos_capture_launch(filename, command, environment, env_size, env != 0, &args);
+	guest_launch_args args;
+	int32_t result = guest_capture_launch(filename, command, environment, env_size, env != 0, &args);
 	if (result < 0) return result;
+	/* Native Pexecve uses ILP32 slots and a bounded vector copy. */
+	size_t count = (size_t)args.envc + args.argc;
+	size_t path_size = args.argv_offset ? 0 : n + 1;
+	if (count > PTOS_VECTOR_MAX ||
+		(count + 2) * 4 + env_size + path_size + sizeof(args.tail) > PTOS_VECTOR_BYTES)
+	{
+		free(args.envp);
+		return PTOS_ERANGE;
+	}
 	char **options = NULL;
 	result = ptos_is_prg(filename);
 	if (!result)
@@ -317,7 +328,7 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	else if (result > 0)
 	{
 		char *empty_env[] = {NULL};
-		result = ptos_encode_guest_options(ptos_executable, filename, &args, &options);
+		result = guest_encode_options(ptos_executable, filename, &args, &options);
 		if (!result)
 			result = ptos_task_exec(operation, ptos_executable, options,
 				args.environment ? empty_env : args.envp);

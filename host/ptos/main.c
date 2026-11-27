@@ -60,7 +60,7 @@ int main(int argc, char **argv)
 	int guest_options = !strcmp(argv[1], "--guest-prg");
 	if (guest_options)
 	{
-		result = ptos_decode_guest_options(argc, argv, tail, &env);
+		result = guest_decode_options(argc, argv, tail, &env, PTOS_GUEST_ENV_MAX, NULL);
 		if (result < 0)
 		{
 			fprintf(stderr, "Paratos: invalid guest launch options (GEMDOS error %ld).\n", (long)result);
@@ -73,14 +73,15 @@ int main(int argc, char **argv)
 	else
 	{
 		argv0 = redirected && original_argc && argc == original_argc + 1 ? original[0] : program;
-		ptos_command_tail(tail, argc - 2, argv + 2);
+		guest_command_tail(tail, argc - 2, argv + 2);
 		/* Classic PRG startup supplies an empty argv[0]. */
 		if (*argv0) tail[0] = 127;
 	}
 	if (!env)
 	{
 		int extended_argc = guest_options || tail[0] == 127 ? argc - guest_index : 0;
-		env = ptos_guest_environment(extended_argc, argv + guest_index, argv0, environ);
+		env = guest_build_environment(extended_argc, argv + guest_index, argv0,
+			environ, PTOS_GUEST_ENV_MAX, NULL);
 		if (!env) { result = PTOS_ERANGE; goto done; }
 	}
 	char filename[PTOS_PATH_MAX];

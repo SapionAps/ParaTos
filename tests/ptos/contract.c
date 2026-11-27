@@ -219,7 +219,7 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 		int argc = 0;
 		while (argv[argc]) argc++;
 		char tail[128], *environment = NULL;
-		int index = ptos_decode_guest_options(argc, argv, tail, &environment);
+		int index = guest_decode_options(argc, argv, tail, &environment, PTOS_GUEST_ENV_MAX, NULL);
 		assert(index > 0 && !strcmp(argv[index - 1], "--") && tail[127] == 0x5a);
 		argv += index;
 		if (last_mode == 100)
@@ -415,28 +415,28 @@ static void test_arguments(void)
 {
 	char tail[128];
 	char *simple[] = {"one", "two"};
-	ptos_command_tail(tail, 2, simple);
+	guest_command_tail(tail, 2, simple);
 	assert(tail[0] == 7 && !strcmp(tail + 1, "one two"));
 	char *quoted[] = {"two words", "it's"};
-	ptos_command_tail(tail, 2, quoted);
+	guest_command_tail(tail, 2, quoted);
 	assert(tail[0] == 127 && !strcmp(tail + 1, "'two words' 'it''s'"));
 	char *double_quote[] = {"a\"b", NULL};
-	ptos_command_tail(tail, 1, double_quote);
+	guest_command_tail(tail, 1, double_quote);
 	assert(tail[0] == 127 && !strcmp(tail + 1, "'a\"b'"));
 	char *empty[] = {"two words", ""};
-	ptos_command_tail(tail, 2, empty);
+	guest_command_tail(tail, 2, empty);
 	assert(tail[0] == 127 && !strcmp(tail + 1, "'two words' ''"));
 	char long_arg[200]; memset(long_arg, 'a', sizeof(long_arg) - 1); long_arg[199] = 0;
 	char *long_args[] = {long_arg};
-	ptos_command_tail(tail, 1, long_args);
+	guest_command_tail(tail, 1, long_args);
 	assert(tail[0] == 127 && strlen(tail + 1) == 126 && tail[127] == 0);
-	ptos_command_tail(tail, 0, NULL);
+	guest_command_tail(tail, 0, NULL);
 	assert(tail[0] == 0 && tail[1] == 0);
 	char *const env[] = {NULL};
 	char *const args[] = {"ignored", "1", "2", "3", "4", "5", "6", "7", "8", "9", ""};
 	const char expected[] = "ARGV=NULL:0,10\0 \0"
 		"1\0" "2\0" "3\0" "4\0" "5\0" "6\0" "7\0" "8\0" "9\0 \0";
-	char *packed = ptos_guest_environment(11, args, "", env);
+	char *packed = guest_build_environment(11, args, "", env, PTOS_GUEST_ENV_MAX, NULL);
 	assert(packed && !memcmp(packed, expected, sizeof(expected)));
 	free(packed);
 }
@@ -630,16 +630,16 @@ static void test_delegation(void)
 	static char full_env[PTOS_GUEST_ENV_MAX] = "X=1\0ARGV=NULL:1\0name\0arbitrary placeholder\0";
 	size_t prefix = sizeof("X=1\0ARGV=NULL:1\0name\0arbitrary placeholder\0") - 1;
 	memset(full_env + prefix, 'x', sizeof(full_env) - prefix - 2);
-	ptos_launch_args args;
+	guest_launch_args args;
 	char **options, *decoded = NULL, restored[128];
-	assert(!ptos_capture_launch("C:\\APP.PRG", tail, full_env, sizeof(full_env), 1, &args));
-	assert(!ptos_encode_guest_options("C:\\BIN\\RENAMED.PRG", "C:\\APP.PRG", &args, &options));
-	assert(ptos_decode_guest_options(11, options, restored, &decoded) == 8);
+	assert(!guest_capture_launch("C:\\APP.PRG", tail, full_env, sizeof(full_env), 1, &args));
+	assert(!guest_encode_options("C:\\BIN\\RENAMED.PRG", "C:\\APP.PRG", &args, &options));
+	assert(guest_decode_options(11, options, restored, &decoded, PTOS_GUEST_ENV_MAX, NULL) == 8);
 	assert(!memcmp(restored, tail, 128) && !memcmp(decoded, full_env, sizeof(full_env)));
 	free(decoded);
 	decoded = NULL;
 	options[4][0] = '!';
-	assert(ptos_decode_guest_options(11, options, restored, &decoded) == PTOS_EINVAL && !decoded);
+	assert(guest_decode_options(11, options, restored, &decoded, PTOS_GUEST_ENV_MAX, NULL) == PTOS_EINVAL && !decoded);
 	free(options);
 	free(args.envp);
 }
@@ -666,21 +666,21 @@ static void test_inherited_environment_limit(void)
 	static const char suffix[] = "ARGV=\0C:\\CLI.TOS\0child\0";
 	const char tail[128] = "\005child";
 	const size_t size = sizeof(inherited) - sizeof(suffix);
-	ptos_launch_args launch;
+	guest_launch_args launch;
 
 	memcpy(inherited, "PAD=", 4);
 	memset(inherited + 4, 'x', size - 5);
-	assert(ptos_capture_launch(path, tail, inherited, size + 1, 0, &launch) == 0);
+	assert(guest_capture_launch(path, tail, inherited, size + 1, 0, &launch) == 0);
 	assert(!launch.environment && !memcmp(launch.tail, tail, sizeof(tail)));
-	char *packed = ptos_guest_environment(2, launch.argv, launch.argv[0], launch.envp);
+	char *packed = guest_build_environment(2, launch.argv, launch.argv[0], launch.envp, PTOS_GUEST_ENV_MAX, NULL);
 	assert(packed && !memcmp(packed, inherited, size));
 	assert(!memcmp(packed + size, suffix, sizeof(suffix)));
 	free(packed);
 	free(launch.envp);
 
 	inherited[size - 1] = 'x';
-	assert(ptos_capture_launch(path, tail, inherited, size + 2, 0, &launch) == 0);
-	assert(!ptos_guest_environment(2, launch.argv, launch.argv[0], launch.envp));
+	assert(guest_capture_launch(path, tail, inherited, size + 2, 0, &launch) == 0);
+	assert(!guest_build_environment(2, launch.argv, launch.argv[0], launch.envp, PTOS_GUEST_ENV_MAX, NULL));
 	free(launch.envp);
 }
 
@@ -976,7 +976,7 @@ int main(int argc, char **argv)
 	{
 		char tail[128];
 		char *args[] = {"two words", ""};
-		ptos_command_tail(tail, 2, args);
+		guest_command_tail(tail, 2, args);
 		const char env[] = "DEMO=present\0ARGV=NULL:2\0cli.tos\0two words\0 \0\0";
 		ptos_allocator_init();
 		int32_t bp = ptos_load(argv[1], tail, env);

@@ -189,6 +189,9 @@ remaining guest arguments.
 `--guest-argv-env` carries the prefix through the ARGV marker, followed by
 one NUL-terminated record per argument. An empty record reuses the argument
 after `--` so large argument lists fit within Pexecve's vector budget.
+The shared decoder also accepts consecutive options of the same environment
+type and concatenates their Base64-decoded chunks. POSIX uses this form for
+large environments within its host argument budget.
 An inherited environment supplies its ordinary variables through envp.
 ARGV from the previous launch is discarded.
 

@@ -1,7 +1,8 @@
 # Linux and macOS share this backend; small platform differences stay here.
 find_package(Threads REQUIRED)
 add_executable(paratos main.c executable.c memory.c tasks.c image.c bios.c
-	cdev.c date.c dir.c file.c net.c path.c pexec.c proc.c signals.c sys.c tos_errors.c)
+	cdev.c date.c dir.c file.c net.c path.c pexec.c proc.c signals.c sys.c tos_errors.c
+	${PROJECT_SOURCE_DIR}/guest_launch.c ${PROJECT_SOURCE_DIR}/guest_launch_options.c)
 target_include_directories(paratos PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(paratos PRIVATE gemdos mushashi Threads::Threads)
 target_compile_options(paratos PRIVATE -std=c11)
