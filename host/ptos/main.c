@@ -68,7 +68,7 @@ int main(int argc, char **argv)
 		}
 		guest_index = result;
 		program = argv[2];
-		argv0 = argv[guest_index];
+		argv0 = env ? NULL : argv[guest_index];
 	}
 	else
 	{

@@ -289,6 +289,56 @@ int32_t ptos_set_executable(const char *path)
 	return 0;
 }
 
+static int prg_vectors_fit(char **argv, char **envp)
+{
+	size_t entries = 0, bytes = 2 * sizeof(uint32_t);
+	char **vectors[] = {argv, envp};
+	for (size_t i = 0; i < sizeof(vectors) / sizeof(*vectors); i++)
+		for (char **entry = vectors[i]; *entry; entry++)
+		{
+			entries++;
+			bytes += sizeof(uint32_t) + strlen(*entry) + 1;
+		}
+	return entries <= PTOS_VECTOR_MAX && bytes <= PTOS_VECTOR_BYTES;
+}
+
+static int32_t ptos_exec_prg(uint16_t mode, const char *path, const guest_launch_args *args)
+{
+	char *empty_env[] = {NULL};
+	char **envp = args->environment ? empty_env : args->envp;
+	char **options;
+	int32_t result = guest_encode_options(ptos_executable, path, args, &options);
+	if (result < 0) return result;
+	if (prg_vectors_fit(options, envp))
+	{
+		result = ptos_task_exec(mode, ptos_executable, options, envp);
+		free(options);
+		return result;
+	}
+	free(options);
+
+	/* Carry the complete guest block as one Base64 option. It fits within
+	 * the native byte budget even when the guest uses every vector slot. */
+	guest_launch_args compact = {
+		.environment = args->environment, .environment_size = args->environment_size
+	};
+	memcpy(compact.tail, args->tail, sizeof(compact.tail));
+	char *environment = NULL;
+	if (!compact.environment)
+	{
+		environment = guest_build_environment(args->argc, args->argv, args->argv[0],
+			args->envp, PTOS_GUEST_ENV_MAX, &compact.environment_size);
+		if (!environment) return PTOS_ERANGE;
+		compact.environment = environment;
+	}
+	result = guest_encode_options(ptos_executable, path, &compact, &options);
+	free(environment);
+	if (result < 0) return result;
+	result = ptos_task_exec(mode, ptos_executable, options, empty_env);
+	free(options);
+	return result;
+}
+
 int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 {
 	uint16_t operation = mode & 0x7fff;
@@ -321,19 +371,11 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 		free(args.envp);
 		return PTOS_ERANGE;
 	}
-	char **options = NULL;
 	result = ptos_is_prg(filename);
 	if (!result)
 		result = ptos_task_exec(operation, filename, args.argv, args.envp);
 	else if (result > 0)
-	{
-		char *empty_env[] = {NULL};
-		result = guest_encode_options(ptos_executable, filename, &args, &options);
-		if (!result)
-			result = ptos_task_exec(operation, ptos_executable, options,
-				args.environment ? empty_env : args.envp);
-	}
-	free(options);
+		result = ptos_exec_prg(operation, filename, &args);
 	free(args.envp);
 	return result;
 }

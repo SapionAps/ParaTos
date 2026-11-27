@@ -119,7 +119,8 @@ int32_t guest_encode_options(const char *executable, const char *path,
 		env_size -= bytes;
 	}
 	argv[next++] = "--";
-	memcpy(argv + next, args->argv, (args->argc + 1) * sizeof(*argv));
+	if (args->argc) memcpy(argv + next, args->argv, args->argc * sizeof(*argv));
+	argv[next + args->argc] = NULL;
 	free(packed);
 	*out = argv;
 	return 0;
@@ -187,7 +188,8 @@ int32_t guest_decode_options(int argc, char **argv, char tail[128], char **envir
 		size += bytes;
 		end += 2;
 	}
-	if (end + 1 >= argc || strcmp(argv[end], "--")) return TOS_EINVAL;
+	if (end >= argc || strcmp(argv[end], "--") || (packed && end + 1 == argc))
+		return TOS_EINVAL;
 	char *raw = malloc(size);
 	if (!raw) return TOS_ENSMEM;
 	size_t used = 0;

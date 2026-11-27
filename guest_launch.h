@@ -17,7 +17,9 @@ char *guest_build_environment(int argc, char *const argv[], const char *argv0,
 	char *const envp[], size_t limit, size_t *length);
 int32_t guest_capture_launch(const char *path, const char tail[128], const char *env,
 	size_t env_size, int explicit_env, guest_launch_args *out);
+/* With no argv entries, environment holds the complete guest block. */
 int32_t guest_encode_options(const char *executable, const char *path,
 	const guest_launch_args *args, char ***out);
+/* The returned index can equal argc when environment carries the guest argv. */
 int32_t guest_decode_options(int argc, char **argv, char tail[128], char **environment,
 	size_t limit, size_t *length);

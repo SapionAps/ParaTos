@@ -14,6 +14,7 @@ static char *const demo_env[] = {"DEMO=present", NULL};
 static char *const cli_env[] = {"DEMO=present", "CHECKARGV0=guest display name", NULL};
 static char *const cli_classic_env[] = {"DEMO=present", "CHECKARGV0=", NULL};
 static char *const cli_relaunch_env[] = {"DEMO=relaunch", NULL};
+static char *const cli_argv_limit_env[] = {"DEMO=argv-limit", NULL};
 #if defined(__arm__)
 static char *const vdi_env[] = {"VDI=kernel", NULL};
 #elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
@@ -78,6 +79,7 @@ int main(void)
 		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_args, demo_env, 42},
 		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_args, demo_env, 37},
 		{"renamed emulator relaunch without binfmt", "C:\\BIN\\RENAMED.TOS", relaunch_args, cli_relaunch_env, 43},
+		{"guest relaunch with 1024 arguments", "C:\\CLI.TOS", cli_inherit, cli_argv_limit_env, 46},
 #ifdef PTOS_TEST_EXEC_REPLACEMENT
 		{"guest PRG replacement with the same PID", "C:\\BIN\\RENAMED.TOS", relaunch_args, replace_prg_env, 44},
 #endif

@@ -28,6 +28,9 @@ static uint16_t unavailable_read;
 static int32_t narrow_read_error;
 static unsigned int system_calls, exec_calls;
 static int32_t last_mode;
+static const char *expected_exec_environment;
+static size_t expected_exec_environment_size;
+static int expect_compact_launch;
 static uint32_t retained_image;
 static int expect_retained;
 static int fail_dup;
@@ -218,9 +221,21 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 		assert(!strcmp(argv[1], "--guest-prg") && !strcmp(argv[2], "C:\\APP.PRG"));
 		int argc = 0;
 		while (argv[argc]) argc++;
+		int envc = 0;
+		while (envp[envc]) envc++;
+		assert(argc + envc <= 1024);
 		char tail[128], *environment = NULL;
-		int index = guest_decode_options(argc, argv, tail, &environment, PTOS_GUEST_ENV_MAX, NULL);
+		size_t size = 0;
+		int index = guest_decode_options(argc, argv, tail, &environment, PTOS_GUEST_ENV_MAX, &size);
 		assert(index > 0 && !strcmp(argv[index - 1], "--") && tail[127] == 0x5a);
+		if (expected_exec_environment)
+		{
+			assert((index == argc) == expect_compact_launch && !envc);
+			assert(size == expected_exec_environment_size && environment);
+			assert(!memcmp(environment, expected_exec_environment, size));
+			free(environment);
+			return 37;
+		}
 		argv += index;
 		if (last_mode == 100)
 		{
@@ -625,6 +640,39 @@ static void test_delegation(void)
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 6);
 	strcpy(ptos_guest_buffer(bp + 300, 16), "C:/NATIVE.TOS");
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 7);
+	strcpy(ptos_guest_buffer(bp + 300, 16), "C:/APP.PRG");
+	static const char argv_prefix[] = "ARGV=\0chosen zero\0";
+	uint32_t large = ptos_alloc(sizeof(argv_prefix) + 4 * 1024 + 64);
+	char *block = ptos_guest_buffer(large, sizeof(argv_prefix) + 4 * 1024 + 64);
+	static const int counts[] = {1016, 1017, 1024, 1025};
+	for (size_t i = 0; i < sizeof(counts) / sizeof(*counts); i++)
+	{
+		memcpy(block, argv_prefix, sizeof(argv_prefix));
+		char *end = block + sizeof(argv_prefix) - 1;
+		for (int j = 1; j < counts[i]; j++, end += 2) memcpy(end, "x", 2);
+		*end++ = 0;
+		expected_exec_environment = block;
+		expected_exec_environment_size = end - block;
+		expect_compact_launch = counts[i] > 1016;
+		int result = ptos_exec(0, bp + 300, bp + 384, large);
+		assert(result == (counts[i] > 1024 ? PTOS_ERANGE : 37));
+	}
+	assert(exec_calls == 10);
+
+	/* Ordinary inherited entries also count toward the native vector limit. */
+	char *end = block;
+	for (int i = 0; i < 1021; i++, end += 4) memcpy(end, "X=1", 4);
+	*end = 0;
+	static const char suffix[] = "ARGV=NULL:2\0C:\\APP.PRG\0two words\0 \0";
+	char inherited[4 * 1021 + sizeof(suffix)];
+	memcpy(inherited, block, end - block);
+	memcpy(inherited + (end - block), suffix, sizeof(suffix));
+	expected_exec_environment = inherited;
+	expected_exec_environment_size = sizeof(inherited);
+	expect_compact_launch = 1;
+	m68k_write_memory_32(bp + BP_ENV, large);
+	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 11);
+	expected_exec_environment = NULL;
 	assert(!unlink("C:\\APP.PRG") && !unlink("C:\\NATIVE.TOS"));
 
 	static char full_env[PTOS_GUEST_ENV_MAX] = "X=1\0ARGV=NULL:1\0name\0arbitrary placeholder\0";

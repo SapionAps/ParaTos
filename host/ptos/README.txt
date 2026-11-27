@@ -195,6 +195,12 @@ large environments within its host argument budget.
 An inherited environment supplies its ordinary variables through envp.
 ARGV from the previous launch is discarded.
 
+If the launch options and forwarded vectors would exceed Pexecve's
+1,024-entry or 65,536-byte limits, ParaTOS uses `--guest-env` with the full
+guest environment and leaves the suffix after `--` empty. For an inherited
+environment, ParaTOS builds a fresh ARGV block before encoding it. This
+allows a PRG with 1,024 guest arguments to use the same native syscall.
+
 Native ELF and other formats go through Pexecve with their original vectors,
 including kernel shebang handling. When a native caller uses binfmt to start
 a PRG through ParaTOS, the interpreter reads the original argv[0] from the
