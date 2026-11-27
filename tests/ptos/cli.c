@@ -5,10 +5,32 @@
 #include <string.h>
 #include <mint/basepage.h>
 #include <mint/osbind.h>
+#include <mint/mintbind.h>
 
 int main(int argc, char **argv)
 {
 	const char *env = getenv("DEMO");
+#ifdef PTOS_TEST_EXEC_REPLACEMENT
+	if (env && !strcmp(env, "replace-prg"))
+	{
+		char tail[128] = "\005child", environment[64] = {0};
+		snprintf(environment, sizeof(environment) - 1, "CHECK_PRG_PID=%d", (int)Pgetpid());
+		printf("PRG replacement returned: %ld\n", Pexec(200, "C:\\CLI.TOS", tail, environment));
+		return 13;
+	}
+	const char *pid = getenv("CHECK_PRG_PID");
+	if (pid) return atoi(pid) == Pgetpid() && argc == 2 && !strcmp(argv[1], "child") ? 44 : 14;
+#endif
+	if (env && !strcmp(env, "relaunch"))
+	{
+		static const char handler[] = "C:\\BIN\\PARATOS.PRG", saved[] = "C:\\BIN\\PARATOS.BAK";
+		char tail[128] = "\014plain  again";
+		tail[127] = 0x5a;
+		if (Frename(0, handler, saved)) return 11;
+		long result = Pexec(0, "C:\\CLI.TOS", tail, "DEMO=rawshort\0");
+		if (Frename(0, saved, handler) || result != 39) return 12;
+		return 43;
+	}
 	if (env && !strcmp(env, "inherit-limit"))
 	{
 		const char *padding = getenv("PAD");

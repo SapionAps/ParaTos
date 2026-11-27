@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "m68k.h"
@@ -255,6 +256,37 @@ static const char *guest_env(uint32_t address, size_t *size)
 	ptos_fault(address, "unterminated guest environment");
 }
 
+static char ptos_executable[PTOS_PATH_MAX];
+
+int32_t ptos_set_executable(const char *path)
+{
+	int32_t drive;
+	if (!path || !*path) return PTOS_EINVAL;
+	if (path[1] == ':')
+	{
+		drive = ((unsigned char)path[0] & ~32) - 'A';
+		path += 2;
+	}
+	else
+		drive = ptos_call(GEMDOS_OP_DGETDRV, 0, 0, 0, 0);
+	if (drive < 0 || drive >= 26 || !*path) return PTOS_EINVAL;
+	char cwd[129] = {0};
+	if (*path == '\\' || *path == '/')
+		path++;
+	else
+	{
+		int32_t status = ptos_call(GEMDOS_OP_DGETCWD, (intptr_t)cwd, drive + 1, sizeof(cwd), 0);
+		if (status < 0) return status;
+	}
+	const char *directory = cwd + (cwd[0] == '\\' || cwd[0] == '/');
+	int length = snprintf(ptos_executable, sizeof(ptos_executable), "%c:\\%s%s%s",
+		'A' + (int)drive, directory, *directory ? "\\" : "", path);
+	if (length < 0 || (size_t)length >= sizeof(ptos_executable)) return PTOS_ERANGE;
+	for (char *p = ptos_executable; *p; p++)
+		if (*p == '/') *p = '\\';
+	return 0;
+}
+
 int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 {
 	uint16_t operation = mode & 0x7fff;
@@ -269,8 +301,8 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	const char *environment = guest_env(env, &env_size);
 	if (operation == PTOS_EXEC_BASEPAGE || operation == PTOS_EXEC_BASEPAGE_FLAGS)
 		return ptos_basepage(command, environment);
-	const char *guest_path = ptos_guest_string(path, 1024);
-	char filename[1024];
+	const char *guest_path = ptos_guest_string(path, PTOS_PATH_MAX);
+	char filename[PTOS_PATH_MAX];
 	size_t n = strlen(guest_path);
 	for (size_t i = 0; i <= n; i++) filename[i] = guest_path[i] == '/' ? '\\' : guest_path[i];
 	if (operation == PTOS_EXEC_LOAD) return ptos_load(filename, command, environment);
@@ -278,8 +310,19 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	ptos_launch_args args;
 	int32_t result = ptos_capture_launch(filename, command, environment, env_size, env != 0, &args);
 	if (result < 0) return result;
-	/* Native binfmt owns interpreter selection and mode 200 keeps the PID. */
-	result = ptos_task_exec(operation, filename, &args);
+	char **options = NULL;
+	result = ptos_is_prg(filename);
+	if (!result)
+		result = ptos_task_exec(operation, filename, args.argv, args.envp);
+	else if (result > 0)
+	{
+		char *empty_env[] = {NULL};
+		result = ptos_encode_guest_options(ptos_executable, filename, &args, &options);
+		if (!result)
+			result = ptos_task_exec(operation, ptos_executable, options,
+				args.environment ? empty_env : args.envp);
+	}
+	free(options);
 	free(args.envp);
 	return result;
 }

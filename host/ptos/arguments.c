@@ -237,13 +237,17 @@ int32_t ptos_capture_launch(const char *path, const char tail[128], const char *
 	}
 	out->envp = envp;
 	out->argv = argv;
+	out->argc = argc;
 	memcpy(out->tail, tail, sizeof(out->tail));
 	out->environment = NULL;
+	out->environment_size = out->argv_offset = 0;
 	if (explicit_env)
 	{
 		char *raw = text + path_size + 128;
 		memcpy(raw, env, env_size);
 		out->environment = raw;
+		out->environment_size = env_size;
+		if (payload) out->argv_offset = payload - env;
 	}
 	return 0;
 fail:

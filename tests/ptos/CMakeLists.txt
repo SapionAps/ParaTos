@@ -12,6 +12,7 @@ add_executable(ptos_contract contract.c filesystem_contract.c vdi_contract.c
 	${PROJECT_SOURCE_DIR}/vdi/vdi.c
 	${PROJECT_SOURCE_DIR}/host/ptos/vdi.c
 	${PROJECT_SOURCE_DIR}/host/ptos/arguments.c
+	${PROJECT_SOURCE_DIR}/host/ptos/launch_options.c
 	${PROJECT_SOURCE_DIR}/host/ptos/memory.c
 	${PROJECT_SOURCE_DIR}/host/ptos/loader.c
 	${PROJECT_SOURCE_DIR}/host/ptos/process.c

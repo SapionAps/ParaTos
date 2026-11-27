@@ -17,22 +17,20 @@ typedef struct {
 	char **envp; /* owns both pointer arrays and all strings */
 	char tail[128];
 	const char *environment; /* optional exact guest block in the same allocation */
+	size_t environment_size, argv_offset;
+	int argc;
 } ptos_launch_args;
 
-#define PTOS_GUEST_LAUNCH_SSYSTEM (-10)
-#define PTOS_AT_GUEST_LAUNCH 0x5005u
 #define PTOS_GUEST_ENV_MAX 32766u
+#define PTOS_PATH_MAX 1024u
 
-/* Native pTOS callers are ILP32. The hosted contract uses host pointers. */
-typedef struct {
-	uintptr_t mode, path, argv, envp, tail, environment;
-} ptos_guest_launch_request;
-
-typedef struct {
-	uint32_t argv0, tail, environment, environment_size;
-} ptos_guest_launch;
 int32_t ptos_capture_launch(const char *path, const char tail[128], const char *env,
 	size_t env_size, int explicit_env, ptos_launch_args *out);
+int32_t ptos_encode_guest_options(const char *executable, const char *path,
+	const ptos_launch_args *args, char ***out);
+int32_t ptos_decode_guest_options(int argc, char **argv, char tail[128], char **environment);
+int32_t ptos_set_executable(const char *path);
+int32_t ptos_is_prg(const char *path);
 
 #define PTOS_NATIVE_BASE 0x41000000u
 #define PTOS_RAM_START   0x00010000u

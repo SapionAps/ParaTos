@@ -186,6 +186,18 @@ static int32_t read_exact(int32_t handle, void *buffer, uint32_t count)
 	return 0;
 }
 
+int32_t ptos_is_prg(const char *path)
+{
+	unsigned char magic[2];
+	int32_t handle = ptos_call(GEMDOS_OP_FOPEN, (intptr_t)path, 0, 0, 0);
+	if (handle < 0) return handle;
+	int32_t status = read_exact(handle, magic, sizeof(magic));
+	int32_t closed = ptos_call(GEMDOS_OP_FCLOSE, handle, 0, 0, 0);
+	if (status < 0 && status != PTOS_EPLFMT) return status;
+	if (closed < 0) return closed;
+	return status == 0 && magic[0] == 0x60 && magic[1] == 0x1a;
+}
+
 int32_t ptos_load(const char *path, const char *tail, const char *environment)
 {
 	unsigned char hdr[28], fix[4];

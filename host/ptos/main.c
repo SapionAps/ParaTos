@@ -7,15 +7,14 @@
 
 extern char **environ;
 
-static const ptos_guest_launch *guest_launch(void)
+static uintptr_t auxiliary(uint32_t tag)
 {
 	char **end = environ;
 	while (*end) end++;
 	const uint32_t *aux = (const uint32_t *)(end + 1);
 	for (unsigned int i = 0; i < 32 && aux[0]; i++, aux += 2)
-		if (aux[0] == PTOS_AT_GUEST_LAUNCH)
-			return (const ptos_guest_launch *)(uintptr_t)aux[1];
-	return NULL;
+		if (aux[0] == tag) return aux[1];
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -30,51 +29,71 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Paratos: pTOS relocated the native image below 0x41000000; high-image loader support is required.\n");
 		return 1;
 	}
-	int32_t result = ptos_memory_init();
+	enum { AT_EXECFN = 31, AT_PTOS_LAUNCH_VECTORS = 0x5004 };
+	const uint32_t *launch = (const uint32_t *)auxiliary(AT_PTOS_LAUNCH_VECTORS);
+	const char *const *original = launch ? (const char *const *)(uintptr_t)launch[1] : NULL;
+	int original_argc = 0;
+	if (original)
+		while (original[original_argc]) original_argc++;
+	/* Binfmt supplies the interpreter's path in argv[0]. Direct Pexecve
+	 * permits a caller-chosen argv[0], so use the executable pathname. */
+	int redirected = original && argc > original_argc;
+	const char *executable = redirected ? argv[0] : (const char *)auxiliary(AT_EXECFN);
+	int32_t result = ptos_set_executable(executable ? executable : argv[0]);
+	if (result < 0)
+	{
+		fprintf(stderr, "Paratos: cannot resolve its executable path (GEMDOS error %ld).\n", (long)result);
+		return 1;
+	}
+	result = ptos_memory_init();
 	if (result < 0)
 	{
 		fprintf(stderr, "Paratos: cannot initialize guest RAM (GEMDOS error %ld); Ssystem reads and low fixed-mapping kernel support are required.\n", (long)result);
 		return 1;
 	}
 	ptos_allocator_init();
-	const ptos_guest_launch *launch = guest_launch();
-	const char *argv0 = launch && launch->argv0 ? (const char *)(uintptr_t)launch->argv0 : argv[1];
-	const char *tail = launch ? (const char *)(uintptr_t)launch->tail : NULL;
-	const char *env = launch ? (const char *)(uintptr_t)launch->environment : NULL;
-	char *generated_env = NULL;
-	char generated_tail[128];
-	int extended_argc = argc - 1;
-	if (env && (launch->environment_size < 2 || launch->environment_size > PTOS_GUEST_ENV_MAX ||
-		env[launch->environment_size - 2] || env[launch->environment_size - 1]))
+	char *env = NULL;
+	char tail[128];
+	const char *program = argv[1];
+	int guest_index = 1;
+	const char *argv0;
+	int guest_options = !strcmp(argv[1], "--guest-prg");
+	if (guest_options)
 	{
-		result = PTOS_EINVAL;
-		goto done;
+		result = ptos_decode_guest_options(argc, argv, tail, &env);
+		if (result < 0)
+		{
+			fprintf(stderr, "Paratos: invalid guest launch options (GEMDOS error %ld).\n", (long)result);
+			goto done;
+		}
+		guest_index = result;
+		program = argv[2];
+		argv0 = argv[guest_index];
 	}
-	if (!tail)
+	else
 	{
-		ptos_command_tail(generated_tail, argc - 2, argv + 2);
+		argv0 = redirected && original_argc && argc == original_argc + 1 ? original[0] : program;
+		ptos_command_tail(tail, argc - 2, argv + 2);
 		/* Classic PRG startup supplies an empty argv[0]. */
-		if (*argv0) generated_tail[0] = 127;
-		if (generated_tail[0] != 127) extended_argc = 0;
-		tail = generated_tail;
+		if (*argv0) tail[0] = 127;
 	}
 	if (!env)
 	{
-		generated_env = ptos_guest_environment(extended_argc, argv + 1, argv0, environ);
-		if (!generated_env) { result = PTOS_ERANGE; goto done; }
-		env = generated_env;
+		int extended_argc = guest_options || tail[0] == 127 ? argc - guest_index : 0;
+		env = ptos_guest_environment(extended_argc, argv + guest_index, argv0, environ);
+		if (!env) { result = PTOS_ERANGE; goto done; }
 	}
-	char filename[1024];
-	size_t path_length = strlen(argv[1]);
+	char filename[PTOS_PATH_MAX];
+	size_t path_length = strlen(program);
 	if (path_length >= sizeof(filename)) { result = PTOS_ERANGE; goto done; }
-	for (size_t i = 0; i <= path_length; i++) filename[i] = argv[1][i] == '/' ? '\\' : argv[1][i];
+	for (size_t i = 0; i <= path_length; i++) filename[i] = program[i] == '/' ? '\\' : program[i];
 	result = ptos_load(filename, tail, env);
-	free(generated_env);
-	generated_env = NULL;
+	free(env);
+	env = NULL;
 	if (result > 0) result = ptos_run_program(result);
 	else fprintf(stderr, "Paratos: cannot load %s (GEMDOS error %ld).\n", filename, (long)result);
 done:
-	free(generated_env);
+	free(env);
 	ptos_allocator_destroy();
 	ptos_memory_destroy();
 	return result < 0 ? 1 : result;

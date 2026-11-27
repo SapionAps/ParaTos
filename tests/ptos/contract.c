@@ -203,32 +203,40 @@ int32_t ptos_call(uint16_t fn, intptr_t a, intptr_t b, intptr_t c, intptr_t d)
 	case GEMDOS_OP_SYIELD: return sched_yield();
 	case GEMDOS_OP_PGETPID: return native_self ? native_self->pid : 42;
 	case GEMDOS_OP_PGETPPID: return native_self ? native_self->parent : 1;
-	case 0x154:
-		if (a == PTOS_GUEST_LAUNCH_SSYSTEM)
+	case GEMDOS_OP_PEXECVE: {
+		const char *path = (const char *)b;
+		char **argv = (char **)c, **envp = (char **)d;
+		exec_calls++; last_mode = a;
+		if (!strcmp(path, "C:\\NATIVE.TOS"))
 		{
-			const ptos_guest_launch_request *request = (const void *)b;
-			char *const *argv = (char *const *)request->argv;
-			char *const *envp = (char *const *)request->envp;
-			const unsigned char *tail = (const void *)request->tail;
-			const char *environment = (const void *)request->environment;
-			assert(c == (intptr_t)sizeof(*request) && d == 0);
-			exec_calls++; last_mode = request->mode;
-			assert(!strcmp((const char *)request->path, "C:\\APP.PRG"));
 			assert(!strcmp(envp[0], "X=1") && !envp[1]);
-			assert(tail[127] == 0x5a);
-			if (last_mode == 100)
-			{
-				static const char extended[] = "X=1\0ARGV=NULL:1\0chosen zero\0 \0two words\0";
-				assert(tail[0] == 127 && environment && !memcmp(environment, extended, sizeof(extended)));
-				assert(!strcmp(argv[0], "chosen zero") && !argv[1][0]);
-				assert(!strcmp(argv[2], "two words") && !argv[3]);
-				return 123;
-			}
-			assert(!environment);
-			assert(!strcmp(argv[0], "C:\\APP.PRG"));
+			assert(!strcmp(argv[0], path));
 			assert(!strcmp(argv[1], "two words") && !argv[2][0] && !argv[3]);
-			return last_mode == 200 ? PTOS_ENOSYS : 37;
+			return 37;
 		}
+		assert(!strcmp(path, "C:\\BIN\\RENAMED.PRG") && !strcmp(argv[0], path));
+		assert(!strcmp(argv[1], "--guest-prg") && !strcmp(argv[2], "C:\\APP.PRG"));
+		int argc = 0;
+		while (argv[argc]) argc++;
+		char tail[128], *environment = NULL;
+		int index = ptos_decode_guest_options(argc, argv, tail, &environment);
+		assert(index > 0 && !strcmp(argv[index - 1], "--") && tail[127] == 0x5a);
+		argv += index;
+		if (last_mode == 100)
+		{
+			static const char extended[] = "X=1\0ARGV=NULL:1\0chosen zero\0 \0two words\0";
+			assert(tail[0] == 127 && environment && !memcmp(environment, extended, sizeof(extended)));
+			assert(!envp[0] && !strcmp(argv[0], "chosen zero") && !argv[1][0]);
+			assert(!strcmp(argv[2], "two words") && !argv[3]);
+			free(environment);
+			return 123;
+		}
+		assert(!environment && !strcmp(envp[0], "X=1") && !envp[1]);
+		assert(!strcmp(argv[0], "C:\\APP.PRG"));
+		assert(!strcmp(argv[1], "two words") && !argv[2][0] && !argv[3]);
+		return last_mode == 200 ? PTOS_ENOSYS : 37;
+	}
+	case GEMDOS_OP_SSYSTEM:
 		system_calls++;
 		if (a == SSYSTEM_OP_INQUIRE) return b == unavailable_read ? PTOS_ENOSYS : 0;
 		if (a >= 0xd && a <= 0xf) return -36;
@@ -575,6 +583,11 @@ static void test_loaded_context_cleanup(void)
 static void test_delegation(void)
 {
 	reset();
+	assert(!ptos_set_executable("c:/BIN/RENAMED.PRG"));
+	FILE *file = fopen("C:\\APP.PRG", "wb");
+	assert(file && fwrite("\x60\x1a", 1, 2, file) == 2 && !fclose(file));
+	file = fopen("C:\\NATIVE.TOS", "wb");
+	assert(file && fwrite("\x7f" "ELF", 1, 4, file) == 4 && !fclose(file));
 	uint32_t bp = ptos_alloc(512); ptos_process = bp;
 	m68k_write_memory_32(bp + BP_ENV, bp + 256);
 	strcpy(ptos_guest_buffer(bp + 256, 8), "X=1");
@@ -610,6 +623,25 @@ static void test_delegation(void)
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 5);
 	tail[0] = 127;
 	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 6);
+	strcpy(ptos_guest_buffer(bp + 300, 16), "C:/NATIVE.TOS");
+	assert(ptos_exec(0, bp + 300, bp + 384, 0) == 37 && exec_calls == 7);
+	assert(!unlink("C:\\APP.PRG") && !unlink("C:\\NATIVE.TOS"));
+
+	static char full_env[PTOS_GUEST_ENV_MAX] = "X=1\0ARGV=NULL:1\0name\0arbitrary placeholder\0";
+	size_t prefix = sizeof("X=1\0ARGV=NULL:1\0name\0arbitrary placeholder\0") - 1;
+	memset(full_env + prefix, 'x', sizeof(full_env) - prefix - 2);
+	ptos_launch_args args;
+	char **options, *decoded = NULL, restored[128];
+	assert(!ptos_capture_launch("C:\\APP.PRG", tail, full_env, sizeof(full_env), 1, &args));
+	assert(!ptos_encode_guest_options("C:\\BIN\\RENAMED.PRG", "C:\\APP.PRG", &args, &options));
+	assert(ptos_decode_guest_options(11, options, restored, &decoded) == 8);
+	assert(!memcmp(restored, tail, 128) && !memcmp(decoded, full_env, sizeof(full_env)));
+	free(decoded);
+	decoded = NULL;
+	options[4][0] = '!';
+	assert(ptos_decode_guest_options(11, options, restored, &decoded) == PTOS_EINVAL && !decoded);
+	free(options);
+	free(args.envp);
 }
 
 static void test_basepage_environment_limit(void)

@@ -177,14 +177,25 @@ Full MiNT libc startup is not yet supported.
 
 Guest Pexec(0/100/200) decodes the classic command tail or explicit
 marker-127 ARGV block into owned argv and envp vectors for native Pexecve.
-The kernel's Ssystem -10 adapter uses the same launch transaction and takes
-a separate snapshot of all 128 guest tail bytes and any explicit raw environment.
-An inherited environment contributes its ordinary variables. ARGV from
-the previous launch is discarded. For a 68k target, kernel binfmt
-selects another ParaTOS instance and supplies the interpreter vectors.
-When entry argv[1] names the directly redirected PRG, ParaTOS restores
-the raw tail and explicit environment from AT_PTOS_GUEST_LAUNCH. It uses
-the original argv[0] when it needs to generate an ARGV block. A synthesized
+ParaTOS reads the target's magic. For a PRG it starts its own native ELF
+image through Pexecve, using the executable pathname resolved at startup.
+It supplies options for the guest pathname, all 128 tail bytes, and any
+explicit raw environment, followed by `--`, the guest argv[0], and the
+remaining guest arguments.
+
+  paratos --guest-prg PATH --guest-tail BASE64 [ENV_OPTION BASE64] -- ARG0 [ARGS...]
+
+`--guest-env` carries the original double-NUL environment block.
+`--guest-argv-env` carries the prefix through the ARGV marker, followed by
+one NUL-terminated record per argument. An empty record reuses the argument
+after `--` so large argument lists fit within Pexecve's vector budget.
+An inherited environment supplies its ordinary variables through envp.
+ARGV from the previous launch is discarded.
+
+Native ELF and other formats go through Pexecve with their original vectors,
+including kernel shebang handling. When a native caller uses binfmt to start
+a PRG through ParaTOS, the interpreter reads the original argv[0] from the
+kernel's launch-vector snapshot. A synthesized
 tail can use the classic count when argv[0] is empty and its operands fit
 losslessly. A supplied name or an operand that needs extended encoding
 uses marker 127 so strict PRG runtimes recognize ARGV. Shebang chains use
@@ -252,13 +263,15 @@ launches per architecture:
 - BIOS output remains on the console while GEMDOS stdout is redirected.
 - Native Pexecve with inherited handles, working directory and environment,
   including same-PID mode 200 on a kernel with replacement enabled.
-- Guest-to-guest Pexec(0/100) through the registered handler, with
+- Guest-to-guest Pexec(0/100) through the running ParaTOS executable, with
   short tails overriding inherited ARGV and byte-exact classic/extended
-  tails, explicit environments and caller-chosen argv[0].
+  tails, explicit environments and caller-chosen argv[0]. Guests also verify
+  same-PID PRG replacement on kernels with Pexecve mode 200 enabled.
 - Shebang scripts with a 68k interpreter (shebang followed by binfmt), an
   optional argument containing spaces/quotes, empty arguments, CRLF and
   propagated status 42, launched from native and guest callers.
-- Explicit PARATOS.PRG CLI launches continue to work alongside direct execution.
+- Explicit CLI launch and nested PRG execution through a renamed ParaTOS
+  executable while the registered binfmt target is unavailable.
 - Invalid guest access to the native image and a partial live low-memory
   write terminate emulation with status 255; later launches still succeed.
 
@@ -270,7 +283,7 @@ From the Paratos checkout:
   sh tests/ptos/build_kernel_test.sh arm /absolute/path/to/pTOS
   sh tests/ptos/build_kernel_test.sh x32 /absolute/path/to/pTOS
 
-The kernel must include the guest Pexecve adapter in pTOS PR #1068.
+The kernel must include native Pexecve and ELF vector startup from pTOS #1065.
 Set PTOS_NATIVE_LIBCMINI_ROOT to
 the vector CRT checkout if the kernel submodule lacks libcmini PR #28.
 The same libcmini revision builds the native CRT and the guest fixtures.

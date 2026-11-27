@@ -99,6 +99,7 @@ def run(args):
             shutil.copyfile(prg, stage / "PCGUEST.TOS")
             shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
         else:
+            shutil.copyfile(args.paratos, stage / "BIN/RENAMED.TOS")
             shutil.copyfile(args.native_child, stage / "NATIVE.TOS")
             shutil.copyfile(args.filesystem_native, stage / "FSNATIVE.TOS")
             for source, target in (("cli", "CLI.TOS"), ("semantics", "SEMANTIC.TOS"),
