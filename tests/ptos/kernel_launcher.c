@@ -2,24 +2,40 @@
  * new native Paratos process for each ordinary compiled 68k TOS program. */
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <mint/osbind.h>
-#include <mint/basepage.h>
+#include <mint/mintbind.h>
+#include "../../host/ptos/host.h"
 
-static const char cli_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
-static const char semantics_env[] = "DEMO=present\0ARGV=\0C:\\SEMANTIC.TOS\0";
-static const char filesystem_env[] = "DEMO=present\0ARGV=\0C:\\FSCOMP.TOS\0";
+/* The ELF startup stack carries both live and saved launch vectors. */
+long _stksize = 128L * 1024;
+
+static char *const demo_env[] = {"DEMO=present", NULL};
+static char *const cli_env[] = {"DEMO=present", "CHECKARGV0=guest display name", NULL};
+static char *const cli_classic_env[] = {"DEMO=present", "CHECKARGV0=", NULL};
 #if defined(__arm__)
-static const char vdi_env[] = "VDI=kernel\0ARGV=\0C:\\VDI.TOS\0";
+static char *const vdi_env[] = {"VDI=kernel", NULL};
 #elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
-static const char vdi_env[] = "VDI=required\0ARGV=\0C:\\VDI.TOS\0";
+static char *const vdi_env[] = {"VDI=required", NULL};
 #else
-static const char vdi_env[] = "VDI=absent\0ARGV=\0C:\\VDI.TOS\0";
+static char *const vdi_env[] = {"VDI=absent", NULL};
 #endif
-static const char read_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0read\0";
-static const char write_fault_env[] = "DEMO=present\0ARGV=\0C:\\FAULT.TOS\0write\0";
-static const char script_env[] = "DEMO=present\0ARGV=NULL:2\0C:/SCRIPT.SH\0two words\0 \0";
-static const char explicit_env[] = "DEMO=present\0ARGV=NULL:3\0C:\\BIN\\PARATOS.PRG\0"
-	"C:/CLI.TOS\0two words\0 \0";
+static char *const cli_args[] = {"guest display name", "two words", "", NULL};
+static char *const cli_named_no_args[] = {"guest display name", NULL};
+static char *const cli_named_short[] = {"guest display name", "plain", NULL};
+static char *const cli_classic[] = {"", "plain", NULL};
+static char *const cli_inherit[] = {"", NULL};
+/* Leave exactly enough room for the nested launch's ARGV block. */
+static char inherited_padding[PTOS_GUEST_ENV_MAX - sizeof("DEMO=inherit-limit") -
+	sizeof("ARGV=") - sizeof("C:\\CLI.TOS") - sizeof("child") - 1] = "PAD=";
+static char *const inherited_env[] = {"DEMO=inherit-limit", inherited_padding, NULL};
+static char *const semantics_args[] = {"C:\\SEMANTIC.TOS", NULL};
+static char *const filesystem_args[] = {"C:\\FSCOMP.TOS", NULL};
+static char *const vdi_args[] = {"C:\\VDI.TOS", NULL};
+static char *const read_fault_args[] = {"C:\\FAULT.TOS", "read", NULL};
+static char *const write_fault_args[] = {"C:\\FAULT.TOS", "write", NULL};
+static char *const script_args[] = {"C:/SCRIPT.SH", "two words", "", NULL};
+static char *const explicit_args[] = {"C:\\BIN\\PARATOS.PRG", "C:/CLI.TOS", "two words", "", NULL};
 
 static int userspace(void)
 {
@@ -36,27 +52,24 @@ static int userspace(void)
 #endif
 }
 
-static long launch(int mode, const char *path, const char *environment)
+static int reject_bad_guest_request(void)
 {
-	char tail[128] = {127, 0};
-	if (!mode) return Pexec(0, path, tail, environment);
-	BASEPAGE *bp = (BASEPAGE *)Pexec(3, path, tail, environment);
-	if ((long)bp <= 0) return (long)bp;
-	if ((uintptr_t)bp->p_tbase < 0x41000000UL || (uintptr_t)bp->p_tbase >= 0x42000000UL ||
-		(uintptr_t)bp < 0x01000000UL || (uintptr_t)bp->p_env < 0x01000000UL)
-	{
-		puts("pTOS Paratos kernel integration: FAIL (native layout)");
-		return -1;
-	}
-	void *env = bp->p_env;
-	long result = Pexec(mode, "", bp, 0);
-	if (mode == 4)
-	{
-		/* PE_GO lends the image and returns it as a Malloc block. */
-		if (Mfree((void *)0x41000000UL) || Mfree(env) || Mfree(bp))
-			return -1;
-	}
-	return result;
+	static const unsigned char tail[128] = {128}, empty_tail[128] = {0};
+	static const char malformed_environment[] = "\0X=bad\0";
+	ptos_guest_launch_request request = {0, (uintptr_t)"C:\\CLI.TOS", (uintptr_t)cli_args,
+		(uintptr_t)cli_env, 0, 0};
+	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request) - 4) != PTOS_EINVAL ||
+		Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EIMBA)
+		return 0;
+	request.tail = (uintptr_t)tail;
+	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EINVAL)
+		return 0;
+	request.tail = (uintptr_t)empty_tail;
+	request.environment = (uintptr_t)malformed_environment;
+	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EINVAL)
+		return 0;
+	request.mode = 3;
+	return Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) == PTOS_ENOSYS;
 }
 
 int main(void)
@@ -66,42 +79,47 @@ int main(void)
 #else
 	enum { semantics_status = 0 };
 #endif
-	static const struct { const char *name, *path, *env; long status; } cases[] = {
-		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_env, 37},
-		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_env, semantics_status},
-		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_env, 0},
-		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_env, 0},
-		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_env, 255},
-		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_env, 255},
-		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_env, 42},
-		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_env, 37}
+	static const struct { const char *name, *path; char *const *argv, *const *envp; long status; } cases[] = {
+		{"CLI arguments/environment/files", "C:\\CLI.TOS", cli_args, cli_env, 37},
+		{"CLI named argv without operands", "C:\\CLI.TOS", cli_named_no_args, cli_env, 38},
+		{"CLI named argv with a short operand", "C:\\CLI.TOS", cli_named_short, cli_env, 38},
+		{"CLI classic unnamed tail", "C:\\CLI.TOS", cli_classic, cli_classic_env, 38},
+		{"CLI inherited environment at the PRG limit", "C:\\CLI.TOS", cli_inherit, inherited_env, 42},
+		{"privileges/overlays/native and guest Pexec", "C:\\SEMANTIC.TOS", semantics_args, demo_env, semantics_status},
+		{"filesystem search/metadata/native errors", "C:\\FSCOMP.TOS", filesystem_args, demo_env, 0},
+		{"VDI arrays/rasters/workstation cleanup", "C:\\VDI.TOS", vdi_args, vdi_env, 0},
+		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_args, demo_env, 255},
+		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_args, demo_env, 255},
+		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_args, demo_env, 42},
+		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_args, demo_env, 37}
 	};
-#ifdef PTOS_TEST_NATIVE_MODE_ZERO_ONLY
-	static const int modes[] = {0};
-#else
-	static const int modes[] = {0, 4, 6};
-#endif
 	puts("pTOS Paratos kernel integration: BEGIN");
+	memset(inherited_padding + 4, 'x', sizeof(inherited_padding) - 6);
+	inherited_padding[sizeof(inherited_padding) - 2] = 'z';
 	if (!userspace())
 	{
 		puts("pTOS Paratos kernel integration: FAIL (native privilege)");
 		return 1;
 	}
+	if (!reject_bad_guest_request())
+	{
+		puts("pTOS Paratos kernel integration: FAIL (guest launch request validation)");
+		return 1;
+	}
 	for (int round = 0; round < 2; round++)
-		for (unsigned int mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++)
-			for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
-			{
+		for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+		{
 #ifdef PTOS_TEST_VDI_ONLY
-				if (cases[i].env != vdi_env) continue;
+			if (cases[i].envp != vdi_env) continue;
 #endif
-				long result = launch(modes[mode], cases[i].path, cases[i].env);
-				printf("round %d mode %d %s: %ld\n", round + 1, modes[mode], cases[i].name, result);
-				if (result != cases[i].status)
-				{
-					puts("pTOS Paratos kernel integration: FAIL (exit status or cleanup)");
-					return 1;
-				}
+			long result = Pexecve(0, cases[i].path, cases[i].argv, cases[i].envp);
+			printf("round %d %s: %ld\n", round + 1, cases[i].name, result);
+			if (result != cases[i].status)
+			{
+				puts("pTOS Paratos kernel integration: FAIL (exit status or cleanup)");
+				return 1;
 			}
+		}
 	puts("pTOS Paratos kernel integration: PASS");
 	return 0;
 }

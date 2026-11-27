@@ -388,15 +388,19 @@ int32_t ptos_task_wait(int16_t pid, int16_t flags, uint32_t usage)
 	return result;
 }
 
-int32_t ptos_task_exec(uint16_t mode, const char *path, const char *tail, const char *env)
+int32_t ptos_task_exec(uint16_t mode, const char *path, const ptos_launch_args *args)
 {
-	uint16_t operation = mode & 0x7fff;
-	if (active && operation == PTOS_EXEC_REPLACE && (active != root || children))
+	if (active && mode == PTOS_EXEC_REPLACE && (active != root || children || ptos_in_overlay()))
 		return PTOS_ENOSYS;
+	ptos_guest_launch_request request = {
+		mode, (uintptr_t)path, (uintptr_t)args->argv, (uintptr_t)args->envp,
+		(uintptr_t)args->tail, (uintptr_t)args->environment
+	};
 	task *t = active;
-	int blocking = t && operation == PTOS_EXEC_LOAD_GO && !ptos_in_overlay();
+	int blocking = t && mode == PTOS_EXEC_LOAD_GO && !ptos_in_overlay();
 	if (blocking) suspend();
-	int32_t r = ptos_call(GEMDOS_OP_PEXEC, mode, (intptr_t)path, (intptr_t)tail, (intptr_t)env);
+	int32_t r = ptos_call(GEMDOS_OP_SSYSTEM, PTOS_GUEST_LAUNCH_SSYSTEM,
+		(intptr_t)&request, sizeof(request), 0);
 	if (blocking) resume(t);
 	return r;
 }

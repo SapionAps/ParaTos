@@ -1,4 +1,4 @@
-/* Executed by native Pexec from emulated 68k code. The inherited file
+/* Executed through Pexecve from emulated 68k code. The inherited file
  * handle, environment and working directory must belong to that caller. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +9,7 @@
 int main(int argc, char **argv)
 {
 	const char *replacement = getenv("PARATOS_REPLACE_TEST");
-	if (replacement && !strcmp(replacement, "yes")) return 24;
+	if (replacement) return atoi(replacement) == Pgetpid() ? 24 : 5;
 	if (argc == 2 && !strncmp(argv[1], "pid:", 4))
 	{
 		char parent[16];
@@ -18,7 +18,7 @@ int main(int argc, char **argv)
 	}
 	char path[128] = {0};
 	const char *value = getenv("DEMO");
-	if (argc != 2 || !value || strcmp(value, "present"))
+	if (argc != 2 || strcmp(argv[0], "chosen argv zero") || !value || strcmp(value, "present"))
 	{
 		printf("native child argument/environment check: argc=%d\n", argc);
 		return 1;

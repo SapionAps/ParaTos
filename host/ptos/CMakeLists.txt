@@ -1,5 +1,5 @@
-if(NOT PTOS_LIBCMINI_ROOT OR NOT PTOS_LIBCMINI_ARCHIVE OR NOT PTOS_CRT0)
-	message(FATAL_ERROR "Set PTOS_LIBCMINI_ROOT, PTOS_LIBCMINI_ARCHIVE and PTOS_CRT0; see host/ptos/README.txt")
+if(NOT PTOS_LIBCMINI_ROOT OR NOT PTOS_LIBCMINI_ARCHIVE OR NOT EXISTS "${PTOS_ELF_CRT0}")
+	message(FATAL_ERROR "Set PTOS_LIBCMINI_ROOT, PTOS_LIBCMINI_ARCHIVE and PTOS_ELF_CRT0; see host/ptos/README.txt")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
@@ -18,7 +18,8 @@ function(ptos_executable target image_base)
 	target_link_options(${target} PRIVATE -nostdlib -static -no-pie
 		-Wl,--build-id=none,--emit-relocs,-z,noexecstack
 		-Wl,-z,max-page-size=0x1000,-z,noseparate-code,-Ttext-segment=${image_base}
-		${PTOS_CRT0})
+		${PTOS_ELF_CRT0})
+	set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${PTOS_ELF_CRT0}")
 	if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
 		target_link_options(${target} PRIVATE -Wl,-m,elf32_x86_64)
 	else()

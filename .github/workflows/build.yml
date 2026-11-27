@@ -46,8 +46,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kelihlodversson/pTOS
-          ref: 63b472bbba969aab7ace64ff132dcdfe88a2e89b
+          ref: b13562bb46de94c973f37221773d3db838fac16b
           submodules: recursive
+      - name: Check out the native vector CRT
+        uses: actions/checkout@v4
+        with:
+          repository: kelihlodversson/libcmini
+          ref: f67aad9da53e66b4caa965e03cf4cc8316eaaf51
+          path: native-libcmini
       - name: Check out Paratos
         uses: actions/checkout@v4
         with:
@@ -62,6 +68,7 @@ jobs:
       - name: Build and boot the kernel and emulator
         env:
           PTOS_USE_SDK: '1'
+          PTOS_NATIVE_LIBCMINI_ROOT: ${{ github.workspace }}/native-libcmini
         run: sh paratos/tests/ptos/build_kernel_test.sh '${{ matrix.arch }}' "$GITHUB_WORKSPACE"
       # The POSIX fixtures depend on MiNTLib's headers and startup code.
       - name: Set up MiNT ELF for the POSIX syscall suite

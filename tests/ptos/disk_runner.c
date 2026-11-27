@@ -5,9 +5,10 @@
 
 int main(void)
 {
-	static char tail[128];
+	char *argv[] = {"C:\\RUNTESTS.TOS", NULL};
+	char *envp[] = {NULL};
 	puts("pTOS 68k test disk: BEGIN");
-	long result = Pexec(0, "C:\\RUNTESTS.TOS", tail, 0);
+	long result = Pexecve(0, argv[0], argv, envp);
 	printf("68k RUNTESTS.TOS through Paratos: %ld\n", result);
 	if (result)
 	{

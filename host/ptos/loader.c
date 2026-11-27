@@ -145,8 +145,9 @@ int ptos_image_startable(uint32_t bp, int take_ownership)
 int32_t ptos_basepage(const char *tail, const char *environment)
 {
 	uint32_t env_size = 0;
-	while (env_size < 32764 && (environment[env_size] || environment[env_size + 1])) env_size++;
-	if (env_size == 32764) return PTOS_ERANGE;
+	while (env_size + 1 < PTOS_GUEST_ENV_MAX &&
+		(environment[env_size] || environment[env_size + 1])) env_size++;
+	if (env_size + 1 == PTOS_GUEST_ENV_MAX) return PTOS_ERANGE;
 	env_size += 2;
 	int32_t env = ptos_alloc(env_size);
 	if (env < 0) return env;
@@ -160,12 +161,8 @@ int32_t ptos_basepage(const char *tail, const char *environment)
 	m68k_write_memory_32(bp + BP_ENV, env);
 	m68k_write_memory_32(bp + BP_PARENT, ptos_process);
 	for (block *b = blocks; b; b = b->next) if (b->start == (uint32_t)bp) b->image = 1;
-	uint32_t len = (uint8_t)tail[0];
-	if (len > 127) { ptos_free(bp); ptos_free(env); return PTOS_EINVAL; }
-	m68k_write_memory_8(bp + BP_TAIL, len);
-	memcpy(ptos_guest_buffer(bp + BP_TAIL + 1, len), tail + 1, len);
-	/* A 127-byte ARGV marker has no room for an extra basepage terminator. */
-	if (len < 127) m68k_write_memory_8(bp + BP_TAIL + 1 + len, 0);
+	if ((uint8_t)tail[0] > 127) { ptos_free(bp); ptos_free(env); return PTOS_EINVAL; }
+	memcpy(ptos_guest_buffer(bp + BP_TAIL, 128), tail, 128);
 	int32_t captured = ptos_capture_process(bp);
 	if (captured < 0) { ptos_free(bp); ptos_free(env); return captured; }
 	return bp;

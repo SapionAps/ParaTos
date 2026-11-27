@@ -6,6 +6,7 @@
 #include <mint/basepage.h>
 
 static char empty_tail[128];
+extern char **environ;
 enum { SS_OSFEATURES = 7 };
 
 static int overlay(int mode)
@@ -65,9 +66,13 @@ static int native_launch(void)
 	long fd = Fcreate("shared.tmp", 0);
 	if (fd < 0 || Fwrite((short)fd, 5, "guest") != 5) return 2;
 	char tail[128] = {0};
-	tail[0] = sprintf(tail + 1, "%ld", fd);
-	long launched = Pexec(0, "C:/NATIVE.TOS", tail, 0);
-	if (launched != 23) { printf("native Pexec result: %ld\n", launched); return 3; }
+	char handle[16];
+	snprintf(handle, sizeof(handle), "%ld", fd);
+	char *argv[] = {"chosen argv zero", handle, NULL};
+	/* Guest GEMDOS has no 0x193. The m68k binding falls back to Pexec,
+	 * and the adapter forwards the decoded vector to native Pexecve. */
+	long launched = Pexecve(0, "C:/NATIVE.TOS", argv, environ);
+	if (launched != 23) { printf("m68k Pexecve fallback result: %ld\n", launched); return 3; }
 	/* A fresh Paratos process must be selected by the kernel for a 68k
 	 * target too. This short tail overrides the inherited parent's ARGV. */
 	tail[0] = sprintf(tail + 1, "'two words' ''");
@@ -75,6 +80,21 @@ static int native_launch(void)
 	if (launched != 37) { printf("guest Pexec result: %ld\n", launched); return 9; }
 	launched = Pexec(0, "C:/SCRIPT.SH", tail, 0);
 	if (launched != 42) { printf("guest shebang Pexec result: %ld\n", launched); return 10; }
+	static const char extended_env[] = "DEMO=present\0ARGV=NULL:2\0C:/CLI.TOS\0two words\0 \0";
+	tail[0] = 127;
+	strcpy(tail + 1, "'two words' ''\rignored");
+	if (Pexec(0, "C:/CLI.TOS", tail, 0) != 37 ||
+		Pexec(0, "C:/CLI.TOS", tail, extended_env) != 37) return 11;
+	tail[0] = sprintf(tail + 1, "plain");
+	if (Pexec(0, "C:/CLI.TOS", tail, 0) != 38 ||
+		Pexec(0, "C:/CLI.TOS", empty_tail, 0) != 38) return 12;
+	static char raw_short[128] = "\014plain  again";
+	static char raw_extended[128] = "\177'raw  display'\rpadding";
+	static const char raw_env[] = "DEMO=rawextended\0ARGV=NULL:2\0original guest name\0two words\0 \0";
+	raw_short[127] = raw_extended[127] = 0x5a;
+	long child = Pexec(100, "C:/CLI.TOS", raw_short, "DEMO=rawshort\0");
+	if (child <= 0 || Pwaitpid((short)child, 0, NULL) != (child << 16 | 39) ||
+		Pexec(0, "C:/CLI.TOS", raw_extended, raw_env) != 40) return 13;
 #ifndef PTOS_TEST_EXEC_REPLACEMENT
 	/* Older kernels must reject replacement without spawning a child. */
 	if (Pexec(200, "C:/NATIVE.TOS", tail, 0) != -32L) return 4;
@@ -124,10 +144,15 @@ int main(void)
 	if (native) { printf("native launch check: %d\n", native); return 13; }
 	puts("pTOS guest semantics: PASS");
 #ifdef PTOS_TEST_EXEC_REPLACEMENT
-	/* The native replacement exits with 24. The guest must never resume. */
-	static const char replacement_env[] = "PARATOS_REPLACE_TEST=yes\0";
+	/* Failed replacement returns to the old guest. The new image checks the
+	 * original native PID and exits with 24 after a successful replacement. */
+	char replacement_env[64] = {0};
+	int pid = Pgetpid();
+	snprintf(replacement_env, sizeof(replacement_env) - 1, "PARATOS_REPLACE_TEST=%d", pid);
+	if (pid <= 0 || Pexec(200, "C:/MISSING.TOS", empty_tail, replacement_env) != -33L ||
+		Pgetpid() != pid) return 19;
 	long replacement = Pexec(200, "C:/NATIVE.TOS", empty_tail, replacement_env);
-	printf("native Pexec(200) unexpectedly returned: %ld\n", replacement);
+	printf("guest Pexec(200) unexpectedly returned: %ld\n", replacement);
 	return 18;
 #else
 	return 0;
