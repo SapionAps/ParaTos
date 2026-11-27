@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "m68k.h"
@@ -255,6 +256,89 @@ static const char *guest_env(uint32_t address, size_t *size)
 	ptos_fault(address, "unterminated guest environment");
 }
 
+static char ptos_executable[PTOS_PATH_MAX];
+#define PTOS_VECTOR_MAX 1024
+#define PTOS_VECTOR_BYTES 65536u
+
+int32_t ptos_set_executable(const char *path)
+{
+	int32_t drive;
+	if (!path || !*path) return PTOS_EINVAL;
+	if (path[1] == ':')
+	{
+		drive = ((unsigned char)path[0] & ~32) - 'A';
+		path += 2;
+	}
+	else
+		drive = ptos_call(GEMDOS_OP_DGETDRV, 0, 0, 0, 0);
+	if (drive < 0 || drive >= 26 || !*path) return PTOS_EINVAL;
+	char cwd[129] = {0};
+	if (*path == '\\' || *path == '/')
+		path++;
+	else
+	{
+		int32_t status = ptos_call(GEMDOS_OP_DGETCWD, (intptr_t)cwd, drive + 1, sizeof(cwd), 0);
+		if (status < 0) return status;
+	}
+	const char *directory = cwd + (cwd[0] == '\\' || cwd[0] == '/');
+	int length = snprintf(ptos_executable, sizeof(ptos_executable), "%c:\\%s%s%s",
+		'A' + (int)drive, directory, *directory ? "\\" : "", path);
+	if (length < 0 || (size_t)length >= sizeof(ptos_executable)) return PTOS_ERANGE;
+	for (char *p = ptos_executable; *p; p++)
+		if (*p == '/') *p = '\\';
+	return 0;
+}
+
+static int prg_vectors_fit(char **argv, char **envp)
+{
+	size_t entries = 0, bytes = 2 * sizeof(uint32_t);
+	char **vectors[] = {argv, envp};
+	for (size_t i = 0; i < sizeof(vectors) / sizeof(*vectors); i++)
+		for (char **entry = vectors[i]; *entry; entry++)
+		{
+			entries++;
+			bytes += sizeof(uint32_t) + strlen(*entry) + 1;
+		}
+	return entries <= PTOS_VECTOR_MAX && bytes <= PTOS_VECTOR_BYTES;
+}
+
+static int32_t ptos_exec_prg(uint16_t mode, const char *path, const guest_launch_args *args)
+{
+	char *empty_env[] = {NULL};
+	char **envp = args->environment ? empty_env : args->envp;
+	char **options;
+	int32_t result = guest_encode_options(ptos_executable, path, args, &options);
+	if (result < 0) return result;
+	if (prg_vectors_fit(options, envp))
+	{
+		result = ptos_task_exec(mode, ptos_executable, options, envp);
+		free(options);
+		return result;
+	}
+	free(options);
+
+	/* Carry the complete guest block as one Base64 option. It fits within
+	 * the native byte budget even when the guest uses every vector slot. */
+	guest_launch_args compact = {
+		.environment = args->environment, .environment_size = args->environment_size
+	};
+	memcpy(compact.tail, args->tail, sizeof(compact.tail));
+	char *environment = NULL;
+	if (!compact.environment)
+	{
+		environment = guest_build_environment(args->argc, args->argv, args->argv[0],
+			args->envp, PTOS_GUEST_ENV_MAX, &compact.environment_size);
+		if (!environment) return PTOS_ERANGE;
+		compact.environment = environment;
+	}
+	result = guest_encode_options(ptos_executable, path, &compact, &options);
+	free(environment);
+	if (result < 0) return result;
+	result = ptos_task_exec(mode, ptos_executable, options, empty_env);
+	free(options);
+	return result;
+}
+
 int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 {
 	uint16_t operation = mode & 0x7fff;
@@ -269,17 +353,29 @@ int32_t ptos_exec(uint16_t mode, uint32_t path, uint32_t tail, uint32_t env)
 	const char *environment = guest_env(env, &env_size);
 	if (operation == PTOS_EXEC_BASEPAGE || operation == PTOS_EXEC_BASEPAGE_FLAGS)
 		return ptos_basepage(command, environment);
-	const char *guest_path = ptos_guest_string(path, 1024);
-	char filename[1024];
+	const char *guest_path = ptos_guest_string(path, PTOS_PATH_MAX);
+	char filename[PTOS_PATH_MAX];
 	size_t n = strlen(guest_path);
 	for (size_t i = 0; i <= n; i++) filename[i] = guest_path[i] == '/' ? '\\' : guest_path[i];
 	if (operation == PTOS_EXEC_LOAD) return ptos_load(filename, command, environment);
 	if (mode != operation) return PTOS_ENOSYS;
-	ptos_launch_args args;
-	int32_t result = ptos_capture_launch(filename, command, environment, env_size, env != 0, &args);
+	guest_launch_args args;
+	int32_t result = guest_capture_launch(filename, command, environment, env_size, env != 0, &args);
 	if (result < 0) return result;
-	/* Native binfmt owns interpreter selection and mode 200 keeps the PID. */
-	result = ptos_task_exec(operation, filename, &args);
+	/* Native Pexecve uses ILP32 slots and a bounded vector copy. */
+	size_t count = (size_t)args.envc + args.argc;
+	size_t path_size = args.argv_offset ? 0 : n + 1;
+	if (count > PTOS_VECTOR_MAX ||
+		(count + 2) * 4 + env_size + path_size + sizeof(args.tail) > PTOS_VECTOR_BYTES)
+	{
+		free(args.envp);
+		return PTOS_ERANGE;
+	}
+	result = ptos_is_prg(filename);
+	if (!result)
+		result = ptos_task_exec(operation, filename, args.argv, args.envp);
+	else if (result > 0)
+		result = ptos_exec_prg(operation, filename, &args);
 	free(args.envp);
 	return result;
 }

@@ -13,6 +13,8 @@ long _stksize = 128L * 1024;
 static char *const demo_env[] = {"DEMO=present", NULL};
 static char *const cli_env[] = {"DEMO=present", "CHECKARGV0=guest display name", NULL};
 static char *const cli_classic_env[] = {"DEMO=present", "CHECKARGV0=", NULL};
+static char *const cli_relaunch_env[] = {"DEMO=relaunch", NULL};
+static char *const cli_argv_limit_env[] = {"DEMO=argv-limit", NULL};
 #if defined(__arm__)
 static char *const vdi_env[] = {"VDI=kernel", NULL};
 #elif defined(PTOS_TEST_VDI_AVAILABLE) && PTOS_TEST_VDI_AVAILABLE
@@ -36,6 +38,10 @@ static char *const read_fault_args[] = {"C:\\FAULT.TOS", "read", NULL};
 static char *const write_fault_args[] = {"C:\\FAULT.TOS", "write", NULL};
 static char *const script_args[] = {"C:/SCRIPT.SH", "two words", "", NULL};
 static char *const explicit_args[] = {"C:\\BIN\\PARATOS.PRG", "C:/CLI.TOS", "two words", "", NULL};
+static char *const relaunch_args[] = {"arbitrary native argv zero", "C:/CLI.TOS", NULL};
+#ifdef PTOS_TEST_EXEC_REPLACEMENT
+static char *const replace_prg_env[] = {"DEMO=replace-prg", NULL};
+#endif
 
 static int userspace(void)
 {
@@ -50,26 +56,6 @@ static int userspace(void)
 #else
 #error Unsupported native test architecture
 #endif
-}
-
-static int reject_bad_guest_request(void)
-{
-	static const unsigned char tail[128] = {128}, empty_tail[128] = {0};
-	static const char malformed_environment[] = "\0X=bad\0";
-	ptos_guest_launch_request request = {0, (uintptr_t)"C:\\CLI.TOS", (uintptr_t)cli_args,
-		(uintptr_t)cli_env, 0, 0};
-	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request) - 4) != PTOS_EINVAL ||
-		Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EIMBA)
-		return 0;
-	request.tail = (uintptr_t)tail;
-	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EINVAL)
-		return 0;
-	request.tail = (uintptr_t)empty_tail;
-	request.environment = (uintptr_t)malformed_environment;
-	if (Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) != PTOS_EINVAL)
-		return 0;
-	request.mode = 3;
-	return Ssystem(PTOS_GUEST_LAUNCH_SSYSTEM, (long)&request, sizeof(request)) == PTOS_ENOSYS;
 }
 
 int main(void)
@@ -91,7 +77,12 @@ int main(void)
 		{"native-image guest read fault", "C:\\FAULT.TOS", read_fault_args, demo_env, 255},
 		{"partial low-memory guest write fault", "C:\\FAULT.TOS", write_fault_args, demo_env, 255},
 		{"shebang with 68k interpreter", "C:\\SCRIPT.SH", script_args, demo_env, 42},
-		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_args, demo_env, 37}
+		{"explicit emulator CLI", "C:\\BIN\\PARATOS.PRG", explicit_args, demo_env, 37},
+		{"renamed emulator relaunch without binfmt", "C:\\BIN\\RENAMED.TOS", relaunch_args, cli_relaunch_env, 43},
+		{"guest relaunch with 1024 arguments", "C:\\CLI.TOS", cli_inherit, cli_argv_limit_env, 46},
+#ifdef PTOS_TEST_EXEC_REPLACEMENT
+		{"guest PRG replacement with the same PID", "C:\\BIN\\RENAMED.TOS", relaunch_args, replace_prg_env, 44},
+#endif
 	};
 	puts("pTOS Paratos kernel integration: BEGIN");
 	memset(inherited_padding + 4, 'x', sizeof(inherited_padding) - 6);
@@ -99,11 +90,6 @@ int main(void)
 	if (!userspace())
 	{
 		puts("pTOS Paratos kernel integration: FAIL (native privilege)");
-		return 1;
-	}
-	if (!reject_bad_guest_request())
-	{
-		puts("pTOS Paratos kernel integration: FAIL (guest launch request validation)");
 		return 1;
 	}
 	for (int round = 0; round < 2; round++)

@@ -5,10 +5,54 @@
 #include <string.h>
 #include <mint/basepage.h>
 #include <mint/osbind.h>
+#include <mint/mintbind.h>
 
 int main(int argc, char **argv)
 {
 	const char *env = getenv("DEMO");
+#ifdef PTOS_TEST_EXEC_REPLACEMENT
+	if (env && !strcmp(env, "replace-prg"))
+	{
+		char tail[128] = "\005child", environment[64] = {0};
+		snprintf(environment, sizeof(environment) - 1, "CHECK_PRG_PID=%d", (int)Pgetpid());
+		printf("PRG replacement returned: %ld\n", Pexec(200, "C:\\CLI.TOS", tail, environment));
+		return 13;
+	}
+	const char *pid = getenv("CHECK_PRG_PID");
+	if (pid) return atoi(pid) == Pgetpid() && argc == 2 && !strcmp(argv[1], "child") ? 44 : 14;
+#endif
+	if (env && !strcmp(env, "relaunch"))
+	{
+		static const char handler[] = "C:\\BIN\\PARATOS.PRG", saved[] = "C:\\BIN\\PARATOS.BAK";
+		char tail[128] = "\014plain  again";
+		tail[127] = 0x5a;
+		if (Frename(0, handler, saved)) return 11;
+		long result = Pexec(0, "C:\\CLI.TOS", tail, "DEMO=rawshort\0");
+		if (Frename(0, saved, handler) || result != 39) return 12;
+		return 43;
+	}
+	if (env && !strcmp(env, "argv-limit"))
+	{
+		static const char prefix[] = "ARGV=NULL:1023\0limit child\0";
+		static const char placeholder[] = "original placeholder\0";
+		char environment[sizeof(prefix) - 1 + 2 * 1022 + sizeof(placeholder)];
+		char tail[128] = {127};
+		tail[127] = 0x5a;
+		memcpy(environment, prefix, sizeof(prefix) - 1);
+		char *entry = environment + sizeof(prefix) - 1;
+		for (int i = 1; i < 1023; i++, entry += 2) memcpy(entry, "x", 2);
+		memcpy(entry, placeholder, sizeof(placeholder));
+		long result = Pexec(0, "C:\\CLI.TOS", tail, environment);
+		if (result == 45) return 46;
+		printf("CLI maximum argv child result: %ld\n", result);
+		return 15;
+	}
+	if (argc == 1024 && !strcmp(argv[0], "limit child"))
+	{
+		if (_base->p_cmdlin[0] != 127 || _base->p_cmdlin[127] != 0x5a || *argv[1023]) return 16;
+		for (int i = 1; i < 1023; i++) if (strcmp(argv[i], "x")) return 17;
+		return 45;
+	}
 	if (env && !strcmp(env, "inherit-limit"))
 	{
 		const char *padding = getenv("PAD");

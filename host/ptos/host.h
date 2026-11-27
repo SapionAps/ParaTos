@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "ops.h"
+#include "../../guest_launch.h"
 
 /* Shared native-call API; native.c delegates to arm/ or x32/. Core tests
  * replace this boundary without issuing host traps. */
@@ -9,30 +10,11 @@ int32_t ptos_call(uint16_t function, intptr_t a, intptr_t b, intptr_t c, intptr_
 int32_t ptos_bios_call(uint16_t function, int16_t device, int16_t value);
 int32_t ptos_map(uint32_t address, uint32_t length);
 int32_t ptos_unmap(uint32_t address, uint32_t length);
-void ptos_command_tail(char tail[128], int argc, char **argv);
-/* The caller frees the flat block. Zero argc encodes only the environment. */
-char *ptos_guest_environment(int argc, char *const argv[], const char *argv0, char *const envp[]);
-typedef struct {
-	char **argv;
-	char **envp; /* owns both pointer arrays and all strings */
-	char tail[128];
-	const char *environment; /* optional exact guest block in the same allocation */
-} ptos_launch_args;
-
-#define PTOS_GUEST_LAUNCH_SSYSTEM (-10)
-#define PTOS_AT_GUEST_LAUNCH 0x5005u
 #define PTOS_GUEST_ENV_MAX 32766u
+#define PTOS_PATH_MAX 1024u
 
-/* Native pTOS callers are ILP32. The hosted contract uses host pointers. */
-typedef struct {
-	uintptr_t mode, path, argv, envp, tail, environment;
-} ptos_guest_launch_request;
-
-typedef struct {
-	uint32_t argv0, tail, environment, environment_size;
-} ptos_guest_launch;
-int32_t ptos_capture_launch(const char *path, const char tail[128], const char *env,
-	size_t env_size, int explicit_env, ptos_launch_args *out);
+int32_t ptos_set_executable(const char *path);
+int32_t ptos_is_prg(const char *path);
 
 #define PTOS_NATIVE_BASE 0x41000000u
 #define PTOS_RAM_START   0x00010000u

@@ -108,7 +108,12 @@ native PIDs and never use a host-wide `wait4(-1)`. Registry capacity is reserved
 before fork. A close-on-exec pipe reports native launch errors separately from
 normal exit status 127. Pfork propagates its reserved guest identity to the child.
 Automatically launched ParaTos processes receive their reserved identity through
-internal launcher arguments, consumed before constructing the guest command tail.
+`--paratos-child PID PPID`, followed by the shared PRG launch options. The child
+restores the original 128-byte command tail and any explicit environment in its
+basepage. For inherited variables, it builds `ARGV` from the arguments after `--`.
+Large explicit environments use repeated Base64 environment options, sized to fit
+individual host arguments. The host's aggregate `execve()` limit still applies.
+The option layout is documented in [the native backend README](../ptos/README.txt).
 Blocking FIFO opens release the family lock so a peer guest can open the
 other end.
 
